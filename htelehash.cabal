@@ -1,0 +1,52 @@
+Name:                htelehash
+Version:             0.0.1
+Synopsis:            TeleHash in Haskell
+Description:         Implements TeleHash protocol from http://TeleHash.org
+Homepage:            https://github.com/alanz/htelehash
+License:             BSD3
+License-file:        LICENSE
+Author:              Alan Zimmerman
+Maintainer:          alan.zimm@gmail.com
+Copyright:           (c) 2011 Alan Zimmerman
+Category:            Network
+Build-type:          Simple
+homepage:            http://github.com/alanz/htelehash
+bug-reports:         http://github.com/alanz/htelehash/issues
+Extra-source-files:  README
+                     .ghci
+                     -- buildall.sh
+
+Cabal-version:   >= 1.6
+
+
+flag buildtests
+  description: Build the executable to run unit tests
+  default: False
+
+Library
+  Build-depends:     base             >= 4       && < 5
+                   , array            >= 0.3     && < 0.5
+                   , mtl              >= 1.1     && < 2.9
+                   , containers       >= 0.2     && < 0.5
+                   , utf8-light       >= 0.4     && < 1.0
+  hs-source-dirs: src
+  Exposed-modules:     TeleHash.TeleHash
+  -- Other-modules:       Language.JavaScript.Parser.LexerUtils
+  ghc-options:         -Wall
+
+executable             runtests
+    if flag(buildtests)
+        Buildable: True
+        cpp-options:   -DTEST
+        build-depends: QuickCheck >= 2 && < 3,
+                       HUnit,
+                       test-framework-hunit,
+                       test-framework
+        hs-source-dirs: . src ./dist/build
+    else
+        Buildable: False
+    main-is:         runtests.hs
+
+source-repository head
+  type:     git
+  location: git://github.com/alanz/htelehash.git
