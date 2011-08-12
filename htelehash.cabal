@@ -28,7 +28,7 @@ Library
                    , array            >= 0.3     && < 0.5
                    , mtl              >= 1.1     && < 2.9
                    , containers       >= 0.2     && < 0.5
-                   , utf8-light       >= 0.4     && < 1.0
+                   , Crypto           >= 4.2.3   && < 5.0
   hs-source-dirs: src
   Exposed-modules:     TeleHash.TeleHash
   -- Other-modules:       Language.JavaScript.Parser.LexerUtils
