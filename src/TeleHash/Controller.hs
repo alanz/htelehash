@@ -6,13 +6,12 @@ import Control.Monad.Reader
 import Control.OldException
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString as B
-import qualified Data.Digest.SHA1 as SHA1
+import qualified Data.Digest.Pure.SHA as SHA
 import Data.Bits
 import Data.Char
 import Codec.Binary.Base64 as B64
 import Data.List
 import Data.String.Utils
---import Data.Word
 import Network.BSD
 import Network.Socket 
 import Numeric
@@ -48,21 +47,21 @@ data SocketHandle =
                   slAddress :: SockAddr}
 
 data Line = Line {
-  ipp       :: String, -- IP and port of the destination
-  end       :: String, -- Hash of the ipp (endpoint)
-  host      :: String, -- Split out host IP
-  port      :: String, -- Split out port
-  ringout   :: Int, --  rand(32768),
-  init      :: ClockTime,
-  seenat    :: ClockTime,
-  sentat    :: ClockTime,
-  lineat    :: ClockTime,
-  br        :: String,
-  brout     :: String,
-  brin      :: String,
-  bsent     :: String,
-  neighbors :: [String], -- lineNeighbors,
-  visible   :: Bool
+  lineIpp       :: String, -- IP and port of the destination
+  lineEnd       :: String, -- Hash of the ipp (endpoint)
+  lineHost      :: String, -- Split out host IP
+  linePort      :: String, -- Split out port
+  lineRingout   :: Int, --  rand(32768),
+  lineInit      :: ClockTime,
+  lineSeenat    :: ClockTime,
+  lineSentat    :: ClockTime,
+  lineLineat    :: ClockTime,
+  lineBr        :: String,
+  lineBrout     :: String,
+  lineBrin      :: String,
+  lineBsent     :: String,
+  lineNeighbors :: [String], -- lineNeighbors,
+  lineVisible   :: Bool
   }
 
 -- ---------------------------------------------------------------------
@@ -166,37 +165,15 @@ sendmsg socketh msg =
 /**
  * Hash objects represent a message digest of string content,
  * with methods useful to DHT calculations.
- * @constructor
  */
-function Hash(value) {
-    if (value != undefined) {
-        var hashAlgorithm = crypto.createHash("SHA1");
-        hashAlgorithm.update(value);
-        this.digest = new Buffer(hashAlgorithm.digest("base64"), "base64");
-    }
-}
 -}
+
 mkHash str =
   let
-    w160v = SHA1.hash $ B.unpack $ BC.pack str
+    digest = SHA.sha1 $ BL.fromChunks [BC.pack str]
   in  
-   -- toHex $ toSwappedInteger w160v 
-   -- B64.encode $ B.unpack $ BC.pack "foo"
-   toHex $ SHA1.toInteger w160v 
+   B64.encode $ BL.unpack $ SHA.bytestringDigest digest
 
-{-
-echo "foo" > /tmp/ff
-sha1sum /tmp/ff 
-f1d2d2f924e986ac86fdf7b36c94bcdf32beec15  /tmp/ff
-
-*Main > mkHash "foo\n"
-"f1d2d2f924e986ac86fdf7b36c94bcdf32beec15"
-
--}
-toHex :: Integral a => a -> String
-toHex v =    showIntAtBase 16 intToDigit v ""
-
-toBase64 v = undefined
 
 -- ---------------------------------------------------------------------
 -- Convenience.
