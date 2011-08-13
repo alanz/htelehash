@@ -4,13 +4,23 @@ import Control.Monad.IO.Class
 import Control.Monad.Reader
 -- import Control.Exception -- for base-3, with base-4 use Control.OldException
 import Control.OldException
+import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString as B
+import qualified Data.Digest.SHA1 as SHA1
+import Data.Bits
+import Data.Char
+import Codec.Binary.Base64 as B64
 import Data.List
 import Data.String.Utils
+--import Data.Word
 import Network.BSD
 import Network.Socket 
+import Numeric
 import Prelude hiding (catch)
 import System.Exit
 import System.IO
+import qualified System.Random as R
+import System.Time
 import TeleHash.Json 
 import Text.Printf
 import qualified Control.Concurrent.Actor as A
@@ -28,8 +38,6 @@ http://www.haskell.org/haskellwiki/Roll_your_own_IRC_bot
 --
 -- The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
 --
-
-
 type TeleHash = ReaderT Switch IO
 data Switch = Switch { swH :: SocketHandle 
                      , swSeeds :: [String]
@@ -39,6 +47,25 @@ data SocketHandle =
     SocketHandle {slSocket :: Socket,
                   slAddress :: SockAddr}
 
+data Line = Line {
+  ipp       :: String, -- IP and port of the destination
+  end       :: String, -- Hash of the ipp (endpoint)
+  host      :: String, -- Split out host IP
+  port      :: String, -- Split out port
+  ringout   :: Int, --  rand(32768),
+  init      :: ClockTime,
+  seenat    :: ClockTime,
+  sentat    :: ClockTime,
+  lineat    :: ClockTime,
+  br        :: String,
+  brout     :: String,
+  brin      :: String,
+  bsent     :: String,
+  neighbors :: [String], -- lineNeighbors,
+  visible   :: Bool
+  }
+
+-- ---------------------------------------------------------------------
 --
 -- Set up actions to run on start and end, and run the main loop
 --
@@ -88,7 +115,15 @@ run = do
   asks swH >>= dolisten
 
  
-  --
+pingSeeds sw 
+  | swConnected || swSeeds sw == [] = []
+  | otherwise = pingSeed $ head (swSeeds sw)
+    where
+      swConnected = undefined
+      
+pingSeed = undefined
+  
+--
 -- Process each line from the server
 --
 dolisten :: SocketHandle -> TeleHash ()
@@ -100,16 +135,6 @@ dolisten h = {- forever $ -} do
     eval $ parseAll (head $ BL.toChunks msg)
   where
     forever a = a >> forever a
-{-
-    s <- init `fmap` io (hGetLine h)
-    io (putStrLn s)
-    if ping s then pong s else eval (clean s)
-  where
-    forever a = a >> forever a
-    -- clean     = drop 1 . dropWhile (/= ':') . drop 1
-    -- ping x    = "PING :" `isPrefixOf` x
-    -- pong x    = write "PONG" (':' : drop 6 x)
- -}
 
 -- ---------------------------------------------------------------------  
 --
@@ -136,7 +161,44 @@ sendmsg socketh msg =
           sendstr omsg = do sent <- sendTo (slSocket socketh) omsg (slAddress socketh)
                             sendstr (genericDrop sent omsg)
           
+-- ---------------------------------------------------------------------
+{-
+/**
+ * Hash objects represent a message digest of string content,
+ * with methods useful to DHT calculations.
+ * @constructor
+ */
+function Hash(value) {
+    if (value != undefined) {
+        var hashAlgorithm = crypto.createHash("SHA1");
+        hashAlgorithm.update(value);
+        this.digest = new Buffer(hashAlgorithm.digest("base64"), "base64");
+    }
+}
+-}
+mkHash str =
+  let
+    w160v = SHA1.hash $ B.unpack $ BC.pack str
+  in  
+   -- toHex $ toSwappedInteger w160v 
+   -- B64.encode $ B.unpack $ BC.pack "foo"
+   toHex $ SHA1.toInteger w160v 
 
+{-
+echo "foo" > /tmp/ff
+sha1sum /tmp/ff 
+f1d2d2f924e986ac86fdf7b36c94bcdf32beec15  /tmp/ff
+
+*Main > mkHash "foo\n"
+"f1d2d2f924e986ac86fdf7b36c94bcdf32beec15"
+
+-}
+toHex :: Integral a => a -> String
+toHex v =    showIntAtBase 16 intToDigit v ""
+
+toBase64 v = undefined
+
+-- ---------------------------------------------------------------------
 -- Convenience.
 --
 io :: IO a -> TeleHash a
