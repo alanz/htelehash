@@ -5,6 +5,7 @@ import Control.Monad.Reader
 -- import Control.Exception -- for base-3, with base-4 use Control.OldException
 import Control.OldException
 import Data.List
+import Data.String.Utils
 import Network.BSD
 import Network.Socket 
 import Prelude hiding (catch)
@@ -31,7 +32,7 @@ http://www.haskell.org/haskellwiki/Roll_your_own_IRC_bot
 
 type TeleHash = ReaderT Switch IO
 data Switch = Switch { swH :: SocketHandle 
-                     -- , foo :: Int
+                     , swSeeds :: [String]
                      }
 
 data SocketHandle = 
@@ -42,21 +43,21 @@ data SocketHandle =
 -- Set up actions to run on start and end, and run the main loop
 --
 main :: IO ()
-main = bracket connectUDP disconnect loop
+main = bracket initialize disconnect loop
   where
     disconnect ss = sClose (slSocket (swH ss))
     loop st    = catch (runReaderT run st) (const $ return ())
 
 -- ---------------------------------------------------------------------
 -- Hardcoded params for now    
-hostname = "telehash.org" 
-port     =  "42424"
+initialSeed = "telehash.org:42424"
 
-connectUDP :: IO Switch
-connectUDP =
+initialize :: IO Switch
+initialize =
     notify $ do -- Look up the hostname and port.  Either raises an exception
        -- or returns a nonempty list.  First element in that list
        -- is supposed to be the best option.
+       let [hostname,port] = split ":" initialSeed
        addrinfos <- getAddrInfo Nothing (Just hostname) (Just port)
        let serveraddr = head addrinfos
 
@@ -68,10 +69,10 @@ connectUDP =
        bindSocket sock (SockAddrInet 0 bindAddr)
     
        -- Save off the socket, and server address in a handle
-       return $ Switch (SocketHandle sock (addrAddress serveraddr))
+       return $ Switch (SocketHandle sock (addrAddress serveraddr)) [initialSeed]
     where
        notify a = bracket_
-                  (printf "Connecting to %s ... " hostname >> hFlush stdout)
+                  (printf "Connecting to %s ... " initialSeed >> hFlush stdout)
                   (putStrLn "done.")
                   a
 
@@ -81,24 +82,21 @@ connectUDP =
 --
 run :: TeleHash ()
 run = do
-    -- write "NICK" nick
-    -- write "USER" (nick++" 0 * :tutorial bot")
-    -- write "JOIN" chan
-    -- asks swH >>= dolisten
-    return ()
+  -- write "NICK" nick
+  -- write "USER" (nick++" 0 * :tutorial bot")
+  -- write "JOIN" chan
+  asks swH >>= dolisten
+
  
   --
 -- Process each line from the server
 --
---dolisten :: SocketHandle -> TeleHash ()
-dolisten h = forever $ do
+dolisten :: SocketHandle -> TeleHash ()
+dolisten h = {- forever $ -} do
     io (sendmsg h "blah")
     msg <- io (SL.recv (slSocket h) 1000)
 
-    -- putStrLn $ "Got the following message from " ++ (show from)
-    io (putStrLn (show msg))
     io (putStrLn (show (parseAll (head $ BL.toChunks msg))))
-    io (putStrLn "foo")
     eval $ parseAll (head $ BL.toChunks msg)
   where
     forever a = a >> forever a
