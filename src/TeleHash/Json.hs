@@ -9,6 +9,9 @@ import Control.Applicative
 import Control.Monad
 import Data.Aeson
 import Data.Attoparsec
+--import Data.Iso
+--import Language.JsonGrammar
+
 
 import qualified Data.ByteString as B
 import qualified Data.Text as T
@@ -31,24 +34,32 @@ Telehash bootstrap replies
 -}
 data TeleHashEntry = TeleHashEntry 
                      { teleRing :: Int,
-                       teleSee :: Maybe [T.Text],
-                       teleBr :: Int,
-                       teleTo :: T.Text,
+                       teleSee  :: Maybe [T.Text],
+                       teleBr   :: Int,
+                       teleTo   :: T.Text,
                        teleLine :: Maybe T.Text,
-                       teleHop :: Maybe T.Text
+                       teleHop  :: Maybe T.Text
                      } deriving (Eq, Show)
 
 instance FromJSON TeleHashEntry
   where
     parseJSON (Object v) = TeleHashEntry <$> 
-                           v .: "_ring" <*>
-                           v .:? ".see" <*>
-                           v .: "_br" <*>
-                           v .: "_to" <*>
+                           v .:  "_ring" <*>
+                           v .:? ".see"  <*>
+                           v .:  "_br"   <*>
+                           v .:  "_to"   <*>
                            v .:? "_line" <*>
                            v .:? "_hop"
     parseJSON _          = mzero
 
+{-
+instance ToJSON Coord where
+   toJSON (Coord x y) = object ["x" .= x, "y" .= y]
+-}
+   
+instance ToJSON TeleHashEntry where
+   toJSON (TeleHashEntry teleRing teleSee teleBr teleTo teleLine teleHop)  
+      = object ["_ring" .= teleRing, ".see" .= teleSee]   
 
 -- ---------------------------------------------------------------------
 

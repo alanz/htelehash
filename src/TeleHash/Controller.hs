@@ -56,13 +56,47 @@ data Line = Line {
   lineSeenat    :: ClockTime,
   lineSentat    :: ClockTime,
   lineLineat    :: ClockTime,
-  lineBr        :: String,
-  lineBrout     :: String,
-  lineBrin      :: String,
-  lineBsent     :: String,
+  lineBr        :: Int,
+  lineBrout     :: Int,
+  lineBrin      :: Int,
+  lineBsent     :: Int,
   lineNeighbors :: [String], -- lineNeighbors,
   lineVisible   :: Bool
   }
+
+mkLine endPointStr timeNow =
+  let
+    [hostname,port] = split ":" endPointStr
+    endPointHash = mkHash endPointStr
+    (TOD secs picosecs) = timeNow
+    ringOut = fromIntegral (1 + (picosecs `mod` 32768))  -- TODO: rand 1..32768
+  in  
+   Line {
+       lineIpp       = endPointStr,
+       lineEnd       = endPointHash,
+       lineHost      = hostname,
+       linePort      = port,
+       lineRingout   = ringOut,
+       lineInit      = timeNow,
+       lineSeenat    = undefined,
+       lineSentat    = undefined,
+       lineLineat    = undefined,
+       lineBr        = 0,
+       lineBrout     = 0,
+       lineBrin      = 0,
+       lineBsent     = 0,
+       lineNeighbors = [endPointHash],
+       lineVisible   = False
+       }
+
+-- ---------------------------------------------------------------------
+
+getRandom :: Int -> Int
+getRandom seed = 
+  let
+    (res,_) = R.randomR (0,32767) (R.mkStdGen seed) 
+  in
+   res
 
 -- ---------------------------------------------------------------------
 --
@@ -120,8 +154,28 @@ pingSeeds sw
     where
       swConnected = undefined
       
-pingSeed = undefined
+pingSeed seedIPP = 
+  let
+    line = getTelehashLine seedIPP
+    bootTelex = mkTelex seedIPP
+    -- line = undefined
+  in
+    undefined
+   
+-- ---------------------------------------------------------------------
+-- TODO: Move this into the TeleHash monad, to access the stored lines
+getTelehashLine :: String -> IO Line
+getTelehashLine seedIPP = do
+  -- TODO: check for existing line in some sort of storage first
+  timeNow <- getClockTime
+  let line = mkLine seedIPP timeNow
+  return line
   
+-- ---------------------------------------------------------------------
+
+mkTelex seedIPP = undefined
+    -- set _to = seedIPP
+-- ---------------------------------------------------------------------  
 --
 -- Process each line from the server
 --
