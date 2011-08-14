@@ -1,4 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
+
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE NoMonoPatBinds #-}
+
+
 module TeleHash.Json 
        (
          TeleHashEntry(..)
@@ -6,12 +12,17 @@ module TeleHash.Json
        ) where
 
 import Control.Applicative
-import Control.Monad
-import Data.Aeson
 import Data.Attoparsec
+
+import Control.Monad
+import Data.Aeson 
+
+--import Data.Aeson (Object)
 --import Data.Iso
 --import Language.JsonGrammar
 
+--import Prelude hiding (id, (.), head, either)
+--import Control.Category
 
 import qualified Data.ByteString as B
 import qualified Data.Text as T
