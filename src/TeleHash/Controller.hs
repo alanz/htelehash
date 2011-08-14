@@ -121,6 +121,7 @@ data TeleHashEntry = TeleHashEntry
                      , teleTo   :: T.Text
                      -- , teleLine :: Maybe T.Text
                      -- , teleHop  :: Maybe T.Text
+                     , teleSigEnd :: T.Text  
                      } deriving (Eq, Show)
 
 
@@ -134,6 +135,7 @@ instance Json TeleHashEntry where
     . prop "_to"
     -- . prop "_line"
     -- . prop "_hop"
+    . prop "+end"
     )
 
   
@@ -211,20 +213,24 @@ run = do
   -- write "JOIN" chan
   asks swH >>= dolisten
 
- 
+{- 
 pingSeeds sw 
   | swConnected || swSeeds sw == [] = []
   | otherwise = pingSeed $ head (swSeeds sw)
     where
       swConnected = undefined
+-}
       
+pingSeed :: String -> TeleHash ()
 pingSeed seedIPP = 
-  let
-    line = getTelehashLine seedIPP
-    bootTelex = mkTelex seedIPP
+  do
+    line <- io (getTelehashLine seedIPP)
+    let bootTelex = mkTelex seedIPP
+    -- bootTelex["+end"] = line.end; // any end will do, might as well ask for their neighborhood
+    let bootTelex' = bootTelex { teleSigEnd = T.pack $ (lineEnd line) }
     -- line = undefined
-  in
-    undefined
+  
+    return ()
    
 -- ---------------------------------------------------------------------
 -- TODO: Move this into the TeleHash monad, to access the stored lines
@@ -237,8 +243,11 @@ getTelehashLine seedIPP = do
   
 -- ---------------------------------------------------------------------
 
-mkTelex seedIPP = undefined
+mkTelex :: String -> TeleHashEntry
+mkTelex seedIPP = 
     -- set _to = seedIPP
+  TeleHashEntry 0 Nothing 0 (T.pack seedIPP) (T.pack "")
+                  
 -- ---------------------------------------------------------------------  
 --
 -- Process each line from the server
