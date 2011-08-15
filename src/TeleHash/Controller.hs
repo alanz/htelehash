@@ -4,14 +4,15 @@
 
 -- Above three settings are for the Json stuff using Data.Iso
 
--- import Control.Exception -- for base-3, with base-4 use Control.OldException
 import Codec.Binary.Base64 as B64
 import Control.Category
 import Control.Concurrent
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Reader
-import Control.OldException
+--import Control.Monad.Reader
+import Control.Monad.State
+import Control.Exception -- for base-3, with base-4 use Control.OldException
+--import Control.OldException
 import Data.Attoparsec
 import Data.Aeson (Object,json,Value(..))
 import Data.Bits
@@ -50,7 +51,9 @@ http://www.haskell.org/haskellwiki/Roll_your_own_IRC_bot
 --
 -- The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
 --
-type TeleHash = ReaderT Switch IO
+--type TeleHash = ReaderT Switch IO
+type TeleHash = StateT Switch IO
+
 data Switch = Switch { swH :: SocketHandle 
                      , swSeeds :: [String]
                      }
@@ -168,11 +171,17 @@ getRandom seed =
 --
 -- Set up actions to run on start and end, and run the main loop
 --
-main :: IO ()
+main :: IO ((),Switch)
 main = bracket initialize disconnect loop
   where
     disconnect ss = sClose (slSocket (swH ss))
-    loop st    = catch (runReaderT run st) (const $ return ())
+    -- loop st    = catch (runReaderT run st) (const $ return ())
+    -- loop st    = catch (runReaderT run st) (exc)
+    loop st    = catch (runStateT run st) (exc)
+
+    exc :: SomeException -> IO ((),Switch)
+    exc e = return ((),undefined)
+                 -- catch f (\e -> ... (e :: SomeException) ...)
 
 -- ---------------------------------------------------------------------
 -- Hardcoded params for now    
@@ -211,15 +220,23 @@ run = do
   -- write "NICK" nick
   -- write "USER" (nick++" 0 * :tutorial bot")
   -- write "JOIN" chan
-  asks swH >>= dolisten
+  --asks swH >>= dolisten
+  gets swH >>= dolisten
 
-{- 
+{-
 pingSeeds sw 
   | swConnected || swSeeds sw == [] = []
   | otherwise = pingSeed $ head (swSeeds sw)
     where
       swConnected = undefined
 -}
+
+pingSeeds :: TeleHash ()
+pingSeeds = do
+  -- seeds <- asks swSeeds
+  seeds <- gets swSeeds
+  pingSeed $ head seeds
+
       
 pingSeed :: String -> TeleHash ()
 pingSeed seedIPP = 
