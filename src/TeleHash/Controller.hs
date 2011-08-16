@@ -4,7 +4,6 @@
 
 -- Above three settings are for the Json stuff using Data.Iso
 
-import Codec.Binary.Base64 as B64
 import Control.Category
 import Control.Concurrent
 import Control.Monad
@@ -14,7 +13,7 @@ import Control.Monad.State
 import Control.Exception -- for base-3, with base-4 use Control.OldException
 --import Control.OldException
 import Data.Attoparsec
-import Data.Aeson (Object,json,Value(..))
+import Data.Aeson (Object,json,Value(..),encode)
 import Data.Bits
 import Data.Char
 import Data.Iso
@@ -30,11 +29,14 @@ import System.IO
 import System.Time
 --import TeleHash.Json 
 import Text.Printf
+import qualified Codec.Binary.Base64 as B64
 import qualified Control.Concurrent.Actor as A
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Digest.Pure.SHA as SHA
+import qualified Data.Map as Map
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Network.Socket.ByteString.Lazy as SL
 import qualified System.Random as R
@@ -56,6 +58,8 @@ type TeleHash = StateT Switch IO
 
 data Switch = Switch { swH :: SocketHandle 
                      , swSeeds :: [String]
+                     , swConnected :: Bool
+                     , swMaster :: Map.Map String Line  
                      }
 
 data SocketHandle = 
@@ -76,7 +80,7 @@ data Line = Line {
   lineBrout     :: Int,
   lineBrin      :: Int,
   lineBsent     :: Int,
-  lineNeighbors :: [String], -- lineNeighbors,
+  lineNeighbors :: Set.Set String, -- lineNeighbors,
   lineVisible   :: Bool
   }
 
@@ -101,7 +105,7 @@ mkLine endPointStr timeNow =
        lineBrout     = 0,
        lineBrin      = 0,
        lineBsent     = 0,
-       lineNeighbors = [endPointHash],
+       lineNeighbors = Set.fromList [endPointHash],
        lineVisible   = False
        }
 
@@ -122,8 +126,8 @@ data TeleHashEntry = TeleHashEntry
                      , teleSee  :: Maybe [T.Text]
                      , teleBr   :: Int
                      , teleTo   :: T.Text
-                     -- , teleLine :: Maybe T.Text
-                     -- , teleHop  :: Maybe T.Text
+                     , teleLine :: Maybe T.Text
+                     , teleHop  :: Maybe T.Text
                      , teleSigEnd :: T.Text  
                      } deriving (Eq, Show)
 
@@ -136,10 +140,13 @@ instance Json TeleHashEntry where
     . prop ".see"
     . prop "_br"
     . prop "_to"
-    -- . prop "_line"
-    -- . prop "_hop"
+    . optionalProp "_line"
+    . optionalProp "_hop"
     . prop "+end"
     )
+
+optionalProp :: Json a => String -> Iso (Object :- t) (Object :- Maybe a :- t)
+optionalProp name = duck just . prop name <> duck nothing
 
   
 -- TODO : pick up error and deal with it, below
@@ -181,7 +188,7 @@ main = bracket initialize disconnect loop
 
     exc :: SomeException -> IO ((),Switch)
     exc e = return ((),undefined)
-                 -- catch f (\e -> ... (e :: SomeException) ...)
+
 
 -- ---------------------------------------------------------------------
 -- Hardcoded params for now    
@@ -189,12 +196,16 @@ initialSeed = "telehash.org:42424"
 
 initialize :: IO Switch
 initialize =
-    notify $ do -- Look up the hostname and port.  Either raises an exception
+    notify $ do 
+       -- Look up the hostname and port.  Either raises an exception
        -- or returns a nonempty list.  First element in that list
        -- is supposed to be the best option.
+       {-
        let [hostname,port] = split ":" initialSeed
        addrinfos <- getAddrInfo Nothing (Just hostname) (Just port)
        let serveraddr = head addrinfos
+       -}
+       (serveraddr,ip,port) <- resolveToSeedIPP initialSeed
 
        -- Establish a socket for communication
        sock <- socket (addrFamily serveraddr) Datagram defaultProtocol
@@ -204,13 +215,28 @@ initialize =
        bindSocket sock (SockAddrInet 0 bindAddr)
     
        -- Save off the socket, and server address in a handle
-       return $ Switch (SocketHandle sock (addrAddress serveraddr)) [initialSeed]
+       return $ Switch (SocketHandle sock (addrAddress serveraddr)) [initialSeed] False Map.empty
     where
        notify a = bracket_
                   (printf "Connecting to %s ... " initialSeed >> hFlush stdout)
                   (putStrLn "done.")
                   a
 
+resolveToSeedIPP :: String -> IO (AddrInfo,String,String)
+resolveToSeedIPP addr = do
+  -- Look up the hostname and port.  Either raises an exception
+  -- or returns a nonempty list.  First element in that list
+  -- is supposed to be the best option.
+  let [hostname,port] = split ":" initialSeed
+  addrinfos <- getAddrInfo Nothing (Just hostname) (Just port)
+  let serveraddr = head addrinfos
+      
+  (Just hostname,Just servicename) <- (getNameInfo [NI_NUMERICHOST] True True (addrAddress serveraddr))
+  --putStrLn $ "resolveToSeedIPP:" ++ (show hostname) ++ " " ++ (show servicename)
+                           
+  --return (serveraddr,port)         
+  return (serveraddr,hostname,servicename)         
+  
 --
 -- We're in the Switch monad now, so we've connected successfully
 -- Start processing commands
@@ -223,47 +249,81 @@ run = do
   --asks swH >>= dolisten
   gets swH >>= dolisten
 
-{-
-pingSeeds sw 
-  | swConnected || swSeeds sw == [] = []
-  | otherwise = pingSeed $ head (swSeeds sw)
-    where
-      swConnected = undefined
--}
 
 pingSeeds :: TeleHash ()
 pingSeeds = do
-  -- seeds <- asks swSeeds
+
   seeds <- gets swSeeds
-  pingSeed $ head seeds
+  connected <- gets swConnected
+  
+  io (putStrLn $ "pingSeeds:" ++ (show connected) ++ " " ++ (show seeds))
+
+  case (not connected) && (seeds /= []) of
+    True -> pingSeed $ head seeds
+    False -> return ()
 
       
 pingSeed :: String -> TeleHash ()
-pingSeed seedIPP = 
+pingSeed seed = 
   do
-    line <- io (getTelehashLine seedIPP)
+    io (putStrLn $ "pingSeed " ++ (show seed))
+    
+    (serveraddr,ip,port) <- io (resolveToSeedIPP seed)
+    
+    --io (putStrLn $ "pingSeed serveraddr=" ++ (show serveraddr))
+    
+    let seedIPP = ip ++ ":" ++ port
+    io (putStrLn $ "pingSeed seedIPP=" ++ (show seedIPP))
+
+    -- TODO: set self.seedsIndex[seedIPP] = true;
+    timeNow <- io getClockTime
+    
+    line <- getTelehashLine seedIPP timeNow
     let bootTelex = mkTelex seedIPP
     -- bootTelex["+end"] = line.end; // any end will do, might as well ask for their neighborhood
     let bootTelex' = bootTelex { teleSigEnd = T.pack $ (lineEnd line) }
     -- line = undefined
   
+    io (putStrLn $ "pingSeed telex=" ++ (show bootTelex'))
+    
+    -- TODO: call sendTelex instead, which manages/reuses lines on the way
+    socketh <- gets swH
+    io (sendMsg socketh bootTelex)
+    -- TODO: io (sendTelex socketh bootTelex)
+    
     return ()
    
 -- ---------------------------------------------------------------------
--- TODO: Move this into the TeleHash monad, to access the stored lines
-getTelehashLine :: String -> IO Line
-getTelehashLine seedIPP = do
-  -- TODO: check for existing line in some sort of storage first
-  timeNow <- getClockTime
-  let line = mkLine seedIPP timeNow
-  return line
+
+getTelehashLine :: String -> ClockTime -> TeleHash Line
+getTelehashLine seedIPP timeNow = do
+  state <- get
+  
+  let 
+    master = (swMaster state)
+    
+    ismember = Map.member seedIPP master
+    member = master Map.! seedIPP 
+    hashOk = (lineIpp member) == seedIPP
+    line = if (ismember && hashOk) then (member) else (mkLine seedIPP timeNow)
+    
+    line' = line {lineNeighbors = Set.insert seedIPP (lineNeighbors line)}
+
+    master' = Map.insert seedIPP line' master
+    
+    state' = state {swMaster = master'}
+    
+  put state'
+  
+  return line'
+  
   
 -- ---------------------------------------------------------------------
 
 mkTelex :: String -> TeleHashEntry
 mkTelex seedIPP = 
     -- set _to = seedIPP
-  TeleHashEntry 0 Nothing 0 (T.pack seedIPP) (T.pack "")
+  TeleHashEntry 0 Nothing 0 (T.pack seedIPP) Nothing Nothing (T.pack "") 
                   
 -- ---------------------------------------------------------------------  
 --
@@ -271,7 +331,9 @@ mkTelex seedIPP =
 --
 dolisten :: SocketHandle -> TeleHash ()
 dolisten h = {- forever $ -} do
-    io (sendmsg h "blah")
+    pingSeeds
+    
+    
     msg <- io (SL.recv (slSocket h) 1000)
 
     io (putStrLn $ show msg)
@@ -293,18 +355,24 @@ eval     _                     = return () -- ignore everything else
 --eval     _                     = io (exitWith ExitSuccess)
  
 -- ---------------------------------------------------------------------  
-       
-sendmsg :: SocketHandle -> String -> IO ()
-sendmsg socketh msg =
-    sendstr sendmsg
-    where code = 4 --makeCode fac pri
-          sendmsg = "{\"+end\":\"3b6a6...\"}"
 
-          -- Send until everything is done
-          sendstr :: String -> IO ()
-          sendstr [] = return ()
-          sendstr omsg = do sent <- sendTo (slSocket socketh) omsg (slAddress socketh)
-                            sendstr (genericDrop sent omsg)
+--TODO: implement this
+sendTelex :: Json t => t -> TeleHash ()
+sendTelex msg = do return ()
+
+-- ---------------------------------------------------------------------  
+       
+sendMsg :: Json a => SocketHandle -> a -> IO ()
+sendMsg socketh msg =
+  sendstr sendmsg
+    where 
+      sendmsg = BC.unpack $ head $ BL.toChunks $ encode $ toJson msg
+
+      -- Send until everything is done
+      sendstr :: String -> IO ()
+      sendstr [] = return ()
+      sendstr omsg = do sent <- sendTo (slSocket socketh) omsg (slAddress socketh)
+                        sendstr (genericDrop sent omsg)
           
 -- ---------------------------------------------------------------------
 {-
