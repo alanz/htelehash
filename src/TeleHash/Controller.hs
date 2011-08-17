@@ -129,6 +129,7 @@ data TeleHashEntry = TeleHashEntry
                      , teleLine :: Maybe T.Text
                      , teleHop  :: Maybe T.Text
                      , teleSigEnd :: T.Text  
+                     , teleRest :: Maybe (Map.Map T.Text Value)
                      } deriving (Eq, Show)
 
 
@@ -143,10 +144,15 @@ instance Json TeleHashEntry where
     . optionalProp "_line"
     . optionalProp "_hop"
     . prop "+end"
+    -- . rest
+    . optionalRest
     )
 
 optionalProp :: Json a => String -> Iso (Object :- t) (Object :- Maybe a :- t)
 optionalProp name = duck just . prop name <> duck nothing
+
+optionalRest :: Iso (Object :- t) (Object :- Maybe (Map.Map T.Text Value) :- t)
+optionalRest = duck just . rest <> duck nothing
 
   
 -- TODO : pick up error and deal with it, below
@@ -286,6 +292,11 @@ pingSeed seed =
   
     io (putStrLn $ "pingSeed telex=" ++ (show bootTelex'))
     
+    -- io (putStrLn $ "sendMsg:" ++ (show $ BC.unpack $ head $ BL.toChunks $ encode $ toJson bootTelex))
+    
+    io (putStrLn $ "sendMsg:" ++ (show $ bootTelex))
+    io (putStrLn $ "sendMsg:" ++ (show $ toJson bootTelex))
+
     -- TODO: call sendTelex instead, which manages/reuses lines on the way
     socketh <- gets swH
     io (sendMsg socketh bootTelex)
@@ -323,7 +334,7 @@ getTelehashLine seedIPP timeNow = do
 mkTelex :: String -> TeleHashEntry
 mkTelex seedIPP = 
     -- set _to = seedIPP
-  TeleHashEntry 0 Nothing 0 (T.pack seedIPP) Nothing Nothing (T.pack "") 
+  TeleHashEntry 0 Nothing 0 (T.pack seedIPP) Nothing Nothing (T.pack "") Nothing
                   
 -- ---------------------------------------------------------------------  
 --
@@ -332,7 +343,6 @@ mkTelex seedIPP =
 dolisten :: SocketHandle -> TeleHash ()
 dolisten h = {- forever $ -} do
     pingSeeds
-    
     
     msg <- io (SL.recv (slSocket h) 1000)
 
@@ -367,7 +377,7 @@ sendMsg socketh msg =
   sendstr sendmsg
     where 
       sendmsg = BC.unpack $ head $ BL.toChunks $ encode $ toJson msg
-
+  
       -- Send until everything is done
       sendstr :: String -> IO ()
       sendstr [] = return ()
