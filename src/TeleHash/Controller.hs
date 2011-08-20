@@ -22,7 +22,7 @@ import Data.Maybe
 import Data.String.Utils
 import Language.JsonGrammar
 import Network.BSD
-import Network.Socket 
+import Network.Socket
 import Numeric
 import Prelude hiding (id, (.), head, either, catch)
 import System.Exit
@@ -39,7 +39,7 @@ import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import qualified Network.Socket.ByteString.Lazy as SL
+import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
 --import Control.Category
 
@@ -61,6 +61,8 @@ data Switch = Switch { swH :: SocketHandle
                      , swSeeds :: [String]
                      , swConnected :: Bool
                      , swMaster :: Map.Map String Line  
+                     , swSelfIpp :: Maybe String  
+                     , swSelfHash :: Maybe String  
                      }
 
 data SocketHandle = 
@@ -72,12 +74,13 @@ data Line = Line {
   lineEnd       :: String, -- Hash of the ipp (endpoint)
   lineHost      :: String, -- Split out host IP
   linePort      :: String, -- Split out port
-  lineRingout   :: Int, --  rand(32768),
+  lineRingout   :: Int,    --  rand(32768),
+  lineRingin    :: Maybe Int, 
   lineLine      :: Maybe Int, -- When line is live, product of our ringout and their ringin
   lineInit      :: ClockTime,
   lineSeenat    :: ClockTime,
   lineSentat    :: ClockTime,
-  lineLineat    :: ClockTime,
+  lineLineat    :: Maybe ClockTime,
   lineBr        :: Int,
   lineBrout     :: Int,
   lineBrin      :: Int,
@@ -99,6 +102,7 @@ mkLine endPointStr timeNow =
        lineHost      = hostname,
        linePort      = port,
        lineRingout   = ringOut,
+       lineRingin    = Nothing,
        lineLine      = Nothing,
        lineInit      = timeNow,
        lineSeenat    = undefined,
@@ -125,11 +129,11 @@ coords = $(deriveIsos ''Coords)
 -}
 
 data TeleHashEntry = TeleHashEntry 
-                     { teleRing   :: Int
+                     { teleRing   :: Maybe Int
                      , teleSee    :: Maybe [T.Text]
                      , teleBr     :: Int
                      , teleTo     :: T.Text
-                     , teleLine   :: Maybe T.Text
+                     , teleLine   :: Maybe Int
                      , teleHop    :: Maybe T.Text
                      , teleSigEnd :: T.Text  
                      , teleRest   :: Maybe (Map.Map T.Text Value)
@@ -224,7 +228,8 @@ initialize =
        bindSocket sock (SockAddrInet 0 bindAddr)
     
        -- Save off the socket, and server address in a handle
-       return $ Switch (SocketHandle sock (addrAddress serveraddr)) [initialSeed] False Map.empty
+       return $ (Switch (SocketHandle sock (addrAddress serveraddr)) [initialSeed] 
+                 False Map.empty Nothing Nothing)
     where
        notify a = bracket_
                   (printf "Connecting to %s ... " initialSeed >> hFlush stdout)
@@ -275,6 +280,8 @@ run = do
   gets swH >>= dolisten
 
 
+-- ---------------------------------------------------------------------
+  
 pingSeeds :: TeleHash ()
 pingSeeds = do
 
@@ -287,6 +294,7 @@ pingSeeds = do
     True -> pingSeed $ head seeds
     False -> return ()
 
+-- ---------------------------------------------------------------------
       
 pingSeed :: String -> TeleHash ()
 pingSeed seed = 
@@ -365,13 +373,120 @@ updateTelehashLine line = do
     
   put state'
 
+-- ---------------------------------------------------------------------
+
+checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
+  -- // first, if it's been more than 10 seconds after a line opened, 
+  -- // be super strict, no more ringing allowed, _line absolutely required
+  -- if (line.lineat > 0 && time() - line.lineat > 10) {
+  --     if (t._line != line.line) {
+  --         return false;
+  --     }
+  -- }
   
+  let
+    timedOut =
+      case (lineLineat line) of
+        Just (TOD secs picos) -> secsNow - secs > 10 
+        Nothing -> False  
+  
+    lineEstablished = case (lineLine line) of
+      Just lineNum -> case (teleLine msg) of
+        Just msgLineNum -> lineNum == msgLineNum
+        Nothing -> False  
+      Nothing -> False
+  
+    lineBad = timedOut && not lineEstablished
+    
+  --  // second, process incoming _line
+  --  if (t._line) {
+    lineOk = case (teleLine msg) of  
+      Just lineNum -> if not timedOut && lineEstablished  
+                      then (lineNum `mod` (lineRingout line) == 0)
+                      else False
+  --      if (line.ringout <= 0) {
+  --          return false;
+  --      }
+  --      
+  --      // be nice in what we accept, strict in what we send
+  --      t._line = parseInt(t._line);
+  --      
+  --      // must match if exist
+  --      if (line.line && t._line != line.line) {
+  --          return false;
+  --      }
+  --      
+  --      // must be a product of our sent ring!!
+  --      if (t._line % line.ringout != 0) {
+  --          return false;
+  --      }
+  --      
+  --      // we can set up the line now if needed
+  --      if(line.lineat == 0) {
+  --          line.ringin = t._line / line.ringout; // will be valid if the % = 0 above
+  --          line.line = t._line;
+  --          line.lineat = time();
+  --      }
+  --  }
+      Nothing -> False    
+
+    line' = if lineOk 
+              then case (lineLineat line) of
+                Just _ -> line
+                Nothing -> line {lineRingin = Just ((fromJust $ teleLine msg) `div` ((lineRingout line))),
+                                 lineLine   = (teleLine msg),             
+                                 lineLineat = Just timeNow
+                                }
+              else line
+                   
+  -- TODO: propagate line' to State.  
+                   
+  --  // last, process any incoming _ring's (remember, could be out of order, after a _line)
+  --  if (t._ring) {
+    line'' = case (teleRing msg) of
+               Just msgRing -> 
+                 let
+                   msgRingin = (fromMaybe 0 (teleRing msg))
+                   ringinOk = case (lineRingin line) of 
+                     Just ri -> (ri == msgRingin) && (msgRingin > 0) && (msgRingin <= 32768)
+                     Nothing -> True
+                   in
+                     if (not ringinOk) then line'
+                       else if ((lineLineat line) /= Nothing) then line'
+                            else line' {lineRingin = Just msgRingin,
+                                        lineLine = Just (msgRingin * (lineRingout line)),
+                                        lineLineat = Just timeNow
+                                       }
+                   
+  --      // already had a ring and this one doesn't match, should be rare
+  --      if (line.ringin && t._ring != line.ringin) {
+  --          return false;
+  --      }
+  --      
+  --      // make sure within valid range
+  --      if (t._ring <= 0 || t._ring > 32768) {
+  --          return false;
+  --      }
+  --      
+  --      // we can set up the line now if needed
+  --      if (line.lineat == 0) {
+  --          line.ringin = t._ring;
+  --          line.line = line.ringin * line.ringout;
+  --          line.lineat = time();
+  --      }
+  --  }
+               Nothing -> line'
+                   
+  -- TODO: 1. Update state with the new line value                          
+  --       2. Return a true/false value as per the original             
+  return ()
+
 -- ---------------------------------------------------------------------
 
 mkTelex :: String -> TeleHashEntry
 mkTelex seedIPP = 
     -- set _to = seedIPP
-  TeleHashEntry 0 Nothing 0 (T.pack seedIPP) Nothing Nothing (T.pack "") Nothing
+  TeleHashEntry Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing (T.pack "") Nothing
                   
 -- ---------------------------------------------------------------------  
 --
@@ -381,11 +496,14 @@ dolisten :: SocketHandle -> TeleHash ()
 dolisten h = {- forever $ -} do
     pingSeeds
     
-    msg <- io (SL.recv (slSocket h) 1000)
+    -- msg <- io (SB.recv (slSocket h) 1000)
+    (msg,rinfo) <- io (SB.recvFrom (slSocket h) 1000)
 
     io (putStrLn $ show msg)
-    io (putStrLn (show (parseTeleHashEntry (head $ BL.toChunks msg))))
-    eval $ parseTeleHashEntry (head $ BL.toChunks msg)
+    --io (putStrLn (show (parseTeleHashEntry (head $ BL.toChunks msg))))
+    io (putStrLn (show (parseTeleHashEntry msg)))
+    -- eval $ parseTeleHashEntry (head $ BL.toChunks msg)
+    recvTelex msg rinfo
 
   where
     forever a = a >> forever a
@@ -429,9 +547,10 @@ sendTelex msg = do
 
       let
         msg' = if (lineLine line == Nothing) 
-               then (msg {teleRing = (lineRingout line)})
+               then (msg {teleRing = Just (lineRingout line)})
                -- TODO: this is horrible, must be a better type choice     
-               else (msg {teleLine = Just $ T.pack $ show (fromJust (lineLine line))})
+               -- else (msg {teleLine = Just $ T.pack $ show (fromJust (lineLine line))})
+               else (msg {teleLine = Just $ (fromJust (lineLine line))})
                     
         -- update our bytes tracking and send current state
         -- telex._br = line.brout = line.br;
@@ -492,6 +611,93 @@ sendMsg socketh msg =
       sendstr omsg = do sent <- sendTo (slSocket socketh) omsg (slAddress socketh)
                         sendstr (genericDrop sent omsg)
           
+-- ---------------------------------------------------------------------
+
+-- Dispatch incoming raw messages
+recvTelex :: BC.ByteString -> SockAddr -> TeleHash ()
+recvTelex msg rinfo = do
+    io (putStrLn $ show msg)
+    io (putStrLn (show (parseTeleHashEntry msg)))
+    let
+      Just rxTelex = parseTeleHashEntry msg
+    
+    state <- get
+    seeds <- gets swSeeds
+
+    -- if (!self.connected)
+    -- {
+    --     // must have come from a trusted seed and have our to IPP info
+    --     if(self.seedsIndex[remoteipp] && "_to" in telex)
+    --     {
+    --         self.online(telex);
+    --     }else{
+    --         console.log("we're offline and don't like that");
+    --         return;
+    --     }
+    -- }
+    (Just hostname,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
+    let
+    -- var remoteipp = rinfo.address + ":" + rinfo.port;    
+      remoteipp = hostname ++ ":" ++ port
+
+    case (swConnected state) of
+      False -> do
+        -- TODO : test that _to field is set. Requires different setup for the JSON leg. 
+        --        Why would it not be set?
+        case (remoteipp `elem` seeds ) of
+          True -> online(rxTelex)
+          False -> do
+            io (putStrLn $ "recvTelex:we're offline and don't like that")
+            return () -- TODO: no further processing. This is not a control return
+
+      True -> do
+        io (putStrLn $ "recvTelex:already online")
+
+
+    -- // if this is a switch we know, check a few things
+    -- var line = self.getline(remoteipp, telex._ring);
+    timeNow <- io getClockTime
+    line <- getTelehashLine remoteipp timeNow
+    -- var lstat = self.checkline(line, telex, msgstr.length);
+    lstat <- checkLine line rxTelex timeNow
+    -- if (!lstat) {
+    --     console.log(["\tLINE FAIL[", JSON.stringify(line), "]"].join(""));
+    --     return;
+    -- } else {
+    --     console.log(["\tLINE STATUS ", (telex._line ? "OPEN":"RINGING")].join(""));
+    -- }
+
+
+    return ()
+
+-- ---------------------------------------------------------------------
+
+-- TODO: implement this
+online rxTelex = do 
+                    
+  --  var self = this;
+  --  console.log("\tONLINE");
+  io (putStrLn $ "ONLINE")
+  
+  
+  --  self.connected = true;
+  let
+  --  self.selfipp = telex._to;
+    selfIpp = Just (teleTo rxTelex)
+  --  self.selfhash = new Hash(self.selfipp).toString();
+    selfhash = mkHash  $ T.unpack (teleTo rxTelex)
+  --  console.log(["\tSELF[", telex._to, " = ", self.selfhash, "]"].join(""));
+  io (putStrLn $ "SELF[" ++ (show $ teleTo rxTelex) ++ " = " ++ selfhash ++ "]")
+    
+  --  var line = self.getline(self.selfipp);
+  --  line.visible = 1; // flag ourselves as default visible
+  --  line.rules = self.taps; // if we're tap'ing anything
+    
+  --  // trigger immediate tapping to move things along
+  --  self.taptap();
+  return ()
+                    
+                    
 -- ---------------------------------------------------------------------
 {-
 /**
