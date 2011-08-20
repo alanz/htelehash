@@ -18,6 +18,7 @@ import Data.Bits
 import Data.Char
 import Data.Iso
 import Data.List
+import Data.Maybe
 import Data.String.Utils
 import Language.JsonGrammar
 import Network.BSD
@@ -72,6 +73,7 @@ data Line = Line {
   lineHost      :: String, -- Split out host IP
   linePort      :: String, -- Split out port
   lineRingout   :: Int, --  rand(32768),
+  lineLine      :: Maybe Int, -- When line is live, product of our ringout and their ringin
   lineInit      :: ClockTime,
   lineSeenat    :: ClockTime,
   lineSentat    :: ClockTime,
@@ -97,6 +99,7 @@ mkLine endPointStr timeNow =
        lineHost      = hostname,
        linePort      = port,
        lineRingout   = ringOut,
+       lineLine      = Nothing,
        lineInit      = timeNow,
        lineSeenat    = undefined,
        lineSentat    = undefined,
@@ -122,14 +125,14 @@ coords = $(deriveIsos ''Coords)
 -}
 
 data TeleHashEntry = TeleHashEntry 
-                     { teleRing :: Int
-                     , teleSee  :: Maybe [T.Text]
-                     , teleBr   :: Int
-                     , teleTo   :: T.Text
-                     , teleLine :: Maybe T.Text
-                     , teleHop  :: Maybe T.Text
+                     { teleRing   :: Int
+                     , teleSee    :: Maybe [T.Text]
+                     , teleBr     :: Int
+                     , teleTo     :: T.Text
+                     , teleLine   :: Maybe T.Text
+                     , teleHop    :: Maybe T.Text
                      , teleSigEnd :: T.Text  
-                     , teleRest :: Maybe (Map.Map T.Text Value)
+                     , teleRest   :: Maybe (Map.Map T.Text Value)
                      } deriving (Eq, Show)
 
 
@@ -228,21 +231,37 @@ initialize =
                   (putStrLn "done.")
                   a
 
+-- ---------------------------------------------------------------------
+       
 resolveToSeedIPP :: String -> IO (AddrInfo,String,String)
 resolveToSeedIPP addr = do
+  let [hostname,port] = split ":" addr
+  resolve hostname port
+  
+-- ---------------------------------------------------------------------
+       
+resolve :: String -> String -> IO (AddrInfo,String,String)
+resolve hostname port = do
   -- Look up the hostname and port.  Either raises an exception
   -- or returns a nonempty list.  First element in that list
   -- is supposed to be the best option.
-  let [hostname,port] = split ":" initialSeed
   addrinfos <- getAddrInfo Nothing (Just hostname) (Just port)
   let serveraddr = head addrinfos
       
   (Just hostname,Just servicename) <- (getNameInfo [NI_NUMERICHOST] True True (addrAddress serveraddr))
-  --putStrLn $ "resolveToSeedIPP:" ++ (show hostname) ++ " " ++ (show servicename)
+  --putStrLn $ "resolve:" ++ (show hostname) ++ " " ++ (show servicename)
                            
   --return (serveraddr,port)         
   return (serveraddr,hostname,servicename)         
   
+-- ---------------------------------------------------------------------
+
+addrFromHostPort hostname port = do
+  (serveraddr,_,_) <- resolve hostname port
+  return (addrAddress serveraddr)
+
+-- ---------------------------------------------------------------------
+
 --
 -- We're in the Switch monad now, so we've connected successfully
 -- Start processing commands
@@ -296,11 +315,12 @@ pingSeed seed =
     
     io (putStrLn $ "sendMsg:" ++ (show $ bootTelex))
     io (putStrLn $ "sendMsg:" ++ (show $ toJson bootTelex))
+    io (putStrLn $ "sendMsg:" ++ (show $ encodeMsg bootTelex))
 
     -- TODO: call sendTelex instead, which manages/reuses lines on the way
     socketh <- gets swH
-    io (sendMsg socketh bootTelex)
-    -- TODO: io (sendTelex socketh bootTelex)
+    --io (sendMsg socketh bootTelex)
+    sendTelex bootTelex
     
     return ()
    
@@ -328,6 +348,23 @@ getTelehashLine seedIPP timeNow = do
   
   return line'
   
+-- ---------------------------------------------------------------------
+
+updateTelehashLine :: Line -> TeleHash ()
+updateTelehashLine line = do
+  state <- get
+  
+  let 
+    master = (swMaster state)
+    
+    seedIPP = lineIpp line
+    
+    master' = Map.insert seedIPP line master
+    
+    state' = state {swMaster = master'}
+    
+  put state'
+
   
 -- ---------------------------------------------------------------------
 
@@ -366,17 +403,88 @@ eval     _                     = return () -- ignore everything else
  
 -- ---------------------------------------------------------------------  
 
---TODO: implement this
-sendTelex :: Json t => t -> TeleHash ()
-sendTelex msg = do return ()
+sendTelex :: TeleHashEntry -> TeleHash ()
+sendTelex msg = do 
+  timeNow <- io getClockTime
+  line <- getTelehashLine (T.unpack (teleTo msg)) timeNow
+  
+  -- check br and drop if too much
+  --  if (line.bsent - line.brin > 10000) {
+  --      console.log("\tMAX SEND DROP\n");
+  --      return;
+  --  }
+
+  let brBad = (lineBsent line) - (lineBrin line) > 10000
+  case brBad of
+    True -> do
+      io (putStrLn "MAX SEND DROP ")
+      return ()
+    False -> do
+          -- if a line is open use that, else send a ring
+          -- if ("line" in line) {
+          --    telex._line = parseInt(line["line"]);      
+          -- } else {
+          --    telex._ring = parseInt(line["ringout"]);
+          -- }
+
+      let
+        msg' = if (lineLine line == Nothing) 
+               then (msg {teleRing = (lineRingout line)})
+               -- TODO: this is horrible, must be a better type choice     
+               else (msg {teleLine = Just $ T.pack $ show (fromJust (lineLine line))})
+                    
+        -- update our bytes tracking and send current state
+        -- telex._br = line.brout = line.br;
+        msg'' = msg' { teleBr = lineBr line }
+        
+        -- var msg = new Buffer(JSON.stringify(telex), "utf8");
+        msgJson = encodeMsg msg''
+    
+        -- line.bsent += msg.length;
+        -- line.sentat = time();
+        line' = line { 
+            lineBrout = lineBr line 
+          , lineBsent = (lineBsent line) + (length msgJson)
+          , lineSentat = timeNow            
+          }       
+        
+      -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
+      io (putStrLn $ "sendTelex:" ++ (show $ teleTo msg'') ++ " " ++ (msgJson))
+                
+      -- self.server.send(msg, 0, msg.length, line.port, line.host);
+      socketh <- gets swH
+      addr <- io (addrFromHostPort (lineHost line) (linePort line))
+      io (sendDgram socketh msgJson addr)
+      
+      updateTelehashLine(line')
+      
+      --return ()
+  
 
 -- ---------------------------------------------------------------------  
        
+encodeMsg msg = BC.unpack $ head $ BL.toChunks $ encode $ toJson msg
+
+-- ---------------------------------------------------------------------  
+
+sendDgram :: SocketHandle -> String -> SockAddr -> IO ()
+sendDgram socketh msgJson addr =
+  sendstr msgJson
+    where 
+      -- Send until everything is done
+      sendstr :: String -> IO ()
+      sendstr [] = return ()
+      sendstr omsg = do sent <- sendTo (slSocket socketh) omsg addr
+                        sendstr (genericDrop sent omsg)
+                        
+-- ---------------------------------------------------------------------  
+
 sendMsg :: Json a => SocketHandle -> a -> IO ()
 sendMsg socketh msg =
   sendstr sendmsg
     where 
-      sendmsg = BC.unpack $ head $ BL.toChunks $ encode $ toJson msg
+      --sendmsg = BC.unpack $ head $ BL.toChunks $ encode $ toJson msg
+      sendmsg = encodeMsg msg
   
       -- Send until everything is done
       sendstr :: String -> IO ()
