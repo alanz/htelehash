@@ -4,6 +4,13 @@
 
 -- Above three settings are for the Json stuff using Data.Iso
 
+module TeleHash.Controller 
+       (
+       -- For testing
+       recvTelex  
+       , parseTeleHashEntry
+       ) where
+
 import Control.Category
 import Control.Concurrent
 import Control.Monad
@@ -29,6 +36,9 @@ import System.Exit
 import System.IO
 import System.Time
 --import TeleHash.Json 
+
+--import Test.QuickCheck
+
 import Text.Printf
 import qualified Codec.Binary.Base64 as B64
 import qualified Control.Concurrent.Actor as A
@@ -59,10 +69,12 @@ type TeleHash = StateT Switch IO
 
 data Switch = Switch { swH :: SocketHandle 
                      , swSeeds :: [String]
+                     , swSeedsIndex :: Set.Set String
                      , swConnected :: Bool
                      , swMaster :: Map.Map String Line  
                      , swSelfIpp :: Maybe String  
-                     , swSelfHash :: Maybe String  
+                     , swSelfHash :: Maybe String
+                     , swTaps :: [String]  
                      }
 
 data SocketHandle = 
@@ -86,7 +98,8 @@ data Line = Line {
   lineBrin      :: Int,
   lineBsent     :: Int,
   lineNeighbors :: Set.Set String, -- lineNeighbors,
-  lineVisible   :: Bool
+  lineVisible   :: Bool,
+  lineRules     :: [String]
   }
 
 mkLine endPointStr timeNow =
@@ -113,7 +126,8 @@ mkLine endPointStr timeNow =
        lineBrin      = 0,
        lineBsent     = 0,
        lineNeighbors = Set.fromList [endPointHash],
-       lineVisible   = False
+       lineVisible   = False,
+       lineRules     = []                       
        }
 
 -- ---------------------------------------------------------------------
@@ -135,8 +149,8 @@ data TeleHashEntry = TeleHashEntry
                      , teleTo     :: T.Text
                      , teleLine   :: Maybe Int
                      , teleHop    :: Maybe T.Text
-                     , teleSigEnd :: T.Text  
-                     , teleRest   :: Maybe (Map.Map T.Text Value)
+                     , teleSigEnd :: Maybe T.Text  
+                     -- , teleRest   :: Maybe (Map.Map T.Text Value)
                      } deriving (Eq, Show)
 
 
@@ -144,15 +158,15 @@ telexJson = $(deriveIsos ''TeleHashEntry)
 
 instance Json TeleHashEntry where
   grammar = telexJson . object
-    ( prop "_ring"
-    . prop ".see"
+    ( optionalProp "_ring"
+    . optionalProp ".see"
     . prop "_br"
     . prop "_to"
     . optionalProp "_line"
     . optionalProp "_hop"
-    . prop "+end"
+    . optionalProp "+end"
     -- . rest
-    . optionalRest
+    -- . optionalRest
     )
 
 optionalProp :: Json a => String -> Iso (Object :- t) (Object :- Maybe a :- t)
@@ -160,7 +174,6 @@ optionalProp name = duck just . prop name <> duck nothing
 
 optionalRest :: Iso (Object :- t) (Object :- Maybe (Map.Map T.Text Value) :- t)
 optionalRest = duck just . rest <> duck nothing
-
   
 -- TODO : pick up error and deal with it, below
 parseAll :: BC.ByteString -> Value
@@ -229,7 +242,8 @@ initialize =
     
        -- Save off the socket, and server address in a handle
        return $ (Switch (SocketHandle sock (addrAddress serveraddr)) [initialSeed] 
-                 False Map.empty Nothing Nothing)
+                 (Set.fromList [initialSeed])
+                 False Map.empty Nothing Nothing [])
     where
        notify a = bracket_
                   (printf "Connecting to %s ... " initialSeed >> hFlush stdout)
@@ -309,12 +323,15 @@ pingSeed seed =
     io (putStrLn $ "pingSeed seedIPP=" ++ (show seedIPP))
 
     -- TODO: set self.seedsIndex[seedIPP] = true;
+    state <- get
+    put state {swSeedsIndex = Set.insert seedIPP (swSeedsIndex state) }
+    
     timeNow <- io getClockTime
     
     line <- getTelehashLine seedIPP timeNow
     let bootTelex = mkTelex seedIPP
     -- bootTelex["+end"] = line.end; // any end will do, might as well ask for their neighborhood
-    let bootTelex' = bootTelex { teleSigEnd = T.pack $ (lineEnd line) }
+    let bootTelex' = bootTelex { teleSigEnd = Just $ T.pack $ (lineEnd line) }
     -- line = undefined
   
     io (putStrLn $ "pingSeed telex=" ++ (show bootTelex'))
@@ -486,7 +503,7 @@ checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
 mkTelex :: String -> TeleHashEntry
 mkTelex seedIPP = 
     -- set _to = seedIPP
-  TeleHashEntry Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing (T.pack "") Nothing
+  TeleHashEntry Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing -- Nothing
                   
 -- ---------------------------------------------------------------------  
 --
@@ -500,8 +517,9 @@ dolisten h = {- forever $ -} do
     (msg,rinfo) <- io (SB.recvFrom (slSocket h) 1000)
 
     io (putStrLn $ show msg)
+    io (putStrLn ("dolisten:rx msg=" ++ (show msg)))
     --io (putStrLn (show (parseTeleHashEntry (head $ BL.toChunks msg))))
-    io (putStrLn (show (parseTeleHashEntry msg)))
+    io (putStrLn ("dolisten:rx=" ++ (show (parseTeleHashEntry msg))))
     -- eval $ parseTeleHashEntry (head $ BL.toChunks msg)
     recvTelex msg rinfo
 
@@ -616,13 +634,13 @@ sendMsg socketh msg =
 -- Dispatch incoming raw messages
 recvTelex :: BC.ByteString -> SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
-    io (putStrLn $ show msg)
+    -- io (putStrLn $ show msg)
     io (putStrLn (show (parseTeleHashEntry msg)))
     let
       Just rxTelex = parseTeleHashEntry msg
     
     state <- get
-    seeds <- gets swSeeds
+    seedsIndex <- gets swSeedsIndex
 
     -- if (!self.connected)
     -- {
@@ -637,14 +655,14 @@ recvTelex msg rinfo = do
     -- }
     (Just hostname,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
     let
-    -- var remoteipp = rinfo.address + ":" + rinfo.port;    
       remoteipp = hostname ++ ":" ++ port
 
+    io (putStrLn ("recvTelex:remoteipp=" ++ remoteipp ++ ",seedsIndex="++(show seedsIndex)))
     case (swConnected state) of
       False -> do
         -- TODO : test that _to field is set. Requires different setup for the JSON leg. 
         --        Why would it not be set?
-        case (remoteipp `elem` seeds ) of
+        case (Set.member remoteipp seedsIndex ) of
           True -> online(rxTelex)
           False -> do
             io (putStrLn $ "recvTelex:we're offline and don't like that")
@@ -675,29 +693,44 @@ recvTelex msg rinfo = do
 -- TODO: implement this
 online rxTelex = do 
                     
-  --  var self = this;
-  --  console.log("\tONLINE");
   io (putStrLn $ "ONLINE")
   
   
   --  self.connected = true;
+  state <- get
+  put $ state {swConnected = True}
+  
   let
   --  self.selfipp = telex._to;
-    selfIpp = Just (teleTo rxTelex)
+    selfIpp = (teleTo rxTelex)
   --  self.selfhash = new Hash(self.selfipp).toString();
     selfhash = mkHash  $ T.unpack (teleTo rxTelex)
   --  console.log(["\tSELF[", telex._to, " = ", self.selfhash, "]"].join(""));
-  io (putStrLn $ "SELF[" ++ (show $ teleTo rxTelex) ++ " = " ++ selfhash ++ "]")
+  io (putStrLn ("SELF[" ++ (show selfIpp) ++ " = " ++ selfhash ++ "]"))
     
   --  var line = self.getline(self.selfipp);
+  timeNow <- io getClockTime
+  line <- getTelehashLine (T.unpack selfIpp) timeNow
+
   --  line.visible = 1; // flag ourselves as default visible
   --  line.rules = self.taps; // if we're tap'ing anything
+  
+  taps <- gets swTaps
+  updateTelehashLine (line {lineVisible = True, lineRules = taps })
     
   --  // trigger immediate tapping to move things along
   --  self.taptap();
+  taptap
+  
   return ()
                     
                     
+-- ---------------------------------------------------------------------
+  
+-- TODO: implement this  
+taptap :: TeleHash ()
+taptap = do return ()
+  
 -- ---------------------------------------------------------------------
 {-
 /**
@@ -710,7 +743,8 @@ mkHash str =
   let
     digest = SHA.sha1 $ BL.fromChunks [BC.pack str]
   in  
-   B64.encode $ BL.unpack $ SHA.bytestringDigest digest
+   -- B64.encode $ BL.unpack $ SHA.bytestringDigest digest
+   show digest
 
 
 -- ---------------------------------------------------------------------
@@ -743,3 +777,6 @@ main_actor = do
     threadDelay 20000000
     
 -- ---------------------------------------------------------------------
+
+
+-- EOF
