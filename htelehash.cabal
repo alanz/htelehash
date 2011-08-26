@@ -29,6 +29,18 @@ Library
                    , mtl              >= 1.1     && < 2.9
                    , containers       >= 0.2     && < 0.5
                    , Crypto           >= 4.2.3   && < 5.0
+                   , bytestring       >= 0.9.1   && < 1.0
+                   , text             >= 0.11.1  && < 0.12
+                   , attoparsec       >= 0.9.1   && < 1.0
+                   , aeson            >= 0.3.2   && < 0.4
+                   , network          >= 2.3.0   && < 2.4
+                   , random           >= 1.0     && < 2.0
+                   , SHA              >= 1.4.1   && < 1.5
+                   , thespian         >= 0.9     && < 1.0
+                   , dataenc          >= 0.14    && < 0.15
+                   , old-time         >= 1.0     && < 2.0
+                   , MissingH         >= 1.1     && < 1.2
+                   , transformers     >= 0.2.2   && < 0.3
   hs-source-dirs: src
   Exposed-modules:     TeleHash.TeleHash
   -- Other-modules:       Language.JavaScript.Parser.LexerUtils
@@ -42,7 +54,8 @@ executable             runtests
                        HUnit,
                        test-framework-hunit,
                        test-framework
-        hs-source-dirs: . src ./dist/build
+        -- hs-source-dirs: . src ./dist/build
+        hs-source-dirs: . src 
     else
         Buildable: False
     main-is:         runtests.hs

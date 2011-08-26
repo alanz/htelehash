@@ -15,19 +15,17 @@ import Control.Category
 import Control.Concurrent
 import Control.Monad
 import Control.Monad.IO.Class
---import Control.Monad.Reader
 import Control.Monad.State
-import Control.Exception -- for base-3, with base-4 use Control.OldException
---import Control.OldException
+import Control.Exception 
 import Data.Attoparsec
 import Data.Aeson (Object,json,Value(..),encode)
 import Data.Bits
 import Data.Char
-import Data.Iso
+-- import Data.Iso
 import Data.List
 import Data.Maybe
 import Data.String.Utils
-import Language.JsonGrammar
+--import Language.JsonGrammar
 import Network.BSD
 import Network.Socket
 import Numeric
@@ -136,11 +134,6 @@ mkLine endPointStr timeNow =
 -- TODO: merge in stuff from Json.hs and get rid of that file, or refactor
 -- See https://github.com/MedeaMelana/JsonGrammar for examples/howto
 
-{-
-person = $(deriveIsos ''Person)
-(male, female) = $(deriveIsos ''Gender)
-coords = $(deriveIsos ''Coords)
--}
 
 data TeleHashEntry = TeleHashEntry 
                      { teleRing   :: Maybe Int
@@ -151,9 +144,11 @@ data TeleHashEntry = TeleHashEntry
                      , teleHop    :: Maybe T.Text
                      , teleSigEnd :: Maybe T.Text  
                      -- , teleRest   :: Maybe (Map.Map T.Text Value)
+                     , teleRest   :: (Map.Map T.Text Value)
                      } deriving (Eq, Show)
 
 
+{-
 telexJson = $(deriveIsos ''TeleHashEntry)
 
 instance Json TeleHashEntry where
@@ -165,7 +160,7 @@ instance Json TeleHashEntry where
     . optionalProp "_line"
     . optionalProp "_hop"
     . optionalProp "+end"
-    -- . rest
+    . rest
     -- . optionalRest
     )
 
@@ -174,6 +169,7 @@ optionalProp name = duck just . prop name <> duck nothing
 
 optionalRest :: Iso (Object :- t) (Object :- Maybe (Map.Map T.Text Value) :- t)
 optionalRest = duck just . rest <> duck nothing
+-}
   
 -- TODO : pick up error and deal with it, below
 parseAll :: BC.ByteString -> Value
@@ -190,6 +186,10 @@ _inp = BC.pack ("{\"_ring\":17904," ++
        "\".see\":[ \"208.68.163.247:42424\", \"208.68.160.25:55137\"]," ++ 
        "\"_br\":52," ++ 
        "\"_to\":\"173.19.99.143:63681\" }")
+
+_inp2 = BC.pack "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\",\".see\":[\"196.215.128.240:51602\"],\".tap\":[{\"is\":{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\"},\"has\":[\"+pop\"]}],\"_line\":35486388,\"_br\":174}"
+
+_inp3 = BC.pack "{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\",\"_to\":\"208.68.163.247:42424\",\".see\":[\"196.215.128.240:51602\"],\".tap\":[{\"is\":{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\"},\"has\":[\"+pop\"]}],\"_line\":35486388,\"_br\":174}"
 
 -- ---------------------------------------------------------------------
 
@@ -503,7 +503,7 @@ checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
 mkTelex :: String -> TeleHashEntry
 mkTelex seedIPP = 
     -- set _to = seedIPP
-  TeleHashEntry Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing -- Nothing
+  TeleHashEntry Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
                   
 -- ---------------------------------------------------------------------  
 --

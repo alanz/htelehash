@@ -8,8 +8,11 @@ Got the following message from 208.68.163.247:42424
 {"_ring":17867,".see":["50.19.183.3:47610","50.18.184.21:43435","50.18.184.21:48563","208.68.163.247:42424","50.18.184.21:37180"],"_br":19,"_to":"196.209.236.138:33164"}
 -}
 
-import Data.Aeson 
-import Data.Bits
+module TeleHash.TeleHash (
+  ) where
+
+--import Data.Aeson 
+--import Data.Bits
 import Data.List
 import Network.BSD
 import Network.Socket 

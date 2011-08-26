@@ -6,6 +6,7 @@ import Data.List
 import TeleHash.Controller
 import qualified Data.ByteString.Char8 as BC
 
+main :: IO ()
 main = defaultMain tests
 
 tests = [ testGroup "group 1" [
