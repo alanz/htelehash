@@ -12,6 +12,7 @@ module TeleHash.Controller
        recvTelex  
        , parseTeleHashEntry
        , mkTelex  
+       , TeleHashEntry(..)  
        ) where
 
 import Control.Applicative
@@ -215,22 +216,20 @@ parseTeleHashEntry s =
     let 
       decoded = (decode s :: Result JSValue)
       Ok (JSObject cc) = decoded
-      Just to   = getStringMaybe cc "_to"
-      maybeRing = getIntMaybe    cc "_ring"
-      --maybeSee  = getStringMaybe cc ".see"
-      Just br   = getIntMaybe    cc "_br"
-      maybeLine = getIntMaybe    cc "_line"
-      maybeHop  = getStringMaybe cc "_hop"
-      maybeEnd  = getStringMaybe cc "+end"
+      Just to   = getStringMaybe      cc "_to"
+      maybeRing = getIntMaybe         cc "_ring"
+      maybeSee  = getStringArrayMaybe cc ".see"
+      Just br   = getIntMaybe         cc "_br"
+      maybeLine = getIntMaybe         cc "_line"
+      maybeHop  = getStringMaybe      cc "_hop"
+      maybeEnd  = getStringMaybe      cc "+end"
     in 
      -- mkTelex to
      
-     (mkTelex to) {teleRing = maybeRing, {-teleSee = maybeSee,-} teleBr = br, 
+     (mkTelex to) {teleRing = maybeRing, teleSee = maybeSee, teleBr = br, 
                    teleTo = to, teleLine = maybeLine, teleHop = maybeHop,
                    teleSigEnd = maybeEnd }
      
-     
-
 -- ---------------------------------------------------------------------
 -- Pretty sure these two exist in JSON somewhere, do not know how to find them
 
@@ -240,6 +239,14 @@ getStringMaybe cc field =
       Just (JSString jsStrVal)  -> Just (fromJSString jsStrVal)
       _                         -> Nothing  
     
+getStringArrayMaybe :: JSObject JSValue -> String -> Maybe [String]
+getStringArrayMaybe cc field =
+  case (get_field cc field) of
+      Just (JSArray jsStrArrVal)-> Just (map getStr jsStrArrVal)
+      _                         -> Nothing  
+  where
+    getStr (JSString jsStrVal) = fromJSString jsStrVal
+      
 getIntMaybe :: JSObject JSValue -> String -> Maybe Int
 getIntMaybe cc field =
   case (get_field cc field) of
@@ -247,25 +254,6 @@ getIntMaybe cc field =
       _                         -> Nothing  
 
 -- ---------------------------------------------------------------------
--- This bit based on 
--- http://www.amateurtopologist.com/blog/2010/11/05/a-haskell-newbies-guide-to-text-json/
-{-
---data Status = Status { user :: String, text :: String }
-data Status = Status { user :: JSObject JSValue, text :: JSObject JSValue }
-
-makeStatus :: JSObject JSValue -> Result Status
-makeStatus tweet = let (!) = flip valFromObj in do
-    userObject <- tweet ! "user"
-    user <- userObject ! "screen_name"
-    text <- tweet ! "text"
-    return Status {user = user, text = text}
-
-parseTimeline json = do
-    decoded <- decode json :: Result [JSObject JSValue]
-    mapM makeStatus decoded
-    
--- ---------------------------------------------------------------------
--}
     
 test_parseTeleHashEntry = parseTeleHashEntry _inp
 
@@ -796,7 +784,7 @@ online rxTelex = do
   --  self.selfipp = telex._to;
     selfIpp = (teleTo rxTelex)
   --  self.selfhash = new Hash(self.selfipp).toString();
-    selfhash = mkHash  $ teleTo rxTelex
+    selfhash = mkHash $ teleTo rxTelex
   --  console.log(["\tSELF[", telex._to, " = ", self.selfhash, "]"].join(""));
   io (putStrLn ("SELF[" ++ (show selfIpp) ++ " = " ++ selfhash ++ "]"))
     
