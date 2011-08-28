@@ -21,7 +21,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State
 import Control.Exception 
-import Data.Attoparsec
+--import Data.Attoparsec
 --import Data.Aeson (Object,json,Value(..),encode)
 --import Data.Aeson 
 import Data.Bits
@@ -36,6 +36,7 @@ import Network.Socket
 import Numeric
 import Text.JSON
 import Text.JSON.Generic
+import Text.JSON.Types
 import Prelude hiding (id, (.), head, either, catch)
 import System.Exit
 import System.IO
@@ -205,22 +206,77 @@ parseAll s = case (parse json s) of
 
 --parseTeleHashEntry :: BC.ByteString -> Maybe TeleHashEntry
 --parseTeleHashEntry s = fromJSON $ parseAll s
+--parseTeleHashEntry s = mkTelex "foo"
 
+--parseTeleHashEntry :: String -> TeleHashEntry
+--parseTeleHashEntry' :: String -> Result JSValue
 parseTeleHashEntry :: String -> TeleHashEntry
-parseTeleHashEntry s = decodeJSON s
+parseTeleHashEntry s = 
+    let 
+      decoded = (decode s :: Result JSValue)
+      Ok (JSObject cc) = decoded
+      Just to   = getStringMaybe cc "_to"
+      maybeRing = getIntMaybe    cc "_ring"
+      --maybeSee  = getStringMaybe cc ".see"
+      Just br   = getIntMaybe    cc "_br"
+      maybeLine = getIntMaybe    cc "_line"
+      maybeHop  = getStringMaybe cc "_hop"
+      maybeEnd  = getStringMaybe cc "+end"
+    in 
+     -- mkTelex to
+     
+     (mkTelex to) {teleRing = maybeRing, {-teleSee = maybeSee,-} teleBr = br, 
+                   teleTo = to, teleLine = maybeLine, teleHop = maybeHop,
+                   teleSigEnd = maybeEnd }
+     
+     
 
+-- ---------------------------------------------------------------------
+-- Pretty sure these two exist in JSON somewhere, do not know how to find them
 
+getStringMaybe :: JSObject JSValue -> String -> Maybe String
+getStringMaybe cc field =
+  case (get_field cc field) of
+      Just (JSString jsStrVal)  -> Just (fromJSString jsStrVal)
+      _                         -> Nothing  
+    
+getIntMaybe :: JSObject JSValue -> String -> Maybe Int
+getIntMaybe cc field =
+  case (get_field cc field) of
+      Just (JSRational _ jsVal)  -> Just $ round (jsVal)
+      _                         -> Nothing  
 
+-- ---------------------------------------------------------------------
+-- This bit based on 
+-- http://www.amateurtopologist.com/blog/2010/11/05/a-haskell-newbies-guide-to-text-json/
+{-
+--data Status = Status { user :: String, text :: String }
+data Status = Status { user :: JSObject JSValue, text :: JSObject JSValue }
+
+makeStatus :: JSObject JSValue -> Result Status
+makeStatus tweet = let (!) = flip valFromObj in do
+    userObject <- tweet ! "user"
+    user <- userObject ! "screen_name"
+    text <- tweet ! "text"
+    return Status {user = user, text = text}
+
+parseTimeline json = do
+    decoded <- decode json :: Result [JSObject JSValue]
+    mapM makeStatus decoded
+    
+-- ---------------------------------------------------------------------
+-}
+    
 test_parseTeleHashEntry = parseTeleHashEntry _inp
 
-_inp = {- BC.pack -} ("{\"_ring\":17904," ++
+_inp = ("{\"_ring\":17904," ++
        "\".see\":[ \"208.68.163.247:42424\", \"208.68.160.25:55137\"]," ++ 
        "\"_br\":52," ++ 
        "\"_to\":\"173.19.99.143:63681\" }")
 
-_inp2 = BC.pack "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\",\".see\":[\"196.215.128.240:51602\"],\".tap\":[{\"is\":{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\"},\"has\":[\"+pop\"]}],\"_line\":35486388,\"_br\":174}"
+_inp2 = "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\",\".see\":[\"196.215.128.240:51602\"],\".tap\":[{\"is\":{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\"},\"has\":[\"+pop\"]}],\"_line\":35486388,\"_br\":174}"
 
-_inp3 = BC.pack "{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\",\"_to\":\"208.68.163.247:42424\",\".see\":[\"196.215.128.240:51602\"],\".tap\":[{\"is\":{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\"},\"has\":[\"+pop\"]}],\"_line\":35486388,\"_br\":174}"
+_inp3 = "{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\",\"_to\":\"208.68.163.247:42424\",\".see\":[\"196.215.128.240:51602\"],\".tap\":[{\"is\":{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\"},\"has\":[\"+pop\"]}],\"_line\":35486388,\"_br\":174}"
 
 -- ---------------------------------------------------------------------
 
@@ -619,7 +675,7 @@ sendTelex msg = do
           }       
         
       -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
-      io (putStrLn $ "sendTelex:" ++ (show $ teleTo msg'') ++ " " ++ (msgJson))
+      io (putStrLn $ "sendTelexff:" ++ (show $ teleTo msg'') ++ " " ++ (msgJson))
                 
       -- self.server.send(msg, 0, msg.length, line.port, line.host);
       socketh <- gets swH
