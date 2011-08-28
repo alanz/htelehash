@@ -41,8 +41,10 @@ Library
                    , old-time         >= 1.0     && < 2.0
                    , MissingH         >= 1.1     && < 1.2
                    , transformers     >= 0.2.2   && < 0.3
+                   , json             >= 0.4.4   && < 0.5
   hs-source-dirs: src
   Exposed-modules:     TeleHash.TeleHash
+                       TeleHash.Controller
   -- Other-modules:       Language.JavaScript.Parser.LexerUtils
   ghc-options:         -Wall
 

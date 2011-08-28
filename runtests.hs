@@ -27,10 +27,10 @@ test_recvTelex1 =
 -}
 
 test_parseMsg = 
-  Nothing @?= parseTeleHashEntry msg
+  (mkTelex "foo") @?= parseTeleHashEntry msg
   where
     -- msg= BC.pack "{\".tap\":[{\"has\":[\"+pop\"],\"is\":{\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\"}}],\"_line\":412367436,\".see\":[\"208.68.163.247:42424\"],\"_br\":74,\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\",\"_to\":\"196.209.236.12:34963\"}"
-    msg= BC.pack "{\"+end\":\"1234\",\".see\":null,\"_br\":0,\"_ring\":null,\"_to\":\"208.68.163.247:42424\"}"
+    msg= "{\"+end\":\"1234\",\".see\":null,\"_br\":0,\"_ring\":null,\"_to\":\"208.68.163.247:42424\"}"
     {-
     msg = BC.pack ("{\"_ring\":17904," ++
        "\".see\":[ \"208.68.163.247:42424\", \"208.68.160.25:55137\"]," ++ 

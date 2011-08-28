@@ -1,6 +1,8 @@
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE NoMonoPatBinds #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+
+{- # LANGUAGE TypeOperators #-}
+{- # LANGUAGE TemplateHaskell #-}
+{- # LANGUAGE NoMonoPatBinds #-}
 
 -- Above three settings are for the Json stuff using Data.Iso
 
@@ -9,8 +11,10 @@ module TeleHash.Controller
        -- For testing
        recvTelex  
        , parseTeleHashEntry
+       , mkTelex  
        ) where
 
+import Control.Applicative
 import Control.Category
 import Control.Concurrent
 import Control.Monad
@@ -18,10 +22,11 @@ import Control.Monad.IO.Class
 import Control.Monad.State
 import Control.Exception 
 import Data.Attoparsec
-import Data.Aeson (Object,json,Value(..),encode)
+--import Data.Aeson (Object,json,Value(..),encode)
+--import Data.Aeson 
 import Data.Bits
 import Data.Char
--- import Data.Iso
+--import Data.Iso
 import Data.List
 import Data.Maybe
 import Data.String.Utils
@@ -29,6 +34,8 @@ import Data.String.Utils
 import Network.BSD
 import Network.Socket
 import Numeric
+import Text.JSON
+import Text.JSON.Generic
 import Prelude hiding (id, (.), head, either, catch)
 import System.Exit
 import System.IO
@@ -137,17 +144,34 @@ mkLine endPointStr timeNow =
 
 data TeleHashEntry = TeleHashEntry 
                      { teleRing   :: Maybe Int
-                     , teleSee    :: Maybe [T.Text]
+                     , teleSee    :: Maybe [String]
                      , teleBr     :: Int
-                     , teleTo     :: T.Text
+                     , teleTo     :: String
                      , teleLine   :: Maybe Int
-                     , teleHop    :: Maybe T.Text
-                     , teleSigEnd :: Maybe T.Text  
+                     , teleHop    :: Maybe String
+                     , teleSigEnd :: Maybe String  
                      -- , teleRest   :: Maybe (Map.Map T.Text Value)
-                     , teleRest   :: (Map.Map T.Text Value)
-                     } deriving (Eq, Show)
+                     -- , teleRest   :: (Map.Map T.Text Value)
+                     } deriving (Data, Typeable, -- For Text.JSON
+                                 Eq, Show)
 
 
+{-
+
+instance FromJSON TeleHashEntry
+  where
+    parseJSON (Object v) = TeleHashEntry <$> 
+                           v .:? "_ring" <*>
+                           v .:? ".see"  <*>
+                           v .:  "_br"   <*>
+                           v .:  "_to"   <*>
+                           v .:? "_line" <*>
+                           v .:? "_hop"  <*>
+                           v .:? "+end"  <*>
+                           v .:? ""
+
+    parseJSON _          = mzero
+-}
 {-
 telexJson = $(deriveIsos ''TeleHashEntry)
 
@@ -171,18 +195,25 @@ optionalRest :: Iso (Object :- t) (Object :- Maybe (Map.Map T.Text Value) :- t)
 optionalRest = duck just . rest <> duck nothing
 -}
   
+{-                                
 -- TODO : pick up error and deal with it, below
 parseAll :: BC.ByteString -> Value
 parseAll s = case (parse json s) of
   Done _  r -> r
   _         -> Null
+-}
 
-parseTeleHashEntry :: BC.ByteString -> Maybe TeleHashEntry
-parseTeleHashEntry s = fromJson $ parseAll s
+--parseTeleHashEntry :: BC.ByteString -> Maybe TeleHashEntry
+--parseTeleHashEntry s = fromJSON $ parseAll s
+
+parseTeleHashEntry :: String -> TeleHashEntry
+parseTeleHashEntry s = decodeJSON s
+
+
 
 test_parseTeleHashEntry = parseTeleHashEntry _inp
 
-_inp = BC.pack ("{\"_ring\":17904," ++
+_inp = {- BC.pack -} ("{\"_ring\":17904," ++
        "\".see\":[ \"208.68.163.247:42424\", \"208.68.160.25:55137\"]," ++ 
        "\"_br\":52," ++ 
        "\"_to\":\"173.19.99.143:63681\" }")
@@ -331,16 +362,16 @@ pingSeed seed =
     line <- getTelehashLine seedIPP timeNow
     let bootTelex = mkTelex seedIPP
     -- bootTelex["+end"] = line.end; // any end will do, might as well ask for their neighborhood
-    let bootTelex' = bootTelex { teleSigEnd = Just $ T.pack $ (lineEnd line) }
+    let bootTelex' = bootTelex { teleSigEnd = Just $ (lineEnd line) }
     -- line = undefined
   
     io (putStrLn $ "pingSeed telex=" ++ (show bootTelex'))
     
     -- io (putStrLn $ "sendMsg:" ++ (show $ BC.unpack $ head $ BL.toChunks $ encode $ toJson bootTelex))
     
-    io (putStrLn $ "sendMsg:" ++ (show $ bootTelex))
-    io (putStrLn $ "sendMsg:" ++ (show $ toJson bootTelex))
-    io (putStrLn $ "sendMsg:" ++ (show $ encodeMsg bootTelex))
+    io (putStrLn $ "sendMsg1:" ++ (show $ bootTelex))
+    -- io (putStrLn $ "sendMsg2:" ++ (show $ toJSON bootTelex))
+    io (putStrLn $ "sendMsg3:" ++ (show $ encodeMsg bootTelex))
 
     -- TODO: call sendTelex instead, which manages/reuses lines on the way
     socketh <- gets swH
@@ -503,7 +534,8 @@ checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
 mkTelex :: String -> TeleHashEntry
 mkTelex seedIPP = 
     -- set _to = seedIPP
-  TeleHashEntry Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
+  -- TeleHashEntry Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
+  TeleHashEntry Nothing Nothing 0 seedIPP Nothing Nothing Nothing -- Map.empty -- Nothing
                   
 -- ---------------------------------------------------------------------  
 --
@@ -519,9 +551,10 @@ dolisten h = {- forever $ -} do
     io (putStrLn $ show msg)
     io (putStrLn ("dolisten:rx msg=" ++ (show msg)))
     --io (putStrLn (show (parseTeleHashEntry (head $ BL.toChunks msg))))
-    io (putStrLn ("dolisten:rx=" ++ (show (parseTeleHashEntry msg))))
+    -- io (putStrLn ("dolisten:rx=" ++ (show (parseTeleHashEntry msg))))
+    io (putStrLn ("dolisten:rx=" ++ (show (parseTeleHashEntry (BC.unpack msg)))))
     -- eval $ parseTeleHashEntry (head $ BL.toChunks msg)
-    recvTelex msg rinfo
+    recvTelex (BC.unpack msg) rinfo
 
   where
     forever a = a >> forever a
@@ -542,7 +575,7 @@ eval     _                     = return () -- ignore everything else
 sendTelex :: TeleHashEntry -> TeleHash ()
 sendTelex msg = do 
   timeNow <- io getClockTime
-  line <- getTelehashLine (T.unpack (teleTo msg)) timeNow
+  line <- getTelehashLine (teleTo msg) timeNow
   
   -- check br and drop if too much
   --  if (line.bsent - line.brin > 10000) {
@@ -600,7 +633,10 @@ sendTelex msg = do
 
 -- ---------------------------------------------------------------------  
        
-encodeMsg msg = BC.unpack $ head $ BL.toChunks $ encode $ toJson msg
+-- encodeMsg msg = BC.unpack $ head $ BL.toChunks $ encode $ toJSON msg
+encodeMsg :: Data a => a -> String
+encodeMsg msg = encodeJSON msg
+
 
 -- ---------------------------------------------------------------------  
 
@@ -616,7 +652,7 @@ sendDgram socketh msgJson addr =
                         
 -- ---------------------------------------------------------------------  
 
-sendMsg :: Json a => SocketHandle -> a -> IO ()
+--sendMsg :: Json a => SocketHandle -> a -> IO ()
 sendMsg socketh msg =
   sendstr sendmsg
     where 
@@ -632,12 +668,12 @@ sendMsg socketh msg =
 -- ---------------------------------------------------------------------
 
 -- Dispatch incoming raw messages
-recvTelex :: BC.ByteString -> SockAddr -> TeleHash ()
+--recvTelex :: BC.ByteString -> SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
     -- io (putStrLn $ show msg)
     io (putStrLn (show (parseTeleHashEntry msg)))
     let
-      Just rxTelex = parseTeleHashEntry msg
+      rxTelex = parseTeleHashEntry msg
     
     state <- get
     seedsIndex <- gets swSeedsIndex
@@ -704,13 +740,13 @@ online rxTelex = do
   --  self.selfipp = telex._to;
     selfIpp = (teleTo rxTelex)
   --  self.selfhash = new Hash(self.selfipp).toString();
-    selfhash = mkHash  $ T.unpack (teleTo rxTelex)
+    selfhash = mkHash  $ teleTo rxTelex
   --  console.log(["\tSELF[", telex._to, " = ", self.selfhash, "]"].join(""));
   io (putStrLn ("SELF[" ++ (show selfIpp) ++ " = " ++ selfhash ++ "]"))
     
   --  var line = self.getline(self.selfipp);
   timeNow <- io getClockTime
-  line <- getTelehashLine (T.unpack selfIpp) timeNow
+  line <- getTelehashLine selfIpp timeNow
 
   --  line.visible = 1; // flag ourselves as default visible
   --  line.rules = self.taps; // if we're tap'ing anything
