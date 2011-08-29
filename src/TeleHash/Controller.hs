@@ -12,7 +12,8 @@ module TeleHash.Controller
        recvTelex  
        , parseTeleHashEntry
        , mkTelex  
-       , TeleHashEntry(..)  
+       , TeleHashEntry(..)
+       , Tap(..)  
        ) where
 
 import Control.Applicative
@@ -143,6 +144,9 @@ mkLine endPointStr timeNow =
 -- TODO: merge in stuff from Json.hs and get rid of that file, or refactor
 -- See https://github.com/MedeaMelana/JsonGrammar for examples/howto
 
+data Tap = Tap { tapIs :: (String,String), tapHas :: [String] } 
+         deriving (Data, Typeable, -- For Text.JSON
+                   Eq, Show)
 
 data TeleHashEntry = TeleHashEntry 
                      { teleRing   :: Maybe Int
@@ -151,60 +155,15 @@ data TeleHashEntry = TeleHashEntry
                      , teleTo     :: String
                      , teleLine   :: Maybe Int
                      , teleHop    :: Maybe String
-                     , teleSigEnd :: Maybe String  
+                     , teleSigEnd :: Maybe String
+                     , teleTap    :: Maybe [Tap]  
                      -- , teleRest   :: Maybe (Map.Map T.Text Value)
                      -- , teleRest   :: (Map.Map T.Text Value)
                      } deriving (Data, Typeable, -- For Text.JSON
                                  Eq, Show)
 
 
-{-
-
-instance FromJSON TeleHashEntry
-  where
-    parseJSON (Object v) = TeleHashEntry <$> 
-                           v .:? "_ring" <*>
-                           v .:? ".see"  <*>
-                           v .:  "_br"   <*>
-                           v .:  "_to"   <*>
-                           v .:? "_line" <*>
-                           v .:? "_hop"  <*>
-                           v .:? "+end"  <*>
-                           v .:? ""
-
-    parseJSON _          = mzero
--}
-{-
-telexJson = $(deriveIsos ''TeleHashEntry)
-
-instance Json TeleHashEntry where
-  grammar = telexJson . object
-    ( optionalProp "_ring"
-    . optionalProp ".see"
-    . prop "_br"
-    . prop "_to"
-    . optionalProp "_line"
-    . optionalProp "_hop"
-    . optionalProp "+end"
-    . rest
-    -- . optionalRest
-    )
-
-optionalProp :: Json a => String -> Iso (Object :- t) (Object :- Maybe a :- t)
-optionalProp name = duck just . prop name <> duck nothing
-
-optionalRest :: Iso (Object :- t) (Object :- Maybe (Map.Map T.Text Value) :- t)
-optionalRest = duck just . rest <> duck nothing
--}
   
-{-                                
--- TODO : pick up error and deal with it, below
-parseAll :: BC.ByteString -> Value
-parseAll s = case (parse json s) of
-  Done _  r -> r
-  _         -> Null
--}
-
 --parseTeleHashEntry :: BC.ByteString -> Maybe TeleHashEntry
 --parseTeleHashEntry s = fromJSON $ parseAll s
 --parseTeleHashEntry s = mkTelex "foo"
@@ -223,12 +182,13 @@ parseTeleHashEntry s =
       maybeLine = getIntMaybe         cc "_line"
       maybeHop  = getStringMaybe      cc "_hop"
       maybeEnd  = getStringMaybe      cc "+end"
+      maybeTap  = getTapMaybe         cc ".tap"
     in 
      -- mkTelex to
      
      (mkTelex to) {teleRing = maybeRing, teleSee = maybeSee, teleBr = br, 
                    teleTo = to, teleLine = maybeLine, teleHop = maybeHop,
-                   teleSigEnd = maybeEnd }
+                   teleSigEnd = maybeEnd, teleTap = maybeTap }
      
 -- ---------------------------------------------------------------------
 -- Pretty sure these two exist in JSON somewhere, do not know how to find them
@@ -253,6 +213,32 @@ getIntMaybe cc field =
       Just (JSRational _ jsVal)  -> Just $ round (jsVal)
       _                         -> Nothing  
 
+{-
+(".tap",JSArray 
+  [JSObject (JSONObject 
+     {fromJSObject = [
+        ("is",JSObject (JSONObject 
+           {fromJSObject = [("+end",JSString (JSONString {fromJSString = "9fa23aa9f9ac828ced5a151fedd24af0d9fa8495"}))]})),
+        ("has",JSArray [JSString (JSONString {fromJSString = "+pop"})])
+        ]
+     })])
+-}
+-- ".tap":[{"is":{"+end":"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495"},"has":["+pop"]}]      
+getTapMaybe :: JSObject JSValue -> String -> Maybe [Tap]
+getTapMaybe cc field =
+  case (get_field cc field) of
+      Just (JSArray jsArrVal)-> Just (map getTap jsArrVal)
+      _                         -> Nothing  
+  where
+    getTap (JSObject jsobj) = foldl dTap (Tap ("","") []) $ fromJSObject jsobj
+
+    dTap tap ("is",  JSObject o) = tap {tapIs = (k, fromJSString str)}
+      where
+        (k,JSString str) = head $ fromJSObject o
+        
+    --dTap tap ("has", o) = tap {tapHas= [show o]}
+    dTap tap ("has", JSArray arr) = tap {tapHas= map (\(JSString s) -> fromJSString s) arr}
+    
 -- ---------------------------------------------------------------------
     
 test_parseTeleHashEntry = parseTeleHashEntry _inp
@@ -579,7 +565,7 @@ mkTelex :: String -> TeleHashEntry
 mkTelex seedIPP = 
     -- set _to = seedIPP
   -- TeleHashEntry Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
-  TeleHashEntry Nothing Nothing 0 seedIPP Nothing Nothing Nothing -- Map.empty -- Nothing
+  TeleHashEntry Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing -- Map.empty -- Nothing
                   
 -- ---------------------------------------------------------------------  
 --

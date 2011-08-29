@@ -32,7 +32,9 @@ test_parseMsg1 =
                                              teleBr = 74, teleTo = "196.209.236.12:34963",
                                              teleLine = Just 412367436, 
                                              teleHop = Nothing,
-                                             teleSigEnd = Just "38666817e1b38470644e004b9356c1622368fa57"
+                                             teleSigEnd = Just "38666817e1b38470644e004b9356c1622368fa57",
+                                             teleTap = Just [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"), 
+                                                                  tapHas = ["+pop"]}]
                                              })
   where
     msg= "{\".tap\":[{\"has\":[\"+pop\"],\"is\":{\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\"}}],"++
