@@ -13,6 +13,7 @@ module TeleHash.Controller
        , parseTeleHashEntry
        , mkTelex  
        , TeleHashEntry(..)
+       , Hash(..)  
        , Tap(..)  
        ) where
 
@@ -75,14 +76,17 @@ http://www.haskell.org/haskellwiki/Roll_your_own_IRC_bot
 --type TeleHash = ReaderT Switch IO
 type TeleHash = StateT Switch IO
 
+newtype Hash = Hash String
+             deriving (Data,Eq,Show,Typeable,Ord)
+
 data Switch = Switch { swH :: SocketHandle 
                      , swSeeds :: [String]
                      , swSeedsIndex :: Set.Set String
                      , swConnected :: Bool
-                     , swMaster :: Map.Map String Line  
+                     , swMaster :: Map.Map Hash Line  
                      , swSelfIpp :: Maybe String  
                      , swSelfHash :: Maybe String
-                     , swTaps :: [String]  
+                     , swTaps :: [Tap]  
                      }
 
 data SocketHandle = 
@@ -91,7 +95,7 @@ data SocketHandle =
 
 data Line = Line {
   lineIpp       :: String, -- IP and port of the destination
-  lineEnd       :: String, -- Hash of the ipp (endpoint)
+  lineEnd       :: Hash,   -- Hash of the ipp (endpoint)
   lineHost      :: String, -- Split out host IP
   linePort      :: String, -- Split out port
   lineRingout   :: Int,    --  rand(32768),
@@ -105,9 +109,9 @@ data Line = Line {
   lineBrout     :: Int,
   lineBrin      :: Int,
   lineBsent     :: Int,
-  lineNeighbors :: Set.Set String, -- lineNeighbors,
+  lineNeighbors :: Set.Set Hash, -- lineNeighbors,
   lineVisible   :: Bool,
-  lineRules     :: [String]
+  lineRules     :: [Tap]
   }
 
 mkLine endPointStr timeNow =
@@ -155,7 +159,7 @@ data TeleHashEntry = TeleHashEntry
                      , teleTo     :: String
                      , teleLine   :: Maybe Int
                      , teleHop    :: Maybe String
-                     , teleSigEnd :: Maybe String
+                     , teleSigEnd :: Maybe Hash
                      , teleTap    :: Maybe [Tap]  
                      -- , teleRest   :: Maybe (Map.Map T.Text Value)
                      -- , teleRest   :: (Map.Map T.Text Value)
@@ -181,7 +185,7 @@ parseTeleHashEntry s =
       Just br   = getIntMaybe         cc "_br"
       maybeLine = getIntMaybe         cc "_line"
       maybeHop  = getStringMaybe      cc "_hop"
-      maybeEnd  = getStringMaybe      cc "+end"
+      maybeEnd  = getHashMaybe        cc "+end"
       maybeTap  = getTapMaybe         cc ".tap"
     in 
      -- mkTelex to
@@ -199,6 +203,12 @@ getStringMaybe cc field =
       Just (JSString jsStrVal)  -> Just (fromJSString jsStrVal)
       _                         -> Nothing  
     
+getHashMaybe :: JSObject JSValue -> String -> Maybe Hash
+getHashMaybe cc field = 
+  case (get_field cc field) of
+      Just (JSString jsStrVal)  -> Just (Hash $ fromJSString jsStrVal)
+      _                         -> Nothing  
+
 getStringArrayMaybe :: JSObject JSValue -> String -> Maybe [String]
 getStringArrayMaybe cc field =
   case (get_field cc field) of
@@ -419,14 +429,16 @@ getTelehashLine seedIPP timeNow = do
   let 
     master = (swMaster state)
     
-    ismember = Map.member seedIPP master
-    member = master Map.! seedIPP 
+    endpointHash = mkHash seedIPP
+    
+    ismember = Map.member endpointHash master
+    member = master Map.! endpointHash
     hashOk = (lineIpp member) == seedIPP
     line = if (ismember && hashOk) then (member) else (mkLine seedIPP timeNow)
     
-    line' = line {lineNeighbors = Set.insert seedIPP (lineNeighbors line)}
+    line' = line {lineNeighbors = Set.insert endpointHash (lineNeighbors line)}
 
-    master' = Map.insert seedIPP line' master
+    master' = Map.insert endpointHash line' master
     
     state' = state {swMaster = master'}
     
@@ -444,8 +456,9 @@ updateTelehashLine line = do
     master = (swMaster state)
     
     seedIPP = lineIpp line
+    endpointHash = lineEnd line
     
-    master' = Map.insert seedIPP line master
+    master' = Map.insert endpointHash line master
     
     state' = state {swMaster = master'}
     
@@ -772,7 +785,7 @@ online rxTelex = do
   --  self.selfhash = new Hash(self.selfipp).toString();
     selfhash = mkHash $ teleTo rxTelex
   --  console.log(["\tSELF[", telex._to, " = ", self.selfhash, "]"].join(""));
-  io (putStrLn ("SELF[" ++ (show selfIpp) ++ " = " ++ selfhash ++ "]"))
+  io (putStrLn ("SELF[" ++ (show selfIpp) ++ " = " ++ (show selfhash) ++ "]"))
     
   --  var line = self.getline(self.selfipp);
   timeNow <- io getClockTime
@@ -805,12 +818,13 @@ taptap = do return ()
  */
 -}
 
+mkHash :: String -> Hash
 mkHash str =
   let
     digest = SHA.sha1 $ BL.fromChunks [BC.pack str]
   in  
    -- B64.encode $ BL.unpack $ SHA.bytestringDigest digest
-   show digest
+   Hash (show digest)
 
 
 -- ---------------------------------------------------------------------
