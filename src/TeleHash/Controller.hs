@@ -15,6 +15,7 @@ module TeleHash.Controller
        , TeleHashEntry(..)
        , Hash(..)  
        , Tap(..)  
+       , encodeMsg  
        ) where
 
 import Control.Applicative
@@ -166,14 +167,6 @@ data TeleHashEntry = TeleHashEntry
                      } deriving (Data, Typeable, -- For Text.JSON
                                  Eq, Show)
 
-
-  
---parseTeleHashEntry :: BC.ByteString -> Maybe TeleHashEntry
---parseTeleHashEntry s = fromJSON $ parseAll s
---parseTeleHashEntry s = mkTelex "foo"
-
---parseTeleHashEntry :: String -> TeleHashEntry
---parseTeleHashEntry' :: String -> Result JSValue
 parseTeleHashEntry :: String -> TeleHashEntry
 parseTeleHashEntry s = 
     let 
@@ -262,6 +255,55 @@ _inp2 = "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"9fa23aa9f9ac828ced5a151fed
 
 _inp3 = "{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\",\"_to\":\"208.68.163.247:42424\",\".see\":[\"196.215.128.240:51602\"],\".tap\":[{\"is\":{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\"},\"has\":[\"+pop\"]}],\"_line\":35486388,\"_br\":174}"
 
+_tx1 = parseTeleHashEntry _inp
+_tx2 = parseTeleHashEntry _inp2
+_tx3 = parseTeleHashEntry _inp3
+
+-- ---------------------------------------------------------------------
+
+--encodeTeleHashEntry :: TeleHashEntry -> String
+encodeTeleHashEntry t = 
+  let
+    to   = [("_to",   JSString $ toJSString $ teleTo t)]
+    
+    ring = case (teleRing t) of
+      Just r -> [("_ring", JSString $ toJSString $ show r)]
+      Nothing -> []
+      
+    see = case (teleSee t) of
+      Just r -> [(".see", showJSON $ JSArray (map (\s -> JSString (toJSString s)) r))]
+      Nothing -> []
+    
+    br = [("_br", JSString $ toJSString $ show (teleBr t))]
+
+    line = case (teleLine t) of
+      Just r -> [("_line", JSString $ toJSString $ show r)]
+      Nothing -> []
+
+    hop = case (teleHop t) of
+      Just r -> [("_hop", JSString $ toJSString $ show r)]
+      Nothing -> []
+      
+    end = case (teleSigEnd t) of
+      Just (Hash r) -> [("+end", JSString $ toJSString r)]
+      Nothing -> []
+
+    tap = case (teleTap t) of
+      Just r -> [(".tap", JSArray $ map toJSTap r)]
+      Nothing -> []
+      
+    toJSTap tap = JSObject $ toJSObject [
+      ("is", JSObject $ toJSObject [
+          (k, JSString $ toJSString v),
+          ("has", showJSON $ JSArray (map (\s -> JSString (toJSString s)) (tapHas tap)))
+          ])]
+      where
+      (k,v) = tapIs tap
+
+      
+  in
+   encode $ toJSObject (to++ring++see++br++line++hop++end++tap)
+   
 -- ---------------------------------------------------------------------
 
 getRandom :: Int -> Int
@@ -403,20 +445,14 @@ pingSeed seed =
     let bootTelex = mkTelex seedIPP
     -- bootTelex["+end"] = line.end; // any end will do, might as well ask for their neighborhood
     let bootTelex' = bootTelex { teleSigEnd = Just $ (lineEnd line) }
-    -- line = undefined
   
     io (putStrLn $ "pingSeed telex=" ++ (show bootTelex'))
     
-    -- io (putStrLn $ "sendMsg:" ++ (show $ BC.unpack $ head $ BL.toChunks $ encode $ toJson bootTelex))
-    
-    io (putStrLn $ "sendMsg1:" ++ (show $ bootTelex))
-    -- io (putStrLn $ "sendMsg2:" ++ (show $ toJSON bootTelex))
-    io (putStrLn $ "sendMsg3:" ++ (show $ encodeMsg bootTelex))
+    -- io (putStrLn $ "sendMsg1:" ++ (show $ bootTelex'))
+    -- io (putStrLn $ "sendMsg3:" ++ (show $ encodeMsg bootTelex'))
 
-    -- TODO: call sendTelex instead, which manages/reuses lines on the way
     socketh <- gets swH
-    --io (sendMsg socketh bootTelex)
-    sendTelex bootTelex
+    sendTelex bootTelex'
     
     return ()
    
@@ -651,7 +687,8 @@ sendTelex msg = do
         msg'' = msg' { teleBr = lineBr line }
         
         -- var msg = new Buffer(JSON.stringify(telex), "utf8");
-        msgJson = encodeMsg msg''
+        --msgJson = encodeMsg msg''
+        msgJson = encodeTeleHashEntry msg''
     
         -- line.bsent += msg.length;
         -- line.sentat = time();
