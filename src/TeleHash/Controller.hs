@@ -632,9 +632,11 @@ mkTelex seedIPP =
 -- Process each line from the server
 --
 dolisten :: SocketHandle -> TeleHash ()
-dolisten h = {- forever $ -} do
+dolisten h = forever $ do
+    -- TODO: move this pingSeeds call out to an actor, driven by a timer.
     pingSeeds
     
+    -- TODO: is this a blocking call?
     (msg,rinfo) <- io (SB.recvFrom (slSocket h) 1000)
 
     io (putStrLn ("dolisten:rx msg=" ++ (show msg)))
@@ -776,15 +778,15 @@ recvTelex msg rinfo = do
     --         return;
     --     }
     -- }
-    (Just hostname,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
+    (Just hostIP,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
     let
-      remoteipp = hostname ++ ":" ++ port
+      remoteipp = hostIP ++ ":" ++ port
 
     io (putStrLn ("recvTelex:remoteipp=" ++ remoteipp ++ ",seedsIndex="++(show seedsIndex)))
     case (swConnected state) of
       False -> do
         -- TODO : test that _to field is set. Requires different setup for the JSON leg. 
-        --        Why would it not be set?
+        --        Why would it not be set? Also test that the _to value is us.
         case (Set.member remoteipp seedsIndex ) of
           True -> online(rxTelex)
           False -> do
@@ -801,6 +803,7 @@ recvTelex msg rinfo = do
     line <- getTelehashLine remoteipp timeNow
     -- var lstat = self.checkline(line, telex, msgstr.length);
     let (lstat, line') = checkLine line rxTelex timeNow
+        
     -- if (!lstat) {
     --     console.log(["\tLINE FAIL[", JSON.stringify(line), "]"].join(""));
     --     return;
@@ -808,6 +811,8 @@ recvTelex msg rinfo = do
     --     console.log(["\tLINE STATUS ", (telex._line ? "OPEN":"RINGING")].join(""));
     -- }
 
+    -- TODO: update the line state monad, if ok
+    -- TODO: process the line commands, if ok
 
     return ()
 
