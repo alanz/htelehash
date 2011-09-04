@@ -2,3 +2,10 @@
 /dist/
 /htelehash.cabal~
 /src/TeleHash/Controller.hs~
+/src/TeleHash/Demo.hs
+/src/TeleHash/Example.hs
+/src/TeleHash/Example.hs~
+/src/TeleHash/Play.hs
+/src/TeleHash/Play.hs~
+/src/TeleHash/irc.hs
+/src/TeleHash/irc.hs~
