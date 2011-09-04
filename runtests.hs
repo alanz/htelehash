@@ -33,6 +33,9 @@ tests = [ testGroup "group 1"
             
           , testCase "test_checkLineRing1" test_checkLineRing1  
           , testCase "test_checkLineRing2" test_checkLineRing2  
+            
+          , testCase "test_checkLineBrDrop" test_checkLineBrDrop  
+          , testCase "test_checkLineBrDrop" test_checkLineBrNoDrop  
           
           ],
           testGroup "recvTelex" [
@@ -137,6 +140,22 @@ msg1 = (mkTelex "1.2.3.4:567") { teleMsgLength = Just 100 }
 -- If lineat is not set
 --   set lineat, ringin, and line
 -- set line br, brin
+-- drop line if brin/brout delta > 12k
+
+test_checkLineBrDrop =
+  (False, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 12004, lineBrin = 100, lineBrout = 3,
+                lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
+  @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11904, lineBrout = 3}) 
+                (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
+                (TOD 1000 999)
+
+test_checkLineBrNoDrop =
+  (True, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 12003, lineBrin = 100, lineBrout = 3,
+                lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
+  @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11903, lineBrout = 3}) 
+                (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
+                (TOD 1000 999)
+
 
 test_checkLineRing1 =
   (True, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100,
