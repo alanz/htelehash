@@ -20,6 +20,7 @@ module TeleHash.Controller
        , isLineOk
        , isRingOk  
        , mkLine  
+       , checkLine  
        ) where
 
 import Control.Applicative
@@ -117,6 +118,7 @@ data Line = Line {
   } deriving (Eq,Show)
 
 -- Note: endPointStr should always be a IP:PORT
+mkLine :: String -> ClockTime -> Line
 mkLine endPointStr timeNow =
   let
     [hostIP,port] = split ":" endPointStr
@@ -166,6 +168,7 @@ data Telex = Telex
              , teleTap    :: Maybe [Tap]  
              -- , teleRest   :: Maybe (Map.Map T.Text Value)
              -- , teleRest   :: (Map.Map T.Text Value)
+             , teleMsgLength :: Maybe Int -- length of received Telex  
              } deriving (Data, Typeable, -- For Text.JSON
                                  Eq, Show)
 
@@ -182,12 +185,14 @@ parseTelex s =
       maybeHop  = getStringMaybe      cc "_hop"
       maybeEnd  = getHashMaybe        cc "+end"
       maybeTap  = getTapMaybe         cc ".tap"
+      msgLength = length s
     in 
      -- mkTelex to
      
      (mkTelex to) {teleRing = maybeRing, teleSee = maybeSee, teleBr = br, 
                    teleTo = to, teleLine = maybeLine, teleHop = maybeHop,
-                   teleSigEnd = maybeEnd, teleTap = maybeTap }
+                   teleSigEnd = maybeEnd, teleTap = maybeTap, 
+                   teleMsgLength = Just msgLength }
      
 -- ---------------------------------------------------------------------
 -- Pretty sure these two exist in JSON somewhere, do not know how to find them
@@ -246,24 +251,31 @@ getTapMaybe cc field =
     
 -- ---------------------------------------------------------------------
     
+test_parseTelex :: Telex
 test_parseTelex = parseTelex _inp
 
+_inp :: [Char]
 _inp = ("{\"_ring\":17904," ++
        "\".see\":[ \"208.68.163.247:42424\", \"208.68.160.25:55137\"]," ++ 
        "\"_br\":52," ++ 
        "\"_to\":\"173.19.99.143:63681\" }")
 
+_inp2 :: [Char]
 _inp2 = "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\",\".see\":[\"196.215.128.240:51602\"],\".tap\":[{\"is\":{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\"},\"has\":[\"+pop\"]}],\"_line\":35486388,\"_br\":174}"
 
+_inp3 :: [Char]
 _inp3 = "{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\",\"_to\":\"208.68.163.247:42424\",\".see\":[\"196.215.128.240:51602\"],\".tap\":[{\"is\":{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\"},\"has\":[\"+pop\"]}],\"_line\":35486388,\"_br\":174}"
 
+_tx1 :: Telex
 _tx1 = parseTelex _inp
+_tx2 :: Telex
 _tx2 = parseTelex _inp2
+_tx3 :: Telex
 _tx3 = parseTelex _inp3
 
 -- ---------------------------------------------------------------------
 
---encodeTelex :: Telex -> String
+encodeTelex :: Telex -> String
 encodeTelex t = 
   let
     to   = [("_to",   JSString $ toJSString $ teleTo t)]
@@ -390,6 +402,7 @@ resolve hostname port = do
   
 -- ---------------------------------------------------------------------
 
+addrFromHostPort :: String -> String -> IO SockAddr
 addrFromHostPort hostname port = do
   (serveraddr,_,_) <- resolve hostname port
   return (addrAddress serveraddr)
@@ -516,7 +529,7 @@ isLineOk line secsNow msg = lineOk
       Just msgLineNum -> 
         case (lineLine line) of
           Just lineNum -> lineNum == msgLineNum && (lineNum `mod` (lineRingout line) == 0)
-          Nothing -> False -- i.e. msg.line /= line.line
+          Nothing -> True -- only test if we have a value
       Nothing -> True  
       
     lineOk = msgLineOk && not timedOut
@@ -540,43 +553,71 @@ isRingOk line msg = ringOk
     
 -- ---------------------------------------------------------------------
     
-checkLine
-  :: Line -> Telex -> ClockTime -> TeleHash ()
-checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
-
+checkLine :: Line -> Telex -> ClockTime -> (Bool, Line)
+checkLine line msg timeNow@(TOD secsNow picosecsNow) = 
   let
     lineOk = isLineOk line secsNow msg
   
     line' = if lineOk 
               then case (lineLineat line) of
                 Just _ -> line
-                Nothing -> line {lineRingin = Just ((fromJust $ teleLine msg) `div` ((lineRingout line))),
-                                 lineLine   = (teleLine msg),             
-                                 lineLineat = Just timeNow
-                                }
+                Nothing -> case (teleLine msg) of
+                  Just msgLine ->
+                    line {lineRingin = Just (msgLine `div` ((lineRingout line))),
+                          lineLine   = teleLine msg,
+                          lineLineat = Just timeNow
+                         }
+                  Nothing -> line
               else line
-                   
                    
     ringOk = isRingOk line' msg
     
-    msgRing = fromJust $ teleRing msg
-    
-    line'' = if (not ringOk) 
-               then line'
-               else (if ((lineLineat line) /= Nothing) 
+    line'' = case (teleRing msg) of
+               Just msgRing ->
+                 if (not ringOk) 
+                   then line'
+                   else (if ((lineLineat line) /= Nothing) 
                       then line'
                       else line' { 
                                  lineRingin = Just msgRing,
-                                 lineLine = Just (msgRing * (lineRingout line)),
+                                 lineLine   = Just (msgRing * (lineRingout line)),
                                  lineLineat = Just timeNow
                                  })
+               Nothing -> line'
                    
-  updateTelehashLine line''
+    valid = lineOk && ringOk
+    
 
   -- TODO: *1. Update state with the new line value                          
   --       2. Return a true/false value as per the original             
   --       3. Do the rest of the processing, as required in original
-  return ()
+  {-
+    // we're valid at this point, line or otherwise, track bytes
+    console.log([
+        "\tBR ", line.ipp, " [", line.br, " += ",
+        br, "] DIFF ", (line.bsent - t._br)].join(""));
+    line.br += br;
+    line.brin = t._br;
+    
+    // they can't send us that much more than what we've told them to, bad!
+    if (line.br - line.brout > 12000) {
+        return false;
+    }
+  -}
+    msgLength = fromJust (teleMsgLength msg)
+    
+    line''' = if valid
+                 then line'' { lineBr = (lineBr line'') + msgLength,
+                               lineBrin = msgLength }
+                 else line''
+                    
+    brOk = (lineBr line''') - (lineBrout line''') <= 12000
+    
+    
+  -- updateTelehashLine line'''
+  in
+   (valid && brOk, line''' { lineSeenat = Just timeNow })
+  
 
 -- ---------------------------------------------------------------------
 
@@ -584,7 +625,7 @@ mkTelex :: String -> Telex
 mkTelex seedIPP = 
     -- set _to = seedIPP
   -- Telex Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
-  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing -- Map.empty -- Nothing
+  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing -- Map.empty -- Nothing
                   
 -- ---------------------------------------------------------------------  
 --
@@ -759,7 +800,7 @@ recvTelex msg rinfo = do
     timeNow <- io getClockTime
     line <- getTelehashLine remoteipp timeNow
     -- var lstat = self.checkline(line, telex, msgstr.length);
-    lstat <- checkLine line rxTelex timeNow
+    let (lstat, line') = checkLine line rxTelex timeNow
     -- if (!lstat) {
     --     console.log(["\tLINE FAIL[", JSON.stringify(line), "]"].join(""));
     --     return;

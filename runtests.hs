@@ -14,7 +14,8 @@ tests = [ testGroup "group 1"
           [
             testCase "lineOk_timeoutOk"     test_lineOk_timeoutOk
           , testCase "lineOk_timeoutFail"   test_lineOk_timeoutFail
-          , testCase "lineOk_lineMatch"     test_lineOk_lineMatch
+          , testCase "lineOk_lineMatch1"    test_lineOk_lineMatch1
+          , testCase "lineOk_lineMatch2"    test_lineOk_lineMatch2
           , testCase "lineOk_lineMisMatch"  test_lineOk_lineMisMatch
           , testCase "lineOk_ringMatch"     test_lineOk_ringMatch
           , testCase "lineOk_ringMisMatch"  test_lineOk_ringMisMatch
@@ -26,6 +27,12 @@ tests = [ testGroup "group 1"
               
           , testCase "lineOk_msgRingMatchesLine"    test_lineOk_msgRingMatchesLine
           , testCase "lineOk_msgRingMisMatchesLine" test_lineOk_msgRingMisMatchesLine
+            
+          , testCase "test_checkLine1" test_checkLine1
+          , testCase "test_checkLine2" test_checkLine2
+            
+          , testCase "test_checkLineRing1" test_checkLineRing1  
+          , testCase "test_checkLineRing2" test_checkLineRing2  
           
           ],
           testGroup "recvTelex" [
@@ -52,7 +59,8 @@ test_parseMsg1Js =
            teleHop = Nothing,
            teleSigEnd = Just $ Hash "38666817e1b38470644e004b9356c1622368fa57",
            teleTap = Just [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"), 
-                                tapHas = ["+pop"]}]
+                                tapHas = ["+pop"]}],
+           teleMsgLength = Just (length msg1Js)
           })
   
 msg1Js = "{\".tap\":[{\"has\":[\"+pop\"],\"is\":{\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\"}}],"++
@@ -104,8 +112,11 @@ test_lineOk_ringMatch =
 test_lineOk_ringMisMatch =
   False @=? isLineOk (line1 {lineLine = Just 12345, lineRingout = 7 }) 1008 (msg1 { teleLine = Just 12345 })
 
-test_lineOk_lineMatch =
+test_lineOk_lineMatch1 =
   True @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 12345 })
+
+test_lineOk_lineMatch2 =
+  True @=?isLineOk (line1 {lineLineat = Nothing, lineRingout=15}) 1003 (msg1 {teleLine = Just 12345})
 
 test_lineOk_lineMisMatch =
   False @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 1 })
@@ -118,8 +129,37 @@ test_lineOk_timeoutOk =
 test_lineOk_timeoutFail =
   False @=? isLineOk line1 1011 msg1
 
+line1 = (mkLine "telehash.org:42424" (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
+msg1 = (mkTelex "1.2.3.4:567") { teleMsgLength = Just 100 }
 
-line1 = (mkLine "telehash.org:42424" (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5 }
-msg1 = mkTelex "1.2.3.4:567"
+-- ---------------------------------------------------------------------
+-- checkLine tests, in terms of modifying line state
+-- If lineat is not set
+--   set lineat, ringin, and line
+-- set line br, brin
+
+test_checkLineRing1 =
+  (True, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100,
+                lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
+  @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
+                (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
+                (TOD 1000 999)
+
+test_checkLineRing2 =
+  (True, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100,
+                lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
+  @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
+                (msg1 {teleLine = Nothing, teleRing = Just 823}) 
+                (TOD 1000 999)
+
+-- -----------------------------------------------
+
+test_checkLine1 =
+  (True, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100}) 
+  @=? checkLine line1 msg1 (TOD 1000 999)
+
+test_checkLine2 =
+  (False, line1 {lineSeenat = Just (TOD 1020 999), lineBr = 10, lineBrin = 0}) 
+  @=? checkLine line1 msg1 (TOD 1020 999)
 
 -- EOF
