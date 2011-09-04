@@ -10,14 +10,15 @@ module TeleHash.Controller
        (
        -- For testing
        recvTelex  
-       , parseTeleHashEntry
+       , parseTelex
        , mkTelex  
-       , TeleHashEntry(..)
+       , Telex(..)
        , Hash(..)  
        , Tap(..)  
        , Line(..)  
        , encodeMsg  
        , isLineOk
+       , isRingOk  
        , mkLine  
        ) where
 
@@ -33,6 +34,7 @@ import Data.Char
 import Data.List
 import Data.Maybe
 import Data.String.Utils
+import Debug.Trace
 import Network.BSD
 import Network.Socket
 import Numeric
@@ -145,7 +147,7 @@ mkLine endPointStr timeNow =
 
 -- ---------------------------------------------------------------------
 
--- JSON stuff for a TeleHashEntry
+-- JSON stuff for a Telex
 -- TODO: merge in stuff from Json.hs and get rid of that file, or refactor
 -- See https://github.com/MedeaMelana/JsonGrammar for examples/howto
 
@@ -153,22 +155,22 @@ data Tap = Tap { tapIs :: (String,String), tapHas :: [String] }
          deriving (Data, Typeable, -- For Text.JSON
                    Eq, Show)
 
-data TeleHashEntry = TeleHashEntry 
-                     { teleRing   :: Maybe Int
-                     , teleSee    :: Maybe [String]
-                     , teleBr     :: Int
-                     , teleTo     :: String
-                     , teleLine   :: Maybe Int
-                     , teleHop    :: Maybe String
-                     , teleSigEnd :: Maybe Hash
-                     , teleTap    :: Maybe [Tap]  
-                     -- , teleRest   :: Maybe (Map.Map T.Text Value)
-                     -- , teleRest   :: (Map.Map T.Text Value)
-                     } deriving (Data, Typeable, -- For Text.JSON
+data Telex = Telex 
+             { teleRing   :: Maybe Int
+             , teleSee    :: Maybe [String]
+             , teleBr     :: Int
+             , teleTo     :: String
+             , teleLine   :: Maybe Int
+             , teleHop    :: Maybe String
+             , teleSigEnd :: Maybe Hash
+             , teleTap    :: Maybe [Tap]  
+             -- , teleRest   :: Maybe (Map.Map T.Text Value)
+             -- , teleRest   :: (Map.Map T.Text Value)
+             } deriving (Data, Typeable, -- For Text.JSON
                                  Eq, Show)
 
-parseTeleHashEntry :: String -> TeleHashEntry
-parseTeleHashEntry s = 
+parseTelex :: String -> Telex
+parseTelex s = 
     let 
       decoded = (decode s :: Result JSValue)
       Ok (JSObject cc) = decoded
@@ -244,7 +246,7 @@ getTapMaybe cc field =
     
 -- ---------------------------------------------------------------------
     
-test_parseTeleHashEntry = parseTeleHashEntry _inp
+test_parseTelex = parseTelex _inp
 
 _inp = ("{\"_ring\":17904," ++
        "\".see\":[ \"208.68.163.247:42424\", \"208.68.160.25:55137\"]," ++ 
@@ -255,14 +257,14 @@ _inp2 = "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"9fa23aa9f9ac828ced5a151fed
 
 _inp3 = "{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\",\"_to\":\"208.68.163.247:42424\",\".see\":[\"196.215.128.240:51602\"],\".tap\":[{\"is\":{\"+end\":\"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495\"},\"has\":[\"+pop\"]}],\"_line\":35486388,\"_br\":174}"
 
-_tx1 = parseTeleHashEntry _inp
-_tx2 = parseTeleHashEntry _inp2
-_tx3 = parseTeleHashEntry _inp3
+_tx1 = parseTelex _inp
+_tx2 = parseTelex _inp2
+_tx3 = parseTelex _inp3
 
 -- ---------------------------------------------------------------------
 
---encodeTeleHashEntry :: TeleHashEntry -> String
-encodeTeleHashEntry t = 
+--encodeTelex :: Telex -> String
+encodeTelex t = 
   let
     to   = [("_to",   JSString $ toJSString $ teleTo t)]
     
@@ -502,7 +504,7 @@ updateTelehashLine line = do
 
 -- ---------------------------------------------------------------------
 
-isLineOk :: Line -> Integer -> TeleHashEntry -> Bool
+isLineOk :: Line -> Integer -> Telex -> Bool
 isLineOk line secsNow msg = lineOk
   where
     timedOut =
@@ -519,66 +521,31 @@ isLineOk line secsNow msg = lineOk
       
     lineOk = msgLineOk && not timedOut
 
-checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
-  -- // first, if it's been more than 10 seconds after a line opened, 
-  -- // be super strict, no more ringing allowed, _line absolutely required
-  -- if (line.lineat > 0 && time() - line.lineat > 10) {
-  --     if (t._line != line.line) {
-  --         return false;
-  --     }
-  -- }
-  
-  {-
-  let
-    timedOut =
-      case (lineLineat line) of
-        Just (TOD secs picos) -> secsNow - secs > 10 
-        Nothing -> False  
-  
-    lineEstablished = case (lineLine line) of
-      Just lineNum -> case (teleLine msg) of
-        Just msgLineNum -> lineNum == msgLineNum
-        Nothing -> False  
-      Nothing -> False
-  
-    lineBad = timedOut && not lineEstablished
+-- ---------------------------------------------------------------------
+
+isRingOk :: Line -> Telex -> Bool
+isRingOk line msg = ringOk
+  where
+    ringOk = case (teleRing msg) of
+      Just msgRing -> msgRingOk && lineOk
+        where
+            -- Check that line.ringin matches if it exists
+            -- Check the incoming ring > 0 and <= 32768
+            msgRingOk = (msgRing > 0) && (msgRing <= 32768)
+            lineOk = case (lineRingin line) of 
+                      Just ri -> (ri == msgRing)
+                      Nothing -> True
+
+      Nothing -> True
     
-  --  // second, process incoming _line
-  --  if (t._line) {
-    lineOk = case (teleLine msg) of  
-      Just lineNum -> if not timedOut && lineEstablished  
-                      then (lineNum `mod` (lineRingout line) == 0)
-                      else False
-  --      if (line.ringout <= 0) {
-  --          return false;
-  --      }
-  --      
-  --      // be nice in what we accept, strict in what we send
-  --      t._line = parseInt(t._line);
-  --      
-  --      // must match if exist
-  --      if (line.line && t._line != line.line) {
-  --          return false;
-  --      }
-  --      
-  --      // must be a product of our sent ring!!
-  --      if (t._line % line.ringout != 0) {
-  --          return false;
-  --      }
-  --      
-  --      // we can set up the line now if needed
-  --      if(line.lineat == 0) {
-  --          line.ringin = t._line / line.ringout; // will be valid if the % = 0 above
-  --          line.line = t._line;
-  --          line.lineat = time();
-  --      }
-  --  }
-      Nothing -> False    
-  -}
+-- ---------------------------------------------------------------------
+    
+checkLine
+  :: Line -> Telex -> ClockTime -> TeleHash ()
+checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
+
   let
     lineOk = isLineOk line secsNow msg
-  
-  -- -----------------------------
   
     line' = if lineOk 
               then case (lineLineat line) of
@@ -589,57 +556,35 @@ checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
                                 }
               else line
                    
-  -- TODO: propagate line' to State.  
                    
-  --  // last, process any incoming _ring's (remember, could be out of order, after a _line)
-  --  if (t._ring) {
-    line'' = case (teleRing msg) of
-               Just msgRing -> 
-                 let
-                   msgRingin = (fromMaybe 0 (teleRing msg))
-                   ringinOk = case (lineRingin line) of 
-                     Just ri -> (ri == msgRingin) && (msgRingin > 0) && (msgRingin <= 32768)
-                     Nothing -> True
-                   in
-                     if (not ringinOk) then line'
-                       else if ((lineLineat line) /= Nothing) then line'
-                            else line' {lineRingin = Just msgRingin,
-                                        lineLine = Just (msgRingin * (lineRingout line)),
-                                        lineLineat = Just timeNow
-                                       }
-                   
-  --      // already had a ring and this one doesn't match, should be rare
-  --      if (line.ringin && t._ring != line.ringin) {
-  --          return false;
-  --      }
-  --      
-  --      // make sure within valid range
-  --      if (t._ring <= 0 || t._ring > 32768) {
-  --          return false;
-  --      }
-  --      
-  --      // we can set up the line now if needed
-  --      if (line.lineat == 0) {
-  --          line.ringin = t._ring;
-  --          line.line = line.ringin * line.ringout;
-  --          line.lineat = time();
-  --      }
-  --  }
-               Nothing -> line'
+    ringOk = isRingOk line' msg
+    
+    msgRing = fromJust $ teleRing msg
+    
+    line'' = if (not ringOk) 
+               then line'
+               else (if ((lineLineat line) /= Nothing) 
+                      then line'
+                      else line' { 
+                                 lineRingin = Just msgRing,
+                                 lineLine = Just (msgRing * (lineRingout line)),
+                                 lineLineat = Just timeNow
+                                 })
                    
   updateTelehashLine line''
 
   -- TODO: *1. Update state with the new line value                          
   --       2. Return a true/false value as per the original             
+  --       3. Do the rest of the processing, as required in original
   return ()
 
 -- ---------------------------------------------------------------------
 
-mkTelex :: String -> TeleHashEntry
+mkTelex :: String -> Telex
 mkTelex seedIPP = 
     -- set _to = seedIPP
-  -- TeleHashEntry Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
-  TeleHashEntry Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing -- Map.empty -- Nothing
+  -- Telex Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
+  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing -- Map.empty -- Nothing
                   
 -- ---------------------------------------------------------------------  
 --
@@ -652,8 +597,8 @@ dolisten h = {- forever $ -} do
     (msg,rinfo) <- io (SB.recvFrom (slSocket h) 1000)
 
     io (putStrLn ("dolisten:rx msg=" ++ (show msg)))
-    io (putStrLn ("dolisten:rx=" ++ (show (parseTeleHashEntry (BC.unpack msg)))))
-    -- eval $ parseTeleHashEntry (head $ BL.toChunks msg)
+    io (putStrLn ("dolisten:rx=" ++ (show (parseTelex (BC.unpack msg)))))
+    -- eval $ parseTelex (head $ BL.toChunks msg)
     recvTelex (BC.unpack msg) rinfo
 
   where
@@ -663,7 +608,7 @@ dolisten h = {- forever $ -} do
 --
 -- Dispatch a command
 --
-eval :: Maybe TeleHashEntry -> TeleHash ()
+eval :: Maybe Telex -> TeleHash ()
 --eval     "!uptime"             = uptime >>= privmsg
 --eval     "!quit"               = write "QUIT" ":Exiting" >> io (exitWith ExitSuccess)
 --eval x | "!id " `isPrefixOf` x = privmsg (drop 4 x)
@@ -672,7 +617,7 @@ eval     _                     = return () -- ignore everything else
  
 -- ---------------------------------------------------------------------  
 
-sendTelex :: TeleHashEntry -> TeleHash ()
+sendTelex :: Telex -> TeleHash ()
 sendTelex msg = do 
   timeNow <- io getClockTime
   line <- getTelehashLine (teleTo msg) timeNow
@@ -709,7 +654,7 @@ sendTelex msg = do
         
         -- var msg = new Buffer(JSON.stringify(telex), "utf8");
         --msgJson = encodeMsg msg''
-        msgJson = encodeTeleHashEntry msg''
+        msgJson = encodeTelex msg''
     
         -- line.bsent += msg.length;
         -- line.sentat = time();
@@ -772,9 +717,9 @@ sendMsg socketh msg =
 
 recvTelex :: String -> SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
-    io (putStrLn ("recvTelex:" ++  (show (parseTeleHashEntry msg))))
+    io (putStrLn ("recvTelex:" ++  (show (parseTelex msg))))
     let
-      rxTelex = parseTeleHashEntry msg
+      rxTelex = parseTelex msg
     
     state <- get
     seedsIndex <- gets swSeedsIndex
