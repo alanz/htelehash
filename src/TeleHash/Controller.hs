@@ -15,7 +15,10 @@ module TeleHash.Controller
        , TeleHashEntry(..)
        , Hash(..)  
        , Tap(..)  
+       , Line(..)  
        , encodeMsg  
+       , isLineOk
+       , mkLine  
        ) where
 
 import Control.Applicative
@@ -25,16 +28,11 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.State
 import Control.Exception 
---import Data.Attoparsec
---import Data.Aeson (Object,json,Value(..),encode)
---import Data.Aeson 
 import Data.Bits
 import Data.Char
---import Data.Iso
 import Data.List
 import Data.Maybe
 import Data.String.Utils
---import Language.JsonGrammar
 import Network.BSD
 import Network.Socket
 import Numeric
@@ -88,11 +86,12 @@ data Switch = Switch { swH :: SocketHandle
                      , swSelfIpp :: Maybe String  
                      , swSelfHash :: Maybe String
                      , swTaps :: [Tap]  
-                     }
+                     } deriving (Eq,Show)
 
 data SocketHandle = 
     SocketHandle {slSocket :: Socket,
-                  slAddress :: SockAddr}
+                  slAddress :: SockAddr
+                 } deriving (Eq,Show)
 
 data Line = Line {
   lineIpp       :: String, -- IP and port of the destination
@@ -103,8 +102,8 @@ data Line = Line {
   lineRingin    :: Maybe Int, 
   lineLine      :: Maybe Int, -- When line is live, product of our ringout and their ringin
   lineInit      :: ClockTime,
-  lineSeenat    :: ClockTime,
-  lineSentat    :: ClockTime,
+  lineSeenat    :: Maybe ClockTime,
+  lineSentat    :: Maybe ClockTime,
   lineLineat    :: Maybe ClockTime,
   lineBr        :: Int,
   lineBrout     :: Int,
@@ -113,11 +112,12 @@ data Line = Line {
   lineNeighbors :: Set.Set Hash, -- lineNeighbors,
   lineVisible   :: Bool,
   lineRules     :: [Tap]
-  }
+  } deriving (Eq,Show)
 
+-- Note: endPointStr should always be a IP:PORT
 mkLine endPointStr timeNow =
   let
-    [hostname,port] = split ":" endPointStr
+    [hostIP,port] = split ":" endPointStr
     endPointHash = mkHash endPointStr
     (TOD secs picosecs) = timeNow
     ringOut = fromIntegral (1 + (picosecs `mod` 32768))  -- TODO: rand 1..32768
@@ -125,15 +125,15 @@ mkLine endPointStr timeNow =
    Line {
        lineIpp       = endPointStr,
        lineEnd       = endPointHash,
-       lineHost      = hostname,
+       lineHost      = hostIP,
        linePort      = port,
        lineRingout   = ringOut,
        lineRingin    = Nothing,
        lineLine      = Nothing,
        lineInit      = timeNow,
-       lineSeenat    = undefined,
-       lineSentat    = undefined,
-       lineLineat    = undefined,
+       lineSeenat    = Nothing,
+       lineSentat    = Nothing,
+       lineLineat    = Nothing,
        lineBr        = 0,
        lineBrout     = 0,
        lineBrin      = 0,
@@ -502,6 +502,23 @@ updateTelehashLine line = do
 
 -- ---------------------------------------------------------------------
 
+isLineOk :: Line -> Integer -> TeleHashEntry -> Bool
+isLineOk line secsNow msg = lineOk
+  where
+    timedOut =
+      case (lineLineat line) of
+        Just (TOD secs picos) -> secsNow - secs > 10 
+        Nothing -> False  
+  
+    msgLineOk = case (teleLine msg) of
+      Just msgLineNum -> 
+        case (lineLine line) of
+          Just lineNum -> lineNum == msgLineNum && (lineNum `mod` (lineRingout line) == 0)
+          Nothing -> False -- i.e. msg.line /= line.line
+      Nothing -> True  
+      
+    lineOk = msgLineOk && not timedOut
+
 checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
   -- // first, if it's been more than 10 seconds after a line opened, 
   -- // be super strict, no more ringing allowed, _line absolutely required
@@ -511,6 +528,7 @@ checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
   --     }
   -- }
   
+  {-
   let
     timedOut =
       case (lineLineat line) of
@@ -556,7 +574,12 @@ checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
   --      }
   --  }
       Nothing -> False    
-
+  -}
+  let
+    lineOk = isLineOk line secsNow msg
+  
+  -- -----------------------------
+  
     line' = if lineOk 
               then case (lineLineat line) of
                 Just _ -> line
@@ -604,7 +627,9 @@ checkLine line msg timeNow@(TOD secsNow picosecsNow) = do
   --  }
                Nothing -> line'
                    
-  -- TODO: 1. Update state with the new line value                          
+  updateTelehashLine line''
+
+  -- TODO: *1. Update state with the new line value                          
   --       2. Return a true/false value as per the original             
   return ()
 
@@ -624,13 +649,9 @@ dolisten :: SocketHandle -> TeleHash ()
 dolisten h = {- forever $ -} do
     pingSeeds
     
-    -- msg <- io (SB.recv (slSocket h) 1000)
     (msg,rinfo) <- io (SB.recvFrom (slSocket h) 1000)
 
-    io (putStrLn $ show msg)
     io (putStrLn ("dolisten:rx msg=" ++ (show msg)))
-    --io (putStrLn (show (parseTeleHashEntry (head $ BL.toChunks msg))))
-    -- io (putStrLn ("dolisten:rx=" ++ (show (parseTeleHashEntry msg))))
     io (putStrLn ("dolisten:rx=" ++ (show (parseTeleHashEntry (BC.unpack msg)))))
     -- eval $ parseTeleHashEntry (head $ BL.toChunks msg)
     recvTelex (BC.unpack msg) rinfo
@@ -695,7 +716,7 @@ sendTelex msg = do
         line' = line { 
             lineBrout = lineBr line 
           , lineBsent = (lineBsent line) + (length msgJson)
-          , lineSentat = timeNow            
+          , lineSentat = Just timeNow            
           }       
         
       -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
@@ -748,10 +769,10 @@ sendMsg socketh msg =
 -- ---------------------------------------------------------------------
 
 -- Dispatch incoming raw messages
---recvTelex :: BC.ByteString -> SockAddr -> TeleHash ()
+
+recvTelex :: String -> SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
-    -- io (putStrLn $ show msg)
-    io (putStrLn (show (parseTeleHashEntry msg)))
+    io (putStrLn ("recvTelex:" ++  (show (parseTeleHashEntry msg))))
     let
       rxTelex = parseTeleHashEntry msg
     
