@@ -36,6 +36,9 @@ tests = [ testGroup "group 1"
             
           , testCase "test_checkLineBrDrop" test_checkLineBrDrop  
           , testCase "test_checkLineBrDrop" test_checkLineBrNoDrop  
+            
+          , testCase "test_getCommands1" test_getCommands1  
+          , testCase "test_getSignals1"  test_getSignals1  
           
           ],
           testGroup "recvTelex" [
@@ -63,6 +66,7 @@ test_parseMsg1Js =
            teleSigEnd = Just $ Hash "38666817e1b38470644e004b9356c1622368fa57",
            teleTap = Just [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"), 
                                 tapHas = ["+pop"]}],
+           teleRest = [(".tap","[{\"has\":[\"+pop\"],\"is\":{\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\"}}]"),("_line","412367436"),(".see","[\"208.68.163.247:42424\"]"),("_br","74"),("+end","\"38666817e1b38470644e004b9356c1622368fa57\""),("_to","\"196.209.236.12:34963\"")],
            teleMsgLength = Just (length msg1Js)
           })
   
@@ -180,5 +184,18 @@ test_checkLine1 =
 test_checkLine2 =
   (False, line1 {lineSeenat = Just (TOD 1020 999), lineBr = 10, lineBrin = 0}) 
   @=? checkLine line1 msg1 (TOD 1020 999)
+
+-- ---------------------------------------------------------------------
+          
+test_getCommands1 =
+  [
+    (".see","[\"196.215.40.28:59056\"]"),
+    (".tap","[{\"is\":{\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"},\"has\":[\"+pop\"]}]")
+  ]
+  @=? (getCommands $ parseTelex "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\",\".see\":[\"196.215.40.28:59056\"],\".tap\":[{\"is\":{\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"},\"has\":[\"+pop\"]}],\"_line\":252817576,\"_br\":89}")
+  
+test_getSignals1 =
+  [("+end","\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"")]
+  @=? (getSignals $ parseTelex "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\",\".see\":[\"196.215.40.28:59056\"],\".tap\":[{\"is\":{\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"},\"has\":[\"+pop\"]}],\"_line\":252817576,\"_br\":89}")
 
 -- EOF

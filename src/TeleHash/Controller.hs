@@ -21,6 +21,8 @@ module TeleHash.Controller
        , isRingOk  
        , mkLine  
        , checkLine  
+       , getCommands  
+       , getSignals  
        ) where
 
 import Control.Applicative
@@ -168,6 +170,7 @@ data Telex = Telex
              , teleTap    :: Maybe [Tap]  
              -- , teleRest   :: Maybe (Map.Map T.Text Value)
              -- , teleRest   :: (Map.Map T.Text Value)
+             , teleRest   :: [(String, String)]
              , teleMsgLength :: Maybe Int -- length of received Telex  
              } deriving (Data, Typeable, -- For Text.JSON
                                  Eq, Show)
@@ -177,6 +180,7 @@ parseTelex s =
     let 
       decoded = (decode s :: Result JSValue)
       Ok (JSObject cc) = decoded
+      
       Just to   = getStringMaybe      cc "_to"
       maybeRing = getIntMaybe         cc "_ring"
       maybeSee  = getStringArrayMaybe cc ".see"
@@ -192,6 +196,7 @@ parseTelex s =
      (mkTelex to) {teleRing = maybeRing, teleSee = maybeSee, teleBr = br, 
                    teleTo = to, teleLine = maybeLine, teleHop = maybeHop,
                    teleSigEnd = maybeEnd, teleTap = maybeTap, 
+                   teleRest = map (\(name,val) -> (name, encode val)) (fromJSObject cc), -- horrible, but will do for now
                    teleMsgLength = Just msgLength }
      
 -- ---------------------------------------------------------------------
@@ -461,7 +466,7 @@ pingSeed seed =
     -- bootTelex["+end"] = line.end; // any end will do, might as well ask for their neighborhood
     let bootTelex' = bootTelex { teleSigEnd = Just $ (lineEnd line) }
   
-    io (putStrLn $ "pingSeed telex=" ++ (show bootTelex'))
+    -- io (putStrLn $ "pingSeed telex=" ++ (show bootTelex'))
     
     -- io (putStrLn $ "sendMsg1:" ++ (show $ bootTelex'))
     -- io (putStrLn $ "sendMsg3:" ++ (show $ encodeMsg bootTelex'))
@@ -499,6 +504,9 @@ getTelehashLine seedIPP timeNow = do
   
 -- ---------------------------------------------------------------------
 
+myNop :: TeleHash ()
+myNop = do return ()
+
 updateTelehashLine :: Line -> TeleHash ()
 updateTelehashLine line = do
   state <- get
@@ -523,6 +531,7 @@ isLineOk line secsNow msg = lineOk
     timedOut =
       case (lineLineat line) of
         Just (TOD secs picos) -> secsNow - secs > 10 
+        --Just (TOD secs picos) -> secsNow - secs > 60 
         Nothing -> False  
   
     msgLineOk = case (teleLine msg) of
@@ -625,7 +634,7 @@ mkTelex :: String -> Telex
 mkTelex seedIPP = 
     -- set _to = seedIPP
   -- Telex Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
-  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing -- Map.empty -- Nothing
+  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing [] Nothing -- Map.empty -- Nothing
                   
 -- ---------------------------------------------------------------------  
 --
@@ -639,8 +648,8 @@ dolisten h = forever $ do
     -- TODO: is this a blocking call?
     (msg,rinfo) <- io (SB.recvFrom (slSocket h) 1000)
 
-    io (putStrLn ("dolisten:rx msg=" ++ (show msg)))
-    io (putStrLn ("dolisten:rx=" ++ (show (parseTelex (BC.unpack msg)))))
+    io (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
+    -- io (putStrLn ("dolisten:rx=" ++ (show (parseTelex (BC.unpack msg)))))
     -- eval $ parseTelex (head $ BL.toChunks msg)
     recvTelex (BC.unpack msg) rinfo
 
@@ -756,37 +765,38 @@ sendMsg socketh msg =
           
 -- ---------------------------------------------------------------------
 
+-- (telex._line ? "OPEN":"RINGING")
+getLineStatus :: Telex -> [Char]
+getLineStatus msg = 
+  case (teleLine msg) of
+    Just _ -> "OPEN"
+    Nothing -> "RINGING"
+  
+-- ---------------------------------------------------------------------
+
 -- Dispatch incoming raw messages
 
 recvTelex :: String -> SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
-    io (putStrLn ("recvTelex:" ++  (show (parseTelex msg))))
+    -- io (putStrLn ("recvTelex:" ++  (show (parseTelex msg))))
     let
       rxTelex = parseTelex msg
     
     state <- get
     seedsIndex <- gets swSeedsIndex
 
-    -- if (!self.connected)
-    -- {
-    --     // must have come from a trusted seed and have our to IPP info
-    --     if(self.seedsIndex[remoteipp] && "_to" in telex)
-    --     {
-    --         self.online(telex);
-    --     }else{
-    --         console.log("we're offline and don't like that");
-    --         return;
-    --     }
-    -- }
     (Just hostIP,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
     let
       remoteipp = hostIP ++ ":" ++ port
-
-    io (putStrLn ("recvTelex:remoteipp=" ++ remoteipp ++ ",seedsIndex="++(show seedsIndex)))
+    
+    timeNow <- io getClockTime
+    io (putStrLn ("recvTelex:remoteipp=" ++ remoteipp ++ ",seedsIndex="++(show seedsIndex) 
+                  ++ ",time=" ++ (show timeNow)))
     case (swConnected state) of
       False -> do
         -- TODO : test that _to field is set. Requires different setup for the JSON leg. 
         --        Why would it not be set? Also test that the _to value is us.
+        -- // must have come from a trusted seed and have our to IPP info
         case (Set.member remoteipp seedsIndex ) of
           True -> online(rxTelex)
           False -> do
@@ -798,23 +808,39 @@ recvTelex msg rinfo = do
 
 
     -- // if this is a switch we know, check a few things
-    -- var line = self.getline(remoteipp, telex._ring);
-    timeNow <- io getClockTime
     line <- getTelehashLine remoteipp timeNow
-    -- var lstat = self.checkline(line, telex, msgstr.length);
     let (lstat, line') = checkLine line rxTelex timeNow
-        
-    -- if (!lstat) {
-    --     console.log(["\tLINE FAIL[", JSON.stringify(line), "]"].join(""));
-    --     return;
-    -- } else {
-    --     console.log(["\tLINE STATUS ", (telex._line ? "OPEN":"RINGING")].join(""));
-    -- }
-
-    -- TODO: update the line state monad, if ok
-    -- TODO: process the line commands, if ok
+    case lstat of
+      False -> do
+        io (putStrLn $ "LINE FAIL[" ++ (show line))
+        myNop
+      True -> do
+        io (putStrLn $ "LINE STATUS " ++ (getLineStatus rxTelex))
+        updateTelehashLine line'
+        processCommands rxTelex remoteipp line'
+        processSignals  rxTelex remoteipp line'
 
     return ()
+
+-- ---------------------------------------------------------------------
+
+-- TODO: implement this
+processCommands rxTelex remoteipp line = do
+  let ff = map (\x -> []) (getCommands rxTelex)
+  return () 
+
+getCommands telex = filter isCommand (teleRest telex)
+  where
+    isCommand (k,_v) = (head k) == '.'
+
+-- ---------------------------------------------------------------------
+
+-- TODO: implement this
+processSignals rxTelex remoteipp line = do return ()
+
+getSignals telex = filter isSignal (teleRest telex)
+  where
+    isSignal (k,_v) = (head k) == '+'
 
 -- ---------------------------------------------------------------------
 
