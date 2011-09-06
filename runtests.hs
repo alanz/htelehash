@@ -40,6 +40,8 @@ tests = [ testGroup "group 1"
           , testCase "test_getCommands1" test_getCommands1  
           , testCase "test_getSignals1"  test_getSignals1  
           
+          , testCase "test_DistanceTo1" test_DistanceTo1
+          , testCase "test_DistanceTo2" test_DistanceTo2
           ],
           testGroup "recvTelex" [
             -- testCase "basic_rx" test_recvTelex1
@@ -197,5 +199,14 @@ test_getCommands1 =
 test_getSignals1 =
   [("+end","\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"")]
   @=? (getSignals $ parseTelex "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\",\".see\":[\"196.215.40.28:59056\"],\".tap\":[{\"is\":{\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"},\"has\":[\"+pop\"]}],\"_line\":252817576,\"_br\":89}")
+
+
+-- ----------------------------------------------------------------------
+
+test_DistanceTo1 =
+  -1 @=? distanceTo (mkHash "208.68.163.247:42424") (mkHash "208.68.163.247:42424")
+
+test_DistanceTo2 =
+  158 @=? distanceTo (mkHash "208.68.163.247:42424") (mkHash "208.68.160.25:32771")
 
 -- EOF

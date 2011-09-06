@@ -23,6 +23,8 @@ module TeleHash.Controller
        , checkLine  
        , getCommands  
        , getSignals  
+       , mkHash  
+       , distanceTo  
        ) where
 
 import Control.Applicative
@@ -245,7 +247,7 @@ getTapMaybe cc field =
       Just (JSArray jsArrVal)-> Just (map getTap jsArrVal)
       _                         -> Nothing  
   where
-    getTap (JSObject jsobj) = foldl dTap (Tap ("","") []) $ fromJSObject jsobj
+    getTap (JSObject jsobj) = foldl' dTap (Tap ("","") []) $ fromJSObject jsobj
 
     dTap tap ("is",  JSObject o) = tap {tapIs = (k, fromJSString str)}
       where
@@ -833,6 +835,127 @@ getCommands telex = filter isCommand (teleRest telex)
   where
     isCommand (k,_v) = (head k) == '.'
 
+-- ---------------------------------------------------------------------
+    
+processCommand ".see" remoteipp telex line = do 
+  case (teleSee telex) of 
+    Just seeipps -> mapM_ (\ipp -> processSee line remoteipp ipp) seeipps
+    Nothing      -> return ()
+  
+processCommand _ _remoteipp _telex _line = do return ()
+  
+-- ---------------------------------------------------------------------
+
+processSee :: Line -> String -> String -> TeleHash ()
+processSee line remoteipp seeipp = do
+  {-
+        if (self.selfipp == seeipp) {
+            // skip ourselves :)
+            return; //continue;
+        }
+  -}      
+  state <- get
+  selfipp <- gets swSelfIpp
+  
+  {-
+  if (selfipp == Just seeipp)
+    then line
+    else
+    case (seeipp == remoteipp && not (lineVisible line)) of
+      True ->
+        io (putStrLn $ "VISIBLE " ++ (show remoteipp))
+        line {lineVisible = True}
+      False -> line
+  -}
+  {-
+        // they're making themselves visible now, awesome
+        if (seeipp == remoteipp && !line.visible) {
+            console.log(["\t\tVISIBLE ", remoteipp].join(""));
+            line.visible=1;
+            self.near_to(line.end, self.selfipp).map(function(x) { return line.neighbors[x]=1; });
+            self.near_to(line.end, remoteipp); // injects this switch as hints into it's neighbors, fully seeded now
+        }
+        
+        var seeippHash = new Hash(seeipp).toString(); 
+        
+        if (self.master[seeippHash]) {
+            return; //continue; // skip if we know them already
+        }
+        
+        // XXX todo: if we're dialing we'd want to reach out to any of these closer to that $tap_end
+        // also check to see if we want them in a bucket
+        if (self.bucket_want(seeipp)) {
+            
+            // send direct (should open our outgoing to them)
+            var telexOut = new Telex(seeipp);
+            telexOut["+end"] = self.selfhash;
+            self.send(telexOut);
+            
+            // send pop signal back to the switch who .see'd us in case the new one is behind a nat
+            telexOut = new Telex(remoteipp);
+            telexOut["+end"] = seeippHash;
+            telexOut["+pop"] = "th:" + self.selfipp;
+            telexOut["_hop"] = 1;
+            self.send(telexOut);
+        }
+    });
+  -}
+  return ()
+  
+
+-- ---------------------------------------------------------------------
+
+bucket_want selfhash ipp = 
+  {-
+    var self = this;
+    var pos = new Hash(ipp).distanceTo(self.selfhash);
+    console.log(["\tBUCKET WANT[", pos, " ", ipp, "]"].join(""));
+    if (pos < 0 || pos > self.NBUCKETS) {
+        return undefined; // do not want
+    }
+    return 1; // for now we're always taking everyone, in future need to be more selective when the bucket is "full"!
+  -}
+  let
+    pos = distanceTo (mkHash ipp) selfhash
+  in
+   True
+   
+
+-- ---------------------------------------------------------------------
+{-
+/**
+ * XOR distance between two sha1 hex hashes, 159 is furthest bit, 0 is closest bit, -1 is same hash
+ */
+Hash.prototype.distanceTo = function(h) {
+    if (isString(h)) { h = new Hash(h); }
+    
+    var nibbles = this.nibbles();
+    var hNibbles = h.nibbles()
+    
+    var sbtab = [-1,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3];
+    var ret = 156;
+    for (var i = 0; i < nibbles.length; i++) {
+        var diff = nibbles[i] ^ hNibbles[i];
+        if (diff) {
+            return ret + sbtab[diff]; 
+        }
+        ret -= 4;
+    }
+    return -1; // samehash ?!
+}
+-}
+--distanceTo :: Hash -> Hash -> a
+distanceTo :: Num a => Hash -> Hash -> a
+distanceTo (Hash this) (Hash h) = go 156 (reverse diffs)
+  where
+    go acc [] = acc
+    go acc (-1:[]) = -1
+    go acc (-1:xs) = go (acc - 4) xs
+    go acc (x:xs) = acc + x 
+    
+    diffs = map (\(a,b) -> sbtab !! (xor (digitToInt a) (digitToInt b))) $ zip this h
+    sbtab = [-1,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3]
+                               
 -- ---------------------------------------------------------------------
 
 -- TODO: implement this
