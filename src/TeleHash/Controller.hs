@@ -95,6 +95,8 @@ data Switch = Switch { swH :: SocketHandle
                      , swTaps :: [Tap]  
                      } deriving (Eq,Show)
 
+nBuckets = 160
+
 data SocketHandle = 
     SocketHandle {slSocket :: Socket,
                   slAddress :: SockAddr
@@ -463,7 +465,7 @@ pingSeed seed =
     
     timeNow <- io getClockTime
     
-    line <- getTelehashLine seedIPP timeNow
+    line <- getOrCreateLine seedIPP timeNow
     let bootTelex = mkTelex seedIPP
     -- bootTelex["+end"] = line.end; // any end will do, might as well ask for their neighborhood
     let bootTelex' = bootTelex { teleSigEnd = Just $ (lineEnd line) }
@@ -480,8 +482,8 @@ pingSeed seed =
    
 -- ---------------------------------------------------------------------
 
-getTelehashLine :: String -> ClockTime -> TeleHash Line
-getTelehashLine seedIPP timeNow = do
+getOrCreateLine :: String -> ClockTime -> TeleHash Line
+getOrCreateLine seedIPP timeNow = do
   state <- get
   
   let 
@@ -505,6 +507,21 @@ getTelehashLine seedIPP timeNow = do
   return line'
   
 -- ---------------------------------------------------------------------
+
+getLineMaybe :: Map.Map Hash Line  -> Hash -> Maybe Line
+getLineMaybe master hashIpp  = lineMaybe
+  where
+    ismember = Map.member hashIpp master
+    member = master Map.! hashIpp
+  
+    lineMaybe = case (ismember) of
+      True -> Just member
+      False -> Nothing
+  
+  
+  
+-- ---------------------------------------------------------------------
+
 
 myNop :: TeleHash ()
 myNop = do return ()
@@ -674,7 +691,7 @@ eval     _                     = return () -- ignore everything else
 sendTelex :: Telex -> TeleHash ()
 sendTelex msg = do 
   timeNow <- io getClockTime
-  line <- getTelehashLine (teleTo msg) timeNow
+  line <- getOrCreateLine (teleTo msg) timeNow
   
   -- check br and drop if too much
   --  if (line.bsent - line.brin > 10000) {
@@ -810,7 +827,7 @@ recvTelex msg rinfo = do
 
 
     -- // if this is a switch we know, check a few things
-    line <- getTelehashLine remoteipp timeNow
+    line <- getOrCreateLine remoteipp timeNow
     let (lstat, line') = checkLine line rxTelex timeNow
     case lstat of
       False -> do
@@ -867,6 +884,7 @@ processSee line remoteipp seeipp = do
         line {lineVisible = True}
       False -> line
   -}
+  seeVisible (seeipp == remoteipp && not (lineVisible line)) line selfipp remoteipp
   {-
         // they're making themselves visible now, awesome
         if (seeipp == remoteipp && !line.visible) {
@@ -875,7 +893,8 @@ processSee line remoteipp seeipp = do
             self.near_to(line.end, self.selfipp).map(function(x) { return line.neighbors[x]=1; });
             self.near_to(line.end, remoteipp); // injects this switch as hints into it's neighbors, fully seeded now
         }
-        
+  -}        
+  {-
         var seeippHash = new Hash(seeipp).toString(); 
         
         if (self.master[seeippHash]) {
@@ -905,6 +924,90 @@ processSee line remoteipp seeipp = do
 
 -- ---------------------------------------------------------------------
 
+seeVisible False _line _selfipp _remoteipp = do return ()
+seeVisible True  line  selfipp  remoteipp = do
+  io (putStrLn $ "VISIBLE " ++ (show remoteipp))
+  updateTelehashLine (line {lineVisible = True})
+  {-
+  // they're making themselves visible now, awesome
+  if (seeipp == remoteipp && !line.visible) {
+      console.log(["\t\tVISIBLE ", remoteipp].join(""));
+      line.visible=1;
+      self.near_to(line.end, self.selfipp).map(function(x) { return line.neighbors[x]=1; });
+      self.near_to(line.end, remoteipp); // injects this switch as hints into it's neighbors, fully seeded now
+  }
+  -}        
+  
+  return ()
+
+-- ---------------------------------------------------------------------
+{-/**
+ * generate a .see for an +end, using a switch as a hint
+ */-}
+
+near_to end ipp = do
+  {-
+    var endHash = new Hash(end);
+    var line = self.master[new Hash(ipp).toString()];
+    if (!line) {
+        return undefined; // should always exist except in startup or offline, etc
+    }
+  -}  
+  state <- get
+
+  let
+    endHash = mkHash end
+    master = (swMaster state)
+
+  case (getLineMaybe master endHash) of
+    Nothing -> return ()
+    Just line -> do
+      let 
+        {-    
+        // of the existing and visible cached neighbors, sort by distance to this end
+        var see = keys(line.neighbors)
+        .filter(function(x){ return self.master[x] && self.master[x].visible })
+        .sort(function(a,b){ return endHash.distanceTo(a) - endHash.distanceTo(b) });
+        -}
+        see = sortBy hashDistanceOrder $ Set.toList $ Set.filter isLineVisible (lineNeighbors line)
+        
+        isLineVisible x = case (getLineMaybe master x) of
+          Just l -> lineVisible l
+          Nothing -> False
+          
+        hashDistanceOrder a b
+          | dist < 0 = LT
+          | dist > 0 = GT
+          | otherwise = EQ
+          where 
+            dist = (distanceTo endHash a) - (distanceTo endHash b)
+            
+      {-
+      if (!see.length) {
+          return undefined;
+      }
+    
+      var firstSee = see[0];
+      var firstSeeHash = new Hash(firstSee);
+      var lineNeighborKeys = keys(line.neighbors);
+      var lineEndHash = new Hash(line.end);
+    
+      console.log(["\tNEARTO ", end, '\t', ipp, '\t', 
+          lineNeighborKeys.length, ">", see.length, '\t',
+          firstSeeHash.distanceTo(end), "=", lineEndHash.distanceTo(end)].join(""));
+       -}
+        firstSee = head see      
+        firstSeeHash = firstSee
+        lineNeighborKeys = (lineNeighbors line)
+        lineEndHash = lineEnd line
+      io (putStrLn $ ("NEARTO " ++ (show end) ++ "\t" ++ (show ipp) ++ "\t" ++ (show $ Set.size lineNeighborKeys) 
+          ++ ">" ++ (show $ length see)
+          ++ (show $ distanceTo firstSeeHash endHash) ++ "=" ++ (show $ distanceTo lineEndHash endHash)))
+      xxxx Continue here`
+      return ()                           
+
+-- ---------------------------------------------------------------------
+
 bucket_want selfhash ipp = 
   {-
     var self = this;
@@ -918,7 +1021,7 @@ bucket_want selfhash ipp =
   let
     pos = distanceTo (mkHash ipp) selfhash
   in
-   True
+   (pos >= 0) && (pos <= nBuckets)
    
 
 -- ---------------------------------------------------------------------
@@ -944,8 +1047,10 @@ Hash.prototype.distanceTo = function(h) {
     return -1; // samehash ?!
 }
 -}
---distanceTo :: Hash -> Hash -> a
-distanceTo :: Num a => Hash -> Hash -> a
+
+-- TODO: consider memoising this result, will be used a LOT
+--distanceTo :: Num a => Hash -> Hash -> a
+distanceTo :: Hash -> Hash -> Int
 distanceTo (Hash this) (Hash h) = go 156 (reverse diffs)
   where
     go acc [] = acc
@@ -987,7 +1092,7 @@ online rxTelex = do
     
   --  var line = self.getline(self.selfipp);
   timeNow <- io getClockTime
-  line <- getTelehashLine selfIpp timeNow
+  line <- getOrCreateLine selfIpp timeNow
 
   --  line.visible = 1; // flag ourselves as default visible
   --  line.rules = self.taps; // if we're tap'ing anything
