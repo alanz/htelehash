@@ -1003,7 +1003,61 @@ near_to end ipp = do
       io (putStrLn $ ("NEARTO " ++ (show end) ++ "\t" ++ (show ipp) ++ "\t" ++ (show $ Set.size lineNeighborKeys) 
           ++ ">" ++ (show $ length see)
           ++ (show $ distanceTo firstSeeHash endHash) ++ "=" ++ (show $ distanceTo lineEndHash endHash)))
-      xxxx Continue here`
+      {-        
+      // it's either us or we're the same distance away so return these results
+      if (firstSee == line.end
+              || (firstSeeHash.distanceTo(end) == lineEndHash.distanceTo(end))) {
+      -}
+      case (firstSee == (lineEnd line) 
+            || ((distanceTo firstSeeHash endHash) == (distanceTo lineEndHash endHash))) of
+        True -> 
+          {-  
+          // this +end == this line then replace the neighbors cache with this result 
+          // and each in the result walk and insert self into their neighbors
+          if (line.end == end) {
+          -}
+          case ((lineIpp line) == end) of
+            True -> do
+              -- console.log(["\tNEIGH for ", end, " was ", lineNeighborKeys.join(","), " ", see.length].join(""));
+              io (putStrLn ("NEIGH for " ++ (show end) ++ " was " ++ (show lineNeighborKeys) ++ (show $ length see)))
+              {-
+              var neigh = {};
+              see.slice(0,5).forEach(function(seeHash){
+                  neigh[seeHash] = 1;
+              });
+              line.neighbors = neigh;
+              -}
+              let neigh = Set.fromList $ take 5 see
+              updateTelehashLine (line {lineNeighbors = neigh})
+              -- console.log(["\tNEIGH for ", end, " is ", lineNeighborKeys.join(","), " ", see.length].join(""));
+              io (putStrLn ("NEIGH for " ++ (show end) ++ " is " ++ (show neigh) ++ (show $ length see)))
+
+              {-
+              lineNeighborKeys.forEach(function(hash) {
+                  if (hash in self.master) {
+                      if (self.master[hash].neighbors == null) {
+                          self.master[hash].neighbors = {};
+                      }
+                      self.master[hash].neighbors[end]=1;
+                      console.log(["\t\tSEED ", ipp, " into ", self.master[hash].ipp].join(""));
+                  }
+              });
+            -}
+              return ()
+            False -> return () -- TODO:plug in bit below
+            {-
+            }
+            console.log(["\t\tSEE distance=", endHash.distanceTo(firstSeeHash), " count=", see.length].join(""));
+            return see;
+      
+           -}
+        False -> return () -- TODO:Plug in this bit below
+      {-
+      // whomever is closer, if any, tail recurse endseeswitch them
+      return self.near_to(end, self.master[firstSee].ipp);
+      -}
+        
+      
       return ()                           
 
 -- ---------------------------------------------------------------------
