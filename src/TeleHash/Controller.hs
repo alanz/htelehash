@@ -85,13 +85,17 @@ type TeleHash = StateT Switch IO
 newtype Hash = Hash String
              deriving (Data,Eq,Show,Typeable,Ord)
 
+newtype IPP = IPP String
+             deriving (Data,Eq,Show,Typeable,Ord)
+unIPP (IPP str) = str
+
 data Switch = Switch { swH :: SocketHandle 
-                     , swSeeds :: [String]
-                     , swSeedsIndex :: Set.Set String
+                     , swSeeds :: [String] -- IPP?
+                     , swSeedsIndex :: Set.Set IPP
                      , swConnected :: Bool
                      , swMaster :: Map.Map Hash Line  
-                     , swSelfIpp :: Maybe String  
-                     , swSelfHash :: Maybe String
+                     , swSelfIpp :: Maybe IPP
+                     , swSelfHash :: Maybe Hash
                      , swTaps :: [Tap]  
                      } deriving (Eq,Show)
 
@@ -103,7 +107,7 @@ data SocketHandle =
                  } deriving (Eq,Show)
 
 data Line = Line {
-  lineIpp       :: String, -- IP and port of the destination
+  lineIpp       :: IPP,    -- IP and port of the destination
   lineEnd       :: Hash,   -- Hash of the ipp (endpoint)
   lineHost      :: String, -- Split out host IP
   linePort      :: String, -- Split out port
@@ -124,16 +128,16 @@ data Line = Line {
   } deriving (Eq,Show)
 
 -- Note: endPointStr should always be a IP:PORT
-mkLine :: String -> ClockTime -> Line
-mkLine endPointStr timeNow =
+mkLine :: IPP -> ClockTime -> Line
+mkLine endPoint@(IPP endPointStr) timeNow =
   let
     [hostIP,port] = split ":" endPointStr
-    endPointHash = mkHash endPointStr
+    endPointHash = mkHash endPoint
     (TOD secs picosecs) = timeNow
     ringOut = fromIntegral (1 + (picosecs `mod` 32768))  -- TODO: rand 1..32768
   in  
    Line {
-       lineIpp       = endPointStr,
+       lineIpp       = endPoint,
        lineEnd       = endPointHash,
        lineHost      = hostIP,
        linePort      = port,
@@ -167,7 +171,7 @@ data Telex = Telex
              { teleRing   :: Maybe Int
              , teleSee    :: Maybe [String]
              , teleBr     :: Int
-             , teleTo     :: String
+             , teleTo     :: IPP
              , teleLine   :: Maybe Int
              , teleHop    :: Maybe String
              , teleSigEnd :: Maybe Hash
@@ -197,8 +201,8 @@ parseTelex s =
     in 
      -- mkTelex to
      
-     (mkTelex to) {teleRing = maybeRing, teleSee = maybeSee, teleBr = br, 
-                   teleTo = to, teleLine = maybeLine, teleHop = maybeHop,
+     (mkTelex (IPP to)) {teleRing = maybeRing, teleSee = maybeSee, teleBr = br, 
+                   teleTo = (IPP to), teleLine = maybeLine, teleHop = maybeHop,
                    teleSigEnd = maybeEnd, teleTap = maybeTap, 
                    teleRest = map (\(name,val) -> (name, encode val)) (fromJSObject cc), -- horrible, but will do for now
                    teleMsgLength = Just msgLength }
@@ -287,7 +291,7 @@ _tx3 = parseTelex _inp3
 encodeTelex :: Telex -> String
 encodeTelex t = 
   let
-    to   = [("_to",   JSString $ toJSString $ teleTo t)]
+    to   = [("_to",   JSString $ toJSString $ unIPP $ teleTo t)]
     
     ring = case (teleRing t) of
       Just r -> [("_ring", JSString $ toJSString $ show r)]
@@ -368,6 +372,7 @@ initialize =
        let serveraddr = head addrinfos
        -}
        (serveraddr,ip,port) <- resolveToSeedIPP initialSeed
+       let seedIPP = IPP (ip ++ ":" ++ port)
 
        -- Establish a socket for communication
        sock <- socket (addrFamily serveraddr) Datagram defaultProtocol
@@ -378,7 +383,7 @@ initialize =
     
        -- Save off the socket, and server address in a handle
        return $ (Switch (SocketHandle sock (addrAddress serveraddr)) [initialSeed] 
-                 (Set.fromList [initialSeed])
+                 (Set.fromList [seedIPP])
                  False Map.empty Nothing Nothing [])
     where
        notify a = bracket_
@@ -456,7 +461,7 @@ pingSeed seed =
     
     --io (putStrLn $ "pingSeed serveraddr=" ++ (show serveraddr))
     
-    let seedIPP = ip ++ ":" ++ port
+    let seedIPP = IPP (ip ++ ":" ++ port)
     io (putStrLn $ "pingSeed seedIPP=" ++ (show seedIPP))
 
     -- TODO: set self.seedsIndex[seedIPP] = true;
@@ -482,7 +487,7 @@ pingSeed seed =
    
 -- ---------------------------------------------------------------------
 
-getOrCreateLine :: String -> ClockTime -> TeleHash Line
+getOrCreateLine :: IPP -> ClockTime -> TeleHash Line
 getOrCreateLine seedIPP timeNow = do
   state <- get
   
@@ -507,7 +512,13 @@ getOrCreateLine seedIPP timeNow = do
   return line'
   
 -- ---------------------------------------------------------------------
-
+  
+getLineMaybeM :: Hash -> TeleHash (Maybe Line)
+getLineMaybeM hashIpp = do
+  state <- get
+  let master = (swMaster state)
+  return $ getLineMaybe master hashIpp
+  
 getLineMaybe :: Map.Map Hash Line  -> Hash -> Maybe Line
 getLineMaybe master hashIpp  = lineMaybe
   where
@@ -518,7 +529,19 @@ getLineMaybe master hashIpp  = lineMaybe
       True -> Just member
       False -> Nothing
   
-  
+-- ---------------------------------------------------------------------
+
+addNeighbour :: Hash -> Hash -> TeleHash ()
+addNeighbour hash end = do
+  state <- get
+  let master = swMaster state
+  case (getLineMaybe master hash) of
+    Just line -> do
+      updateTelehashLine (line { lineNeighbors = Set.insert end (lineNeighbors line) })
+      -- console.log(["\t\tSEED ", ipp, " into ", self.master[hash].ipp].join(""));
+      io (putStrLn ("SEED " ++ (show hash) ++ " with " ++ (show end) ))
+      return ()
+    Nothing -> return ()
   
 -- ---------------------------------------------------------------------
 
@@ -649,7 +672,7 @@ checkLine line msg timeNow@(TOD secsNow picosecsNow) =
 
 -- ---------------------------------------------------------------------
 
-mkTelex :: String -> Telex
+mkTelex :: IPP -> Telex
 mkTelex seedIPP = 
     -- set _to = seedIPP
   -- Telex Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
@@ -806,10 +829,10 @@ recvTelex msg rinfo = do
 
     (Just hostIP,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
     let
-      remoteipp = hostIP ++ ":" ++ port
+      remoteipp = IPP (hostIP ++ ":" ++ port)
     
     timeNow <- io getClockTime
-    io (putStrLn ("recvTelex:remoteipp=" ++ remoteipp ++ ",seedsIndex="++(show seedsIndex) 
+    io (putStrLn ("recvTelex:remoteipp=" ++ (show remoteipp) ++ ",seedsIndex="++(show seedsIndex) 
                   ++ ",time=" ++ (show timeNow)))
     case (swConnected state) of
       False -> do
@@ -937,14 +960,16 @@ seeVisible True  line  selfipp  remoteipp = do
       self.near_to(line.end, remoteipp); // injects this switch as hints into it's neighbors, fully seeded now
   }
   -}        
-  
+  -- TODO: implement this ^^^^  ??
   return ()
 
 -- ---------------------------------------------------------------------
-{-/**
+{-
  * generate a .see for an +end, using a switch as a hint
- */-}
+ * -}
 
+xxx TODO - verify that this does what is expected
+near_to :: IPP -> IPP -> TeleHash [Hash]
 near_to end ipp = do
   {-
     var endHash = new Hash(end);
@@ -960,7 +985,7 @@ near_to end ipp = do
     master = (swMaster state)
 
   case (getLineMaybe master endHash) of
-    Nothing -> return ()
+    Nothing -> return []
     Just line -> do
       let 
         {-    
@@ -1042,23 +1067,27 @@ near_to end ipp = do
                       console.log(["\t\tSEED ", ipp, " into ", self.master[hash].ipp].join(""));
                   }
               });
-            -}
-              return ()
-            False -> return () -- TODO:plug in bit below
-            {-
-            }
-            console.log(["\t\tSEE distance=", endHash.distanceTo(firstSeeHash), " count=", see.length].join(""));
-            return see;
-      
-           -}
-        False -> return () -- TODO:Plug in this bit below
-      {-
-      // whomever is closer, if any, tail recurse endseeswitch them
-      return self.near_to(end, self.master[firstSee].ipp);
-      -}
-        
-      
-      return ()                           
+              -}
+              mapM_ (\hash -> addNeighbour hash endHash) $ Set.toList neigh
+              -- console.log(["\t\tSEE distance=", endHash.distanceTo(firstSeeHash), " count=", see.length].join(""));
+              io (putStrLn ("SEE distance=" ++ (show $ distanceTo endHash firstSeeHash) ++ " count=" ++ (show $ length see) ))
+              return see
+            False -> do
+              -- console.log(["\t\tSEE distance=", endHash.distanceTo(firstSeeHash), " count=", see.length].join(""));
+              io (putStrLn ("SEE distance=" ++ (show $ distanceTo endHash firstSeeHash) ++ " count=" ++ (show $ length see) ))
+              return see -- TODO:plug in bit below
+              {-
+              }
+              console.log(["\t\tSEE distance=", endHash.distanceTo(firstSeeHash), " count=", see.length].join(""));
+              return see;
+             -}
+        False -> do
+          -- // whomever is closer, if any, tail recurse endseeswitch them
+          -- return self.near_to(end, self.master[firstSee].ipp);
+          
+          Just lineFirstSee <- getLineMaybeM firstSee
+          near_to end (lineIpp lineFirstSee)
+
 
 -- ---------------------------------------------------------------------
 
@@ -1175,8 +1204,8 @@ taptap = do return ()
  */
 -}
 
-mkHash :: String -> Hash
-mkHash str =
+mkHash :: IPP -> Hash
+mkHash (IPP str) =
   let
     digest = SHA.sha1 $ BL.fromChunks [BC.pack str]
   in  
