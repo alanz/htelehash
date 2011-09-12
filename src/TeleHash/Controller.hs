@@ -15,7 +15,11 @@ module TeleHash.Controller
        , Telex(..)
        , Hash(..)  
        , Tap(..)  
-       , Line(..)  
+       , Line(..)
+       , IPP(..)  
+       , Switch(..)         
+       , SocketHandle(..)
+       , TeleHash(..)
        , encodeMsg  
        , isLineOk
        , isRingOk  
@@ -24,7 +28,8 @@ module TeleHash.Controller
        , getCommands  
        , getSignals  
        , mkHash  
-       , distanceTo  
+       , distanceTo
+       , near_to
        ) where
 
 import Control.Applicative
@@ -968,7 +973,6 @@ seeVisible True  line  selfipp  remoteipp = do
  * generate a .see for an +end, using a switch as a hint
  * -}
 
-xxx TODO - verify that this does what is expected
 near_to :: IPP -> IPP -> TeleHash [Hash]
 near_to end ipp = do
   {-

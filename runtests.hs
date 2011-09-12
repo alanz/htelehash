@@ -1,11 +1,14 @@
 import Test.Framework (defaultMain, testGroup, Test)
 import Test.Framework.Providers.HUnit
 import Test.HUnit hiding (Test)
-import System.Time
 
+import Control.Monad.State
 import Data.List
+import System.Time
 import TeleHash.Controller
 import qualified Data.ByteString.Char8 as BC
+import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 main :: IO ()
 main = defaultMain tests
@@ -48,9 +51,45 @@ tests = [ testGroup "group 1"
             testCase "parseMsg1Js" test_parseMsg1Js
             -- testCase "parseMsg2" test_parseMsg2
             , testCase "encodeMsg1Js1" test_encodeMsg1Js
-            ]
+            ],
+          testGroup "near_to" [
+            testCase "test_near_to1" test_near_to1
           ]
+        ]
   
+-- ---------------------------------------------------------------------
+          
+-- Note: type Assertion = IO ()
+test_near_to1 :: Assertion
+test_near_to1 = do
+  let
+    st = (Switch (SocketHandle undefined undefined) [] 
+                 (Set.fromList [])
+                 False Map.empty Nothing Nothing [])
+
+  (res,state) <- runStateT (near_to (IPP "1.2.3.4:1234") (IPP "2.3.4.5:2345") ) st
+
+  if (res == [])
+    then return ()
+    else assertFailure "oops"
+
+  
+-- near_to :: IPP -> IPP -> TeleHash [Hash]
+
+run_monad_test :: TeleHash Int -> Assertion
+run_monad_test run = do
+  let
+    st = (Switch (SocketHandle undefined undefined) [] 
+                 (Set.fromList [])
+                 False Map.empty Nothing Nothing [])
+
+  (res,state) <- runStateT run st
+  if (res == 5)
+    then return ()
+    else assertFailure "oops"
+  
+-- ---------------------------------------------------------------------          
+          
 {-
 test_recvTelex1 = 
   recvTelex msg rinfo @?= "foo"
@@ -62,7 +101,7 @@ test_recvTelex1 =
 test_parseMsg1Js = 
   parseTelex msg1Js @?= (
     Telex {teleRing = Nothing, teleSee = Just ["208.68.163.247:42424"],
-           teleBr = 74, teleTo = "196.209.236.12:34963",
+           teleBr = 74, teleTo = IPP "196.209.236.12:34963",
            teleLine = Just 412367436, 
            teleHop = Nothing,
            teleSigEnd = Just $ Hash "38666817e1b38470644e004b9356c1622368fa57",
@@ -138,8 +177,8 @@ test_lineOk_timeoutOk =
 test_lineOk_timeoutFail =
   False @=? isLineOk line1 1011 msg1
 
-line1 = (mkLine "telehash.org:42424" (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
-msg1 = (mkTelex "1.2.3.4:567") { teleMsgLength = Just 100 }
+line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
+msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
 
 -- ---------------------------------------------------------------------
 -- checkLine tests, in terms of modifying line state
@@ -204,9 +243,9 @@ test_getSignals1 =
 -- ----------------------------------------------------------------------
 
 test_DistanceTo1 =
-  -1 @=? distanceTo (mkHash "208.68.163.247:42424") (mkHash "208.68.163.247:42424")
+  -1 @=? distanceTo (mkHash (IPP "208.68.163.247:42424")) (mkHash (IPP "208.68.163.247:42424"))
 
 test_DistanceTo2 =
-  158 @=? distanceTo (mkHash "208.68.163.247:42424") (mkHash "208.68.160.25:32771")
+  158 @=? distanceTo (mkHash (IPP "208.68.163.247:42424")) (mkHash (IPP "208.68.160.25:32771"))
 
 -- EOF
