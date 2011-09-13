@@ -54,42 +54,95 @@ tests = [ testGroup "group 1"
             ],
           testGroup "near_to" [
             testCase "test_near_to1" test_near_to1
+            , testCase "test_near_to2" test_near_to2
+            , testCase "test_near_to3" test_near_to3
           ]
         ]
   
 -- ---------------------------------------------------------------------
           
--- Note: type Assertion = IO ()
+-- Note: near_to :: IPP -> IPP -> TeleHash [Hash]
+--       near_to end ipp
 test_near_to1 :: Assertion
 test_near_to1 = do
+  -- Check that a line exists for the given ipp. If not, should get an undefined result
   let
-    st = (Switch (SocketHandle undefined undefined) [] 
-                 (Set.fromList [])
-                 False Map.empty Nothing Nothing [])
+    st = (Switch {swH = (SocketHandle undefined undefined) 
+                 , swSeeds = [] 
+                 , swSeedsIndex = (Set.fromList [])
+                 , swConnected = False
+                 , swMaster = Map.empty 
+                 , swSelfIpp = Nothing 
+                 , swSelfHash = Nothing 
+                 , swTaps = []
+                 })
 
   (res,state) <- runStateT (near_to (IPP "1.2.3.4:1234") (IPP "2.3.4.5:2345") ) st
 
-  if (res == [])
-    then return ()
-    else assertFailure "oops"
+  case res of
+    Left errStr -> return ()
+    Right _     -> assertFailure "found non-existent line"
 
-  
--- near_to :: IPP -> IPP -> TeleHash [Hash]
-
-run_monad_test :: TeleHash Int -> Assertion
-run_monad_test run = do
-  let
-    st = (Switch (SocketHandle undefined undefined) [] 
-                 (Set.fromList [])
-                 False Map.empty Nothing Nothing [])
-
-  (res,state) <- runStateT run st
-  if (res == 5)
-    then return ()
-    else assertFailure "oops"
   
 -- ---------------------------------------------------------------------          
-          
+
+test_near_to2 :: Assertion
+test_near_to2 = do
+  -- Check that a line exists for the given ipp. If not, should get an undefined result
+  let
+    st = (Switch {swH = (SocketHandle undefined undefined) 
+                 , swSeeds = [] 
+                 , swSeedsIndex = (Set.fromList [])
+                 , swConnected = False
+                 , swMaster = Map.fromList [(mkHash $ IPP "2.3.4.5:2345", mkLine (IPP "2.3.4.5:2345") (TOD 1000 999) )]
+                 , swSelfIpp = Nothing 
+                 , swSelfHash = Nothing 
+                 , swTaps = []
+                 })
+
+  (res,state) <- runStateT (near_to (IPP "1.2.3.4:1234") (IPP "2.3.4.5:2345") ) st
+
+  case res of
+    Left "empty see list" -> return ()
+    Right _     -> assertFailure "oops"
+  
+-- ---------------------------------------------------------------------
+    
+ipp1 = IPP "2.3.4.5:2345"
+ipp2 = IPP "3.4.5.6:3456"
+ipp3 = IPP "4.5.6.7:4567"
+hash1 = mkHash ipp1          
+hash2 = mkHash ipp2          
+hash3 = mkHash ipp3
+
+test_near_to3 :: Assertion
+test_near_to3 = do
+  -- Check that the ipp has some visible neighbours
+  let
+    st = (Switch {swH = (SocketHandle undefined undefined) 
+                 , swSeeds = [] 
+                 , swSeedsIndex = (Set.fromList [])
+                 , swConnected = False
+                 , swMaster = Map.fromList 
+                              [
+                                (hash1,
+                                 (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1,hash2]}) -- ipp under test
+                              , (hash2,(mkLine ipp2 (TOD 1002 999) ) {lineVisible = True })-- first neighbour
+                              , (hash3,(mkLine ipp3 (TOD 1003 999) ) {lineVisible = True })-- second neighbour
+                              ]
+                 , swSelfIpp = Nothing 
+                 , swSelfHash = Nothing 
+                 , swTaps = []
+                 })
+
+  (res,state) <- runStateT (near_to (IPP "1.2.3.4:1234") (IPP "2.3.4.5:2345") ) st
+
+  case res of
+    Left msgStr -> assertFailure msgStr
+    Right foo   -> assertFailure (show foo)
+  
+-- ---------------------------------------------------------------------          
+
 {-
 test_recvTelex1 = 
   recvTelex msg rinfo @?= "foo"

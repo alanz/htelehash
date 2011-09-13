@@ -35,10 +35,11 @@ module TeleHash.Controller
 import Control.Applicative
 import Control.Category
 import Control.Concurrent
+import Control.Exception 
 import Control.Monad
+import Control.Monad.Error
 import Control.Monad.IO.Class
 import Control.Monad.State
-import Control.Exception 
 import Data.Bits
 import Data.Char
 import Data.List
@@ -84,8 +85,8 @@ http://www.haskell.org/haskellwiki/Roll_your_own_IRC_bot
 --
 -- The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
 --
---type TeleHash = ReaderT Switch IO
 type TeleHash = StateT Switch IO
+--type TeleHash = ErrorT String (StateT Switch IO)
 
 newtype Hash = Hash String
              deriving (Data,Eq,Show,Typeable,Ord)
@@ -165,8 +166,6 @@ mkLine endPoint@(IPP endPointStr) timeNow =
 -- ---------------------------------------------------------------------
 
 -- JSON stuff for a Telex
--- TODO: merge in stuff from Json.hs and get rid of that file, or refactor
--- See https://github.com/MedeaMelana/JsonGrammar for examples/howto
 
 data Tap = Tap { tapIs :: (String,String), tapHas :: [String] } 
          deriving (Data, Typeable, -- For Text.JSON
@@ -181,8 +180,6 @@ data Telex = Telex
              , teleHop    :: Maybe String
              , teleSigEnd :: Maybe Hash
              , teleTap    :: Maybe [Tap]  
-             -- , teleRest   :: Maybe (Map.Map T.Text Value)
-             -- , teleRest   :: (Map.Map T.Text Value)
              , teleRest   :: [(String, String)]
              , teleMsgLength :: Maybe Int -- length of received Telex  
              } deriving (Data, Typeable, -- For Text.JSON
@@ -353,9 +350,9 @@ main :: IO ((),Switch)
 main = bracket initialize disconnect loop
   where
     disconnect ss = sClose (slSocket (swH ss))
-    -- loop st    = catch (runReaderT run st) (const $ return ())
-    -- loop st    = catch (runReaderT run st) (exc)
+    
     loop st    = catch (runStateT run st) (exc)
+    -- loop st    = catch (runErrorT run st) (exc)
 
     exc :: SomeException -> IO ((),Switch)
     exc e = return ((),undefined)
@@ -536,15 +533,15 @@ getLineMaybe master hashIpp  = lineMaybe
   
 -- ---------------------------------------------------------------------
 
-addNeighbour :: Hash -> Hash -> TeleHash ()
-addNeighbour hash end = do
+addNeighbour :: Hash -> Hash -> IPP -> TeleHash ()
+addNeighbour hash end ipp = do
   state <- get
   let master = swMaster state
   case (getLineMaybe master hash) of
     Just line -> do
       updateTelehashLine (line { lineNeighbors = Set.insert end (lineNeighbors line) })
       -- console.log(["\t\tSEED ", ipp, " into ", self.master[hash].ipp].join(""));
-      io (putStrLn ("SEED " ++ (show hash) ++ " with " ++ (show end) ))
+      io (putStrLn ("\t\tSEED " ++ (show ipp) ++ " into " ++ (show $ lineIpp line) ))
       return ()
     Nothing -> return ()
   
@@ -561,7 +558,6 @@ updateTelehashLine line = do
   let 
     master = (swMaster state)
     
-    seedIPP = lineIpp line
     endpointHash = lineEnd line
     
     master' = Map.insert endpointHash line master
@@ -743,20 +739,14 @@ sendTelex msg = do
       let
         msg' = if (lineLine line == Nothing) 
                then (msg {teleRing = Just (lineRingout line)})
-               -- TODO: this is horrible, must be a better type choice     
-               -- else (msg {teleLine = Just $ T.pack $ show (fromJust (lineLine line))})
-               else (msg {teleLine = Just $ (fromJust (lineLine line))})
+               else (msg {teleLine = Just (fromJust (lineLine line))})
                     
         -- update our bytes tracking and send current state
         -- telex._br = line.brout = line.br;
         msg'' = msg' { teleBr = lineBr line }
         
-        -- var msg = new Buffer(JSON.stringify(telex), "utf8");
-        --msgJson = encodeMsg msg''
         msgJson = encodeTelex msg''
     
-        -- line.bsent += msg.length;
-        -- line.sentat = time();
         line' = line { 
             lineBrout = lineBr line 
           , lineBsent = (lineBsent line) + (length msgJson)
@@ -764,9 +754,8 @@ sendTelex msg = do
           }       
         
       -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
-      io (putStrLn $ "sendTelexff:" ++ (show $ teleTo msg'') ++ " " ++ (msgJson))
+      io (putStrLn $ "SEND[:" ++ (show $ teleTo msg'') ++ "]\t" ++ (msgJson))
                 
-      -- self.server.send(msg, 0, msg.length, line.port, line.host);
       socketh <- gets swH
       addr <- io (addrFromHostPort (lineHost line) (linePort line))
       io (sendDgram socketh msgJson addr)
@@ -853,7 +842,6 @@ recvTelex msg rinfo = do
       True -> do
         io (putStrLn $ "recvTelex:already online")
 
-
     -- // if this is a switch we know, check a few things
     line <- getOrCreateLine remoteipp timeNow
     let (lstat, line') = checkLine line rxTelex timeNow
@@ -867,13 +855,18 @@ recvTelex msg rinfo = do
         processCommands rxTelex remoteipp line'
         processSignals  rxTelex remoteipp line'
 
+    -- TODO: implement rest
     return ()
 
 -- ---------------------------------------------------------------------
 
 -- TODO: implement this
+--processCommands :: Monad m => Telex -> t -> t1 -> m ()
 processCommands rxTelex remoteipp line = do
-  let ff = map (\x -> []) (getCommands rxTelex)
+  --let ff = map (\x -> [x]) (getCommands rxTelex)
+  --io (putStrLn $ "processCommands:" ++ (show ff))
+  -- let ff = map (\(k,v) -> processCommand k remoteipp rxTelex line) (getCommands rxTelex)
+  mapM_ (\(k,v) -> processCommand k remoteipp rxTelex line) (getCommands rxTelex)      
   return () 
 
 getCommands telex = filter isCommand (teleRest telex)
@@ -882,17 +875,23 @@ getCommands telex = filter isCommand (teleRest telex)
 
 -- ---------------------------------------------------------------------
     
+processCommand
+  :: String -> IPP -> Telex -> Line -> TeleHash ()
 processCommand ".see" remoteipp telex line = do 
+  io (putStrLn $ "processCommand .see")
   case (teleSee telex) of 
-    Just seeipps -> mapM_ (\ipp -> processSee line remoteipp ipp) seeipps
+    Just seeipps -> mapM_ (\ipp -> processSee line remoteipp ipp) $ map (\i -> (IPP i)) seeipps
     Nothing      -> return ()
   
-processCommand _ _remoteipp _telex _line = do return ()
+processCommand cmd _remoteipp _telex _line = do 
+  io (putStrLn $ "processCommand : ignoring " ++ (show cmd))
+  return ()
   
 -- ---------------------------------------------------------------------
 
-processSee :: Line -> String -> String -> TeleHash ()
+processSee :: Line -> IPP -> IPP -> TeleHash ()
 processSee line remoteipp seeipp = do
+  io (putStrLn $ "processSee " ++ (show line) ++ "," ++ (show remoteipp) ++ "," ++ (show seeipp))
   {-
         if (self.selfipp == seeipp) {
             // skip ourselves :)
@@ -900,24 +899,16 @@ processSee line remoteipp seeipp = do
         }
   -}      
   state <- get
-  selfipp <- gets swSelfIpp
+  Just selfipp <- gets swSelfIpp
   
-  {-
-  if (selfipp == Just seeipp)
-    then line
-    else
-    case (seeipp == remoteipp && not (lineVisible line)) of
-      True ->
-        io (putStrLn $ "VISIBLE " ++ (show remoteipp))
-        line {lineVisible = True}
-      False -> line
-  -}
+  io (putStrLn $ "processSee selfipp=" ++ (show selfipp) ++ ",seeipp=" ++ (show seeipp))
+
   seeVisible (seeipp == remoteipp && not (lineVisible line)) line selfipp remoteipp
   {-
         // they're making themselves visible now, awesome
         if (seeipp == remoteipp && !line.visible) {
             console.log(["\t\tVISIBLE ", remoteipp].join(""));
-            line.visible=1;
+  
             self.near_to(line.end, self.selfipp).map(function(x) { return line.neighbors[x]=1; });
             self.near_to(line.end, remoteipp); // injects this switch as hints into it's neighbors, fully seeded now
         }
@@ -952,10 +943,16 @@ processSee line remoteipp seeipp = do
 
 -- ---------------------------------------------------------------------
 
+seeVisible :: Bool -> Line -> IPP -> IPP -> TeleHash ()
 seeVisible False _line _selfipp _remoteipp = do return ()
 seeVisible True  line  selfipp  remoteipp = do
-  io (putStrLn $ "VISIBLE " ++ (show remoteipp))
+  io (putStrLn $ "\t\tVISIBLE " ++ (show remoteipp))
   updateTelehashLine (line {lineVisible = True})
+  
+  Right newNeighbourList <- near_to (lineIpp line) selfipp
+  updateTelehashLine (line { lineNeighbors = Set.union (Set.fromList newNeighbourList) (lineNeighbors line) }) 
+  
+  near_to (lineIpp line) remoteipp -- // injects this switch as hints into it's neighbors, fully seeded now
   {-
   // they're making themselves visible now, awesome
   if (seeipp == remoteipp && !line.visible) {
@@ -965,7 +962,6 @@ seeVisible True  line  selfipp  remoteipp = do
       self.near_to(line.end, remoteipp); // injects this switch as hints into it's neighbors, fully seeded now
   }
   -}        
-  -- TODO: implement this ^^^^  ??
   return ()
 
 -- ---------------------------------------------------------------------
@@ -973,31 +969,20 @@ seeVisible True  line  selfipp  remoteipp = do
  * generate a .see for an +end, using a switch as a hint
  * -}
 
-near_to :: IPP -> IPP -> TeleHash [Hash]
+--near_to :: IPP -> IPP -> TeleHash (Maybe [Hash])
+near_to :: IPP -> IPP -> TeleHash (Either String [Hash])
 near_to end ipp = do
-  {-
-    var endHash = new Hash(end);
-    var line = self.master[new Hash(ipp).toString()];
-    if (!line) {
-        return undefined; // should always exist except in startup or offline, etc
-    }
-  -}  
   state <- get
 
   let
     endHash = mkHash end
     master = (swMaster state)
 
-  case (getLineMaybe master endHash) of
-    Nothing -> return []
+  case (getLineMaybe master (mkHash ipp)) of
+    Nothing -> return $ Left "no line for ipp" 
     Just line -> do
       let 
-        {-    
-        // of the existing and visible cached neighbors, sort by distance to this end
-        var see = keys(line.neighbors)
-        .filter(function(x){ return self.master[x] && self.master[x].visible })
-        .sort(function(a,b){ return endHash.distanceTo(a) - endHash.distanceTo(b) });
-        -}
+        -- of the existing and visible cached neighbors, sort by distance to this end
         see = sortBy hashDistanceOrder $ Set.toList $ Set.filter isLineVisible (lineNeighbors line)
         
         isLineVisible x = case (getLineMaybe master x) of
@@ -1011,84 +996,41 @@ near_to end ipp = do
           where 
             dist = (distanceTo endHash a) - (distanceTo endHash b)
             
-      {-
-      if (!see.length) {
-          return undefined;
-      }
-    
-      var firstSee = see[0];
-      var firstSeeHash = new Hash(firstSee);
-      var lineNeighborKeys = keys(line.neighbors);
-      var lineEndHash = new Hash(line.end);
-    
-      console.log(["\tNEARTO ", end, '\t', ipp, '\t', 
-          lineNeighborKeys.length, ">", see.length, '\t',
-          firstSeeHash.distanceTo(end), "=", lineEndHash.distanceTo(end)].join(""));
-       -}
-        firstSee = head see      
+      near_to_see line end endHash ipp see
+      
+near_to_see :: Line -> IPP -> Hash -> IPP -> [Hash] -> TeleHash (Either String [Hash])
+near_to_see line end endHash ipp []  = do return $ Left "empty see list"      
+near_to_see line end endHash ipp see = do                    
+      let
+        firstSee     = head see      
         firstSeeHash = firstSee
         lineNeighborKeys = (lineNeighbors line)
-        lineEndHash = lineEnd line
-      io (putStrLn $ ("NEARTO " ++ (show end) ++ "\t" ++ (show ipp) ++ "\t" ++ (show $ Set.size lineNeighborKeys) 
+        lineEndHash  = lineEnd line
+      io (putStrLn $ ("\tNEARTO " ++ (show end) ++ "\t" ++ (show ipp) ++ "\t" ++ (show $ Set.size lineNeighborKeys) 
           ++ ">" ++ (show $ length see)
-          ++ (show $ distanceTo firstSeeHash endHash) ++ "=" ++ (show $ distanceTo lineEndHash endHash)))
-      {-        
-      // it's either us or we're the same distance away so return these results
-      if (firstSee == line.end
-              || (firstSeeHash.distanceTo(end) == lineEndHash.distanceTo(end))) {
-      -}
+          ++ "\t" ++ (show $ distanceTo firstSeeHash endHash) ++ "=" ++ (show $ distanceTo lineEndHash endHash)))
+        
+      -- it's either us or we're the same distance away so return these results
       case (firstSee == (lineEnd line) 
             || ((distanceTo firstSeeHash endHash) == (distanceTo lineEndHash endHash))) of
         True -> 
-          {-  
-          // this +end == this line then replace the neighbors cache with this result 
-          // and each in the result walk and insert self into their neighbors
-          if (line.end == end) {
-          -}
+          -- this +end == this line then replace the neighbors cache with this result 
+          -- and each in the result walk and insert self into their neighbors
           case ((lineIpp line) == end) of
             True -> do
-              -- console.log(["\tNEIGH for ", end, " was ", lineNeighborKeys.join(","), " ", see.length].join(""));
               io (putStrLn ("NEIGH for " ++ (show end) ++ " was " ++ (show lineNeighborKeys) ++ (show $ length see)))
-              {-
-              var neigh = {};
-              see.slice(0,5).forEach(function(seeHash){
-                  neigh[seeHash] = 1;
-              });
-              line.neighbors = neigh;
-              -}
               let neigh = Set.fromList $ take 5 see
               updateTelehashLine (line {lineNeighbors = neigh})
-              -- console.log(["\tNEIGH for ", end, " is ", lineNeighborKeys.join(","), " ", see.length].join(""));
               io (putStrLn ("NEIGH for " ++ (show end) ++ " is " ++ (show neigh) ++ (show $ length see)))
 
-              {-
-              lineNeighborKeys.forEach(function(hash) {
-                  if (hash in self.master) {
-                      if (self.master[hash].neighbors == null) {
-                          self.master[hash].neighbors = {};
-                      }
-                      self.master[hash].neighbors[end]=1;
-                      console.log(["\t\tSEED ", ipp, " into ", self.master[hash].ipp].join(""));
-                  }
-              });
-              -}
-              mapM_ (\hash -> addNeighbour hash endHash) $ Set.toList neigh
-              -- console.log(["\t\tSEE distance=", endHash.distanceTo(firstSeeHash), " count=", see.length].join(""));
-              io (putStrLn ("SEE distance=" ++ (show $ distanceTo endHash firstSeeHash) ++ " count=" ++ (show $ length see) ))
-              return see
-            False -> do
-              -- console.log(["\t\tSEE distance=", endHash.distanceTo(firstSeeHash), " count=", see.length].join(""));
-              io (putStrLn ("SEE distance=" ++ (show $ distanceTo endHash firstSeeHash) ++ " count=" ++ (show $ length see) ))
-              return see -- TODO:plug in bit below
-              {-
-              }
-              console.log(["\t\tSEE distance=", endHash.distanceTo(firstSeeHash), " count=", see.length].join(""));
-              return see;
-             -}
+              mapM_ (\hash -> addNeighbour hash endHash ipp) $ Set.toList neigh
+              io (putStrLn ("\t\tSEE distance=" ++ (show $ distanceTo endHash firstSeeHash) ++ " count=" ++ (show $ length see) ))
+              return $ Right see
+            False -> do 
+              io (putStrLn ("\t\tSEE distance=" ++ (show $ distanceTo endHash firstSeeHash) ++ " count=" ++ (show $ length see) ))
+              return $ Right see -- TODO:plug in bit below
         False -> do
-          -- // whomever is closer, if any, tail recurse endseeswitch them
-          -- return self.near_to(end, self.master[firstSee].ipp);
-          
+          -- whomever is closer, if any, tail recurse endseeswitch them
           Just lineFirstSee <- getLineMaybeM firstSee
           near_to end (lineIpp lineFirstSee)
 
@@ -1159,36 +1101,26 @@ getSignals telex = filter isSignal (teleRest telex)
 
 -- ---------------------------------------------------------------------
 
--- TODO: implement this
+online :: Telex -> TeleHash ()
 online rxTelex = do 
                     
   io (putStrLn $ "ONLINE")
   
-  
-  --  self.connected = true;
   state <- get
-  put $ state {swConnected = True}
+  put $ state {swConnected = True, swSelfIpp = Just (teleTo rxTelex)}
   
   let
-  --  self.selfipp = telex._to;
     selfIpp = (teleTo rxTelex)
-  --  self.selfhash = new Hash(self.selfipp).toString();
     selfhash = mkHash $ teleTo rxTelex
-  --  console.log(["\tSELF[", telex._to, " = ", self.selfhash, "]"].join(""));
   io (putStrLn ("SELF[" ++ (show selfIpp) ++ " = " ++ (show selfhash) ++ "]"))
     
-  --  var line = self.getline(self.selfipp);
   timeNow <- io getClockTime
   line <- getOrCreateLine selfIpp timeNow
 
-  --  line.visible = 1; // flag ourselves as default visible
-  --  line.rules = self.taps; // if we're tap'ing anything
-  
   taps <- gets swTaps
   updateTelehashLine (line {lineVisible = True, lineRules = taps })
     
-  --  // trigger immediate tapping to move things along
-  --  self.taptap();
+  -- // trigger immediate tapping to move things along
   taptap
   
   return ()
@@ -1198,7 +1130,9 @@ online rxTelex = do
   
 -- TODO: implement this  
 taptap :: TeleHash ()
-taptap = do return ()
+taptap = do 
+  io (putStrLn $ "taptap: ***NOT IMPLEMENTED***")
+  return ()
   
 -- ---------------------------------------------------------------------
 {-
