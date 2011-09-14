@@ -30,6 +30,8 @@ module TeleHash.Controller
        , mkHash  
        , distanceTo
        , near_to
+       , seeVisible
+       , getLineMaybe
        ) where
 
 import Control.Applicative
@@ -95,7 +97,7 @@ newtype IPP = IPP String
              deriving (Data,Eq,Show,Typeable,Ord)
 unIPP (IPP str) = str
 
-data Switch = Switch { swH :: SocketHandle 
+data Switch = Switch { swH :: Maybe SocketHandle 
                      , swSeeds :: [String] -- IPP?
                      , swSeedsIndex :: Set.Set IPP
                      , swConnected :: Bool
@@ -108,8 +110,8 @@ data Switch = Switch { swH :: SocketHandle
 nBuckets = 160
 
 data SocketHandle = 
-    SocketHandle {slSocket :: Socket,
-                  slAddress :: SockAddr
+    SocketHandle {slSocket :: Socket
+                 , slAddress :: SockAddr
                  } deriving (Eq,Show)
 
 data Line = Line {
@@ -179,6 +181,7 @@ data Telex = Telex
              , teleLine   :: Maybe Int
              , teleHop    :: Maybe String
              , teleSigEnd :: Maybe Hash
+             , teleSigPop :: Maybe String
              , teleTap    :: Maybe [Tap]  
              , teleRest   :: [(String, String)]
              , teleMsgLength :: Maybe Int -- length of received Telex  
@@ -199,6 +202,7 @@ parseTelex s =
       maybeHop  = getStringMaybe      cc "_hop"
       maybeEnd  = getHashMaybe        cc "+end"
       maybeTap  = getTapMaybe         cc ".tap"
+      maybePop  = getStringMaybe      cc "+pop"
       msgLength = length s
     in 
      -- mkTelex to
@@ -206,6 +210,7 @@ parseTelex s =
      (mkTelex (IPP to)) {teleRing = maybeRing, teleSee = maybeSee, teleBr = br, 
                    teleTo = (IPP to), teleLine = maybeLine, teleHop = maybeHop,
                    teleSigEnd = maybeEnd, teleTap = maybeTap, 
+                   teleSigPop = maybePop,
                    teleRest = map (\(name,val) -> (name, encode val)) (fromJSObject cc), -- horrible, but will do for now
                    teleMsgLength = Just msgLength }
      
@@ -317,6 +322,10 @@ encodeTelex t =
       Just (Hash r) -> [("+end", JSString $ toJSString r)]
       Nothing -> []
 
+    pop = case (teleSigPop t) of
+      Just r -> [("+pop", JSString $ toJSString r)]
+      Nothing -> []
+
     tap = case (teleTap t) of
       Just r -> [(".tap", JSArray $ map toJSTap r)]
       Nothing -> []
@@ -331,7 +340,7 @@ encodeTelex t =
 
       
   in
-   encode $ toJSObject (to++ring++see++br++line++hop++end++tap)
+   encode $ toJSObject (to++ring++see++br++line++hop++end++tap++pop)
    
 -- ---------------------------------------------------------------------
 
@@ -349,7 +358,7 @@ getRandom seed =
 main :: IO ((),Switch)
 main = bracket initialize disconnect loop
   where
-    disconnect ss = sClose (slSocket (swH ss))
+    disconnect ss = sClose (slSocket (fromJust $ swH ss))
     
     loop st    = catch (runStateT run st) (exc)
     -- loop st    = catch (runErrorT run st) (exc)
@@ -384,7 +393,7 @@ initialize =
        bindSocket sock (SockAddrInet 0 bindAddr)
     
        -- Save off the socket, and server address in a handle
-       return $ (Switch (SocketHandle sock (addrAddress serveraddr)) [initialSeed] 
+       return $ (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed] 
                  (Set.fromList [seedIPP])
                  False Map.empty Nothing Nothing [])
     where
@@ -482,7 +491,7 @@ pingSeed seed =
     -- io (putStrLn $ "sendMsg1:" ++ (show $ bootTelex'))
     -- io (putStrLn $ "sendMsg3:" ++ (show $ encodeMsg bootTelex'))
 
-    socketh <- gets swH
+    --socketh <- gets swH
     sendTelex bootTelex'
     
     return ()
@@ -677,14 +686,14 @@ mkTelex :: IPP -> Telex
 mkTelex seedIPP = 
     -- set _to = seedIPP
   -- Telex Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
-  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing [] Nothing -- Map.empty -- Nothing
+  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing [] Nothing 
                   
 -- ---------------------------------------------------------------------  
 --
 -- Process each line from the server
 --
-dolisten :: SocketHandle -> TeleHash ()
-dolisten h = forever $ do
+dolisten :: Maybe SocketHandle -> TeleHash ()
+dolisten (Just h) = forever $ do
     -- TODO: move this pingSeeds call out to an actor, driven by a timer.
     pingSeeds
     
@@ -756,7 +765,7 @@ sendTelex msg = do
       -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
       io (putStrLn $ "SEND[:" ++ (show $ teleTo msg'') ++ "]\t" ++ (msgJson))
                 
-      socketh <- gets swH
+      Just socketh <- gets swH
       addr <- io (addrFromHostPort (lineHost line) (linePort line))
       io (sendDgram socketh msgJson addr)
       
@@ -861,11 +870,9 @@ recvTelex msg rinfo = do
 -- ---------------------------------------------------------------------
 
 -- TODO: implement this
---processCommands :: Monad m => Telex -> t -> t1 -> m ()
+
+processCommands :: Telex -> IPP -> Line -> TeleHash ()
 processCommands rxTelex remoteipp line = do
-  --let ff = map (\x -> [x]) (getCommands rxTelex)
-  --io (putStrLn $ "processCommands:" ++ (show ff))
-  -- let ff = map (\(k,v) -> processCommand k remoteipp rxTelex line) (getCommands rxTelex)
   mapM_ (\(k,v) -> processCommand k remoteipp rxTelex line) (getCommands rxTelex)      
   return () 
 
@@ -879,8 +886,13 @@ processCommand
   :: String -> IPP -> Telex -> Line -> TeleHash ()
 processCommand ".see" remoteipp telex line = do 
   io (putStrLn $ "processCommand .see")
+  state <- get
+  Just selfipp <- gets swSelfIpp
   case (teleSee telex) of 
-    Just seeipps -> mapM_ (\ipp -> processSee line remoteipp ipp) $ map (\i -> (IPP i)) seeipps
+    -- // loop through and establish lines to them (just being dumb for now and trying everyone)
+    Just seeipps -> mapM_ (\ipp -> processSee line remoteipp ipp) 
+                    $ filter (\i -> i /= selfipp) -- // skip ourselves :)
+                    $ map (\i -> (IPP i)) seeipps
     Nothing      -> return ()
   
 processCommand cmd _remoteipp _telex _line = do 
@@ -889,55 +901,49 @@ processCommand cmd _remoteipp _telex _line = do
   
 -- ---------------------------------------------------------------------
 
+-- We are processing a single .see entry here, which is not ourselves
 processSee :: Line -> IPP -> IPP -> TeleHash ()
 processSee line remoteipp seeipp = do
   io (putStrLn $ "processSee " ++ (show line) ++ "," ++ (show remoteipp) ++ "," ++ (show seeipp))
-  {-
-        if (self.selfipp == seeipp) {
-            // skip ourselves :)
-            return; //continue;
-        }
-  -}      
+
   state <- get
-  Just selfipp <- gets swSelfIpp
-  
-  io (putStrLn $ "processSee selfipp=" ++ (show selfipp) ++ ",seeipp=" ++ (show seeipp))
+  Just selfipp  <- gets swSelfIpp
+  Just selfhash <- gets swSelfHash
 
   seeVisible (seeipp == remoteipp && not (lineVisible line)) line selfipp remoteipp
-  {-
-        // they're making themselves visible now, awesome
-        if (seeipp == remoteipp && !line.visible) {
-            console.log(["\t\tVISIBLE ", remoteipp].join(""));
   
-            self.near_to(line.end, self.selfipp).map(function(x) { return line.neighbors[x]=1; });
-            self.near_to(line.end, remoteipp); // injects this switch as hints into it's neighbors, fully seeded now
-        }
-  -}        
-  {-
-        var seeippHash = new Hash(seeipp).toString(); 
-        
-        if (self.master[seeippHash]) {
-            return; //continue; // skip if we know them already
-        }
-        
-        // XXX todo: if we're dialing we'd want to reach out to any of these closer to that $tap_end
-        // also check to see if we want them in a bucket
-        if (self.bucket_want(seeipp)) {
-            
-            // send direct (should open our outgoing to them)
+  let 
+    lineSee = getLineMaybe (swMaster state) (mkHash seeipp)
+    
+  case (getLineMaybe (swMaster state) (mkHash seeipp)) of
+    Just lineSee -> return () -- // skip if we know them already
+    Nothing ->
+        -- // XXX todo: if we're dialing we'd want to reach out to any of these closer to that $tap_end
+        -- // also check to see if we want them in a bucket
+        case (bucket_want selfhash seeipp) of
+          True -> do
+            -- // send direct (should open our outgoing to them)
+            {-
             var telexOut = new Telex(seeipp);
             telexOut["+end"] = self.selfhash;
             self.send(telexOut);
+            -}            
+            sendTelex ((mkTelex seeipp) { teleSigEnd = Just selfhash })
             
-            // send pop signal back to the switch who .see'd us in case the new one is behind a nat
+            -- // send pop signal back to the switch who .see'd us in case the new one is behind a nat
+            {-           
             telexOut = new Telex(remoteipp);
             telexOut["+end"] = seeippHash;
             telexOut["+pop"] = "th:" + self.selfipp;
             telexOut["_hop"] = 1;
             self.send(telexOut);
-        }
-    });
-  -}
+            -}
+            sendTelex ((mkTelex remoteipp) { teleSigEnd = Just (mkHash seeipp)
+                                           , teleSigPop = Just ("th:" ++ (unIPP selfipp)) 
+                                           , teleHop    = Just "1"})
+            return ()
+
+          False -> return ()
   return ()
   
 
@@ -946,11 +952,12 @@ processSee line remoteipp seeipp = do
 seeVisible :: Bool -> Line -> IPP -> IPP -> TeleHash ()
 seeVisible False _line _selfipp _remoteipp = do return ()
 seeVisible True  line  selfipp  remoteipp = do
+  -- // they're making themselves visible now, awesome
   io (putStrLn $ "\t\tVISIBLE " ++ (show remoteipp))
-  updateTelehashLine (line {lineVisible = True})
+  let line' = line {lineVisible = True}
   
-  Right newNeighbourList <- near_to (lineIpp line) selfipp
-  updateTelehashLine (line { lineNeighbors = Set.union (Set.fromList newNeighbourList) (lineNeighbors line) }) 
+  Right newNeighbourList <- near_to (lineIpp line') selfipp
+  updateTelehashLine (line' { lineNeighbors = Set.union (Set.fromList newNeighbourList) (lineNeighbors line') }) 
   
   near_to (lineIpp line) remoteipp -- // injects this switch as hints into it's neighbors, fully seeded now
   {-
@@ -1106,12 +1113,15 @@ online rxTelex = do
                     
   io (putStrLn $ "ONLINE")
   
-  state <- get
-  put $ state {swConnected = True, swSelfIpp = Just (teleTo rxTelex)}
-  
   let
     selfIpp = (teleTo rxTelex)
     selfhash = mkHash $ teleTo rxTelex
+  state <- get
+  put $ state {swConnected = True
+              , swSelfIpp = Just selfIpp
+              , swSelfHash = Just selfhash
+              }
+  
   io (putStrLn ("SELF[" ++ (show selfIpp) ++ " = " ++ (show selfhash) ++ "]"))
     
   timeNow <- io getClockTime

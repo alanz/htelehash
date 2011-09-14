@@ -56,9 +56,37 @@ tests = [ testGroup "group 1"
             testCase "test_near_to1" test_near_to1
             , testCase "test_near_to2" test_near_to2
             , testCase "test_near_to3" test_near_to3
-          ]
+          ],
+          testGroup "seeVisible" [
+            testCase "test_seeVisible1" test_seeVisible1
+            , testCase "test_seeVisible2" test_seeVisible2
+            ]
         ]
   
+-- ---------------------------------------------------------------------
+
+test_seeVisible1 :: Assertion
+test_seeVisible1 = do
+  (res,state) <- runStateT (seeVisible False (mkLine ipp2 (TOD 1000 999)) ipp1 ipp2 ) st1
+
+  case (state == st1) of
+    True  -> return ()
+    False -> assertFailure ("State has been modified:" ++ (show state))
+
+-- ---------------------------------------------------------------------
+
+test_seeVisible2 :: Assertion
+test_seeVisible2 = do
+  let
+    line = mkLine ipp2 (TOD 1000 999)
+  (res,state) <- runStateT (seeVisible True line ipp1 ipp2 ) st2
+
+  let Just lineNew = getLineMaybe (swMaster state) hash2
+  
+  case (line == lineNew) of
+    True  -> assertFailure ("Line is the same:" ++ (show line))
+    False -> assertFailure ("Line has been modified:" ++ (show lineNew))
+
 -- ---------------------------------------------------------------------
           
 -- Note: near_to :: IPP -> IPP -> TeleHash [Hash]
@@ -67,7 +95,7 @@ test_near_to1 :: Assertion
 test_near_to1 = do
   -- Check that a line exists for the given ipp. If not, should get an undefined result
   let
-    st = (Switch {swH = (SocketHandle undefined undefined) 
+    st = (Switch {swH = Nothing
                  , swSeeds = [] 
                  , swSeedsIndex = (Set.fromList [])
                  , swConnected = False
@@ -77,7 +105,7 @@ test_near_to1 = do
                  , swTaps = []
                  })
 
-  (res,state) <- runStateT (near_to (IPP "1.2.3.4:1234") (IPP "2.3.4.5:2345") ) st
+  (res,state) <- runStateT (near_to ipp1 ipp2 ) st
 
   case res of
     Left errStr -> return ()
@@ -90,17 +118,17 @@ test_near_to2 :: Assertion
 test_near_to2 = do
   -- Check that a line exists for the given ipp. If not, should get an undefined result
   let
-    st = (Switch {swH = (SocketHandle undefined undefined) 
+    st = (Switch {swH = Nothing
                  , swSeeds = [] 
                  , swSeedsIndex = (Set.fromList [])
                  , swConnected = False
-                 , swMaster = Map.fromList [(mkHash $ IPP "2.3.4.5:2345", mkLine (IPP "2.3.4.5:2345") (TOD 1000 999) )]
+                 , swMaster = Map.fromList [(mkHash ipp2, mkLine ipp2 (TOD 1000 999) )]
                  , swSelfIpp = Nothing 
                  , swSelfHash = Nothing 
                  , swTaps = []
                  })
 
-  (res,state) <- runStateT (near_to (IPP "1.2.3.4:1234") (IPP "2.3.4.5:2345") ) st
+  (res,state) <- runStateT (near_to ipp1 ipp2) st
 
   case res of
     Left "empty see list" -> return ()
@@ -108,38 +136,49 @@ test_near_to2 = do
   
 -- ---------------------------------------------------------------------
     
-ipp1 = IPP "2.3.4.5:2345"
-ipp2 = IPP "3.4.5.6:3456"
-ipp3 = IPP "4.5.6.7:4567"
+st1 = (Switch {swH = Nothing
+              , swSeeds = [] 
+              , swSeedsIndex = (Set.fromList [])
+              , swConnected = False
+              , swMaster = Map.empty 
+              , swSelfIpp = Nothing 
+              , swSelfHash = Nothing 
+              , swTaps = []
+              })
+
+st2 = (Switch {swH = Nothing
+              , swSeeds = [] 
+              , swSeedsIndex = (Set.fromList [])
+              , swConnected = False
+              , swMaster = Map.fromList 
+                           [
+                             (hash1,
+                              (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1,hash2]}) -- ipp under test
+                           , (hash2,(mkLine ipp2 (TOD 1002 999) ) {lineVisible = True })-- first neighbour
+                           , (hash3,(mkLine ipp3 (TOD 1003 999) ) {lineVisible = True })-- second neighbour
+                           ]
+              , swSelfIpp = Nothing 
+              , swSelfHash = Nothing 
+              , swTaps = []
+              })
+      
+ipp1 = IPP "1.2.3.4:1234"
+ipp2 = IPP "2.3.4.5:2345"
+ipp3 = IPP "3.4.5.6:3456"
+ipp4 = IPP "4.5.6.7:4567"
 hash1 = mkHash ipp1          
 hash2 = mkHash ipp2          
 hash3 = mkHash ipp3
+hash4 = mkHash ipp4
 
 test_near_to3 :: Assertion
 test_near_to3 = do
   -- Check that the ipp has some visible neighbours
-  let
-    st = (Switch {swH = (SocketHandle undefined undefined) 
-                 , swSeeds = [] 
-                 , swSeedsIndex = (Set.fromList [])
-                 , swConnected = False
-                 , swMaster = Map.fromList 
-                              [
-                                (hash1,
-                                 (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1,hash2]}) -- ipp under test
-                              , (hash2,(mkLine ipp2 (TOD 1002 999) ) {lineVisible = True })-- first neighbour
-                              , (hash3,(mkLine ipp3 (TOD 1003 999) ) {lineVisible = True })-- second neighbour
-                              ]
-                 , swSelfIpp = Nothing 
-                 , swSelfHash = Nothing 
-                 , swTaps = []
-                 })
-
-  (res,state) <- runStateT (near_to (IPP "1.2.3.4:1234") (IPP "2.3.4.5:2345") ) st
+  (res,state) <- runStateT (near_to ipp1 ipp2 ) st2
 
   case res of
     Left msgStr -> assertFailure msgStr
-    Right foo   -> assertFailure (show foo)
+    Right [Hash "0ec331643f4a7a74068ea47dda062b48b419c832"] -> return ()
   
 -- ---------------------------------------------------------------------          
 
