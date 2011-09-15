@@ -197,6 +197,7 @@ test_parseMsg1Js =
            teleLine = Just 412367436, 
            teleHop = Nothing,
            teleSigEnd = Just $ Hash "38666817e1b38470644e004b9356c1622368fa57",
+           teleSigPop = Nothing,
            teleTap = Just [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"), 
                                 tapHas = ["+pop"]}],
            teleRest = [(".tap","[{\"has\":[\"+pop\"],\"is\":{\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\"}}]"),("_line","412367436"),(".see","[\"208.68.163.247:42424\"]"),("_br","74"),("+end","\"38666817e1b38470644e004b9356c1622368fa57\""),("_to","\"196.209.236.12:34963\"")],

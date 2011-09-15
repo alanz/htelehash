@@ -179,7 +179,7 @@ data Telex = Telex
              , teleBr     :: Int
              , teleTo     :: IPP
              , teleLine   :: Maybe Int
-             , teleHop    :: Maybe String
+             , teleHop    :: Maybe Int
              , teleSigEnd :: Maybe Hash
              , teleSigPop :: Maybe String
              , teleTap    :: Maybe [Tap]  
@@ -199,7 +199,7 @@ parseTelex s =
       maybeSee  = getStringArrayMaybe cc ".see"
       Just br   = getIntMaybe         cc "_br"
       maybeLine = getIntMaybe         cc "_line"
-      maybeHop  = getStringMaybe      cc "_hop"
+      maybeHop  = getIntMaybe         cc "_hop"
       maybeEnd  = getHashMaybe        cc "+end"
       maybeTap  = getTapMaybe         cc ".tap"
       maybePop  = getStringMaybe      cc "+pop"
@@ -577,6 +577,14 @@ updateTelehashLine line = do
 
 -- ---------------------------------------------------------------------
 
+hashToIpp master h = 
+  let
+    Just line = getLineMaybe master h
+  in
+    lineIpp line
+
+-- ---------------------------------------------------------------------
+
 isLineOk :: Line -> Integer -> Telex -> Bool
 isLineOk line secsNow msg = lineOk
   where
@@ -869,8 +877,6 @@ recvTelex msg rinfo = do
 
 -- ---------------------------------------------------------------------
 
--- TODO: implement this
-
 processCommands :: Telex -> IPP -> Line -> TeleHash ()
 processCommands rxTelex remoteipp line = do
   mapM_ (\(k,v) -> processCommand k remoteipp rxTelex line) (getCommands rxTelex)      
@@ -895,8 +901,25 @@ processCommand ".see" remoteipp telex line = do
                     $ map (\i -> (IPP i)) seeipps
     Nothing      -> return ()
   
+-- ---------------------------------------------------------------------
+-- Handle the .tap TeleHash command.
+processCommand ".tap" remoteipp telex line = do 
+  io (putStrLn $ "processCommand .tap:" ++ (show (teleTap telex)) )
+  {-
+  -- // handle a tap command, add/replace rules
+  if (telex[".tap"] && isArray(telex[".tap"])) {
+      line.rules = telex[".tap"];
+  }
+  -}
+  case (teleTap telex) of
+    Nothing -> return ()
+    Just tap -> updateTelehashLine (line { lineRules = tap })
+  return ()
+
+-- ---------------------------------------------------------------------
+  
 processCommand cmd _remoteipp _telex _line = do 
-  io (putStrLn $ "processCommand : ignoring " ++ (show cmd))
+  io (putStrLn $ "processCommand : ***ignoring*** " ++ (show cmd))
   return ()
   
 -- ---------------------------------------------------------------------
@@ -923,24 +946,12 @@ processSee line remoteipp seeipp = do
         case (bucket_want selfhash seeipp) of
           True -> do
             -- // send direct (should open our outgoing to them)
-            {-
-            var telexOut = new Telex(seeipp);
-            telexOut["+end"] = self.selfhash;
-            self.send(telexOut);
-            -}            
             sendTelex ((mkTelex seeipp) { teleSigEnd = Just selfhash })
             
             -- // send pop signal back to the switch who .see'd us in case the new one is behind a nat
-            {-           
-            telexOut = new Telex(remoteipp);
-            telexOut["+end"] = seeippHash;
-            telexOut["+pop"] = "th:" + self.selfipp;
-            telexOut["_hop"] = 1;
-            self.send(telexOut);
-            -}
             sendTelex ((mkTelex remoteipp) { teleSigEnd = Just (mkHash seeipp)
                                            , teleSigPop = Just ("th:" ++ (unIPP selfipp)) 
-                                           , teleHop    = Just "1"})
+                                           , teleHop    = Just 1})
             return ()
 
           False -> return ()
@@ -960,15 +971,6 @@ seeVisible True  line  selfipp  remoteipp = do
   updateTelehashLine (line' { lineNeighbors = Set.union (Set.fromList newNeighbourList) (lineNeighbors line') }) 
   
   near_to (lineIpp line) remoteipp -- // injects this switch as hints into it's neighbors, fully seeded now
-  {-
-  // they're making themselves visible now, awesome
-  if (seeipp == remoteipp && !line.visible) {
-      console.log(["\t\tVISIBLE ", remoteipp].join(""));
-      line.visible=1;
-      self.near_to(line.end, self.selfipp).map(function(x) { return line.neighbors[x]=1; });
-      self.near_to(line.end, remoteipp); // injects this switch as hints into it's neighbors, fully seeded now
-  }
-  -}        
   return ()
 
 -- ---------------------------------------------------------------------
@@ -976,8 +978,8 @@ seeVisible True  line  selfipp  remoteipp = do
  * generate a .see for an +end, using a switch as a hint
  * -}
 
---near_to :: IPP -> IPP -> TeleHash (Maybe [Hash])
-near_to :: IPP -> IPP -> TeleHash (Either String [Hash])
+--near_to :: IPP -> IPP -> TeleHash (Either String [Hash])
+near_to :: Hash -> IPP -> TeleHash (Either String [Hash])
 near_to end ipp = do
   state <- get
 
@@ -1099,12 +1101,96 @@ distanceTo (Hash this) (Hash h) = go 156 (reverse diffs)
                                
 -- ---------------------------------------------------------------------
 
--- TODO: implement this
-processSignals rxTelex remoteipp line = do return ()
+processSignals :: Telex -> IPP -> Line -> TeleHash ()
+processSignals rxTelex remoteipp line = do
+  mapM_ (\(k,v) -> processSignal k remoteipp rxTelex line) (getSignals rxTelex)      
+  return () 
 
 getSignals telex = filter isSignal (teleRest telex)
   where
     isSignal (k,_v) = (head k) == '+'
+
+-- ---------------------------------------------------------------------
+
+processSignal "+end" remoteipp telex line = do 
+  io (putStrLn $ "processSignal :  +end")
+  
+  state <- get
+  master        <- gets swMaster
+  Just selfipp  <- gets swSelfIpp
+  Just selfhash <- gets swSelfHash
+  
+  let 
+    hop =
+      case (teleHop telex) of
+        Nothing -> 0
+        Just h -> h
+    Just end = teleSigEnd telex
+  case (hop) of
+    0 -> do
+    {-
+    if (hop == 0) {
+        var vis = line.visible ? remoteipp : self.selfipp; // start from a visible switch (should use cached result someday)
+        var hashes = self.near_to(end, vis); // get closest hashes (of other switches)
+        
+    //      console.log("+end hashes: " + JSON.stringify(hashes));
+    -}    
+      let
+        -- // start from a visible switch (should use cached result someday)
+        vis = if (lineVisible line) then (remoteipp) else (selfipp)
+        hashes = near_to end vis -- // get closest hashes (of other switches)
+      io (putStrLn $ "+end hashes: " ++ (show hashes))
+      
+        -- // convert back to IPPs
+        {-
+        var ipps = {};
+        hashes.slice(0,5).forEach(function(hash){
+            ipps[self.master[hash].ipp] = 1;
+        });
+        -}
+      let ipps = map (\h -> hashToIpp master h) hashes
+      io (putStrLn $ "+end ipps: " ++ (show ipps))
+
+        {-
+        // TODO: this is where dampening should happen to not advertise switches that might be too busy
+        if (!line.visibled) {
+            ipps[self.selfipp] = line.visibled = 1; // mark ourselves visible at least once
+        }
+        
+        var ippKeys = keys(ipps);
+        if (ippKeys.length) {
+            var telexOut = new Telex(remoteipp);
+            var seeipps = ippKeys.filter(function(ipp){ return ipp.length > 1 });
+            telexOut[".see"] = seeipps;
+            self.send(telexOut);
+        }
+    }
+    -}    
+      return ()
+    _ -> do return ()
+    
+    {-
+    // this is our .tap, requests to +pop for NATs
+    if (end == self.selfhash && telex["+pop"]) {
+        console.log("POP? " + telex["+pop"]);
+        var tapMatch = telex["+pop"].match(/th\:([\d\.]+)\:(\d+)/);
+        if (tapMatch) {
+            // should we verify that this came from a switch we actually have a tap on?
+            var ip = tapMatch[1];
+            var port = tapMatch[2];
+            console.log(["POP to ", ip, ":", port].join(""));
+            self.send(new Telex([ip, port].join(":")));
+        }
+    }
+  }
+  -}
+  return ()
+
+-- ---------------------------------------------------------------------
+
+processSignal cmd _remoteipp _telex _line = do 
+  io (putStrLn $ "processSignal : ***ignoring*** " ++ (show cmd))
+  return ()
 
 -- ---------------------------------------------------------------------
 
