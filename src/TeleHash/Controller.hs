@@ -132,6 +132,7 @@ data Line = Line {
   lineBsent     :: Int,
   lineNeighbors :: Set.Set Hash, -- lineNeighbors,
   lineVisible   :: Bool,
+  lineVisibled  :: Bool,
   lineRules     :: [Tap]
   } deriving (Eq,Show)
 
@@ -162,6 +163,7 @@ mkLine endPoint@(IPP endPointStr) timeNow =
        lineBsent     = 0,
        lineNeighbors = Set.fromList [endPointHash],
        lineVisible   = False,
+       lineVisibled  = False,
        lineRules     = []                       
        }
 
@@ -175,7 +177,7 @@ data Tap = Tap { tapIs :: (String,String), tapHas :: [String] }
 
 data Telex = Telex 
              { teleRing   :: Maybe Int
-             , teleSee    :: Maybe [String]
+             , teleSee    :: Maybe [IPP]
              , teleBr     :: Int
              , teleTo     :: IPP
              , teleLine   :: Maybe Int
@@ -204,10 +206,16 @@ parseTelex s =
       maybeTap  = getTapMaybe         cc ".tap"
       maybePop  = getStringMaybe      cc "+pop"
       msgLength = length s
+      
+      maybeSee' = case maybeSee of
+        Nothing -> Nothing
+        Just see -> Just $ map (\s -> (IPP s)) see
     in 
      -- mkTelex to
      
-     (mkTelex (IPP to)) {teleRing = maybeRing, teleSee = maybeSee, teleBr = br, 
+     (mkTelex (IPP to)) {teleRing = maybeRing, 
+                   teleSee = maybeSee', 
+                   teleBr = br, 
                    teleTo = (IPP to), teleLine = maybeLine, teleHop = maybeHop,
                    teleSigEnd = maybeEnd, teleTap = maybeTap, 
                    teleSigPop = maybePop,
@@ -305,7 +313,7 @@ encodeTelex t =
       Nothing -> []
       
     see = case (teleSee t) of
-      Just r -> [(".see", showJSON $ JSArray (map (\s -> JSString (toJSString s)) r))]
+      Just r -> [(".see", showJSON $ JSArray (map (\s -> JSString (toJSString (unIPP s))) r))]
       Nothing -> []
     
     br = [("_br", JSString $ toJSString $ show (teleBr t))]
@@ -898,7 +906,7 @@ processCommand ".see" remoteipp telex line = do
     -- // loop through and establish lines to them (just being dumb for now and trying everyone)
     Just seeipps -> mapM_ (\ipp -> processSee line remoteipp ipp) 
                     $ filter (\i -> i /= selfipp) -- // skip ourselves :)
-                    $ map (\i -> (IPP i)) seeipps
+                    $ seeipps
     Nothing      -> return ()
   
 -- ---------------------------------------------------------------------
@@ -967,10 +975,10 @@ seeVisible True  line  selfipp  remoteipp = do
   io (putStrLn $ "\t\tVISIBLE " ++ (show remoteipp))
   let line' = line {lineVisible = True}
   
-  Right newNeighbourList <- near_to (lineIpp line') selfipp
+  Right newNeighbourList <- near_to (lineEnd line') selfipp
   updateTelehashLine (line' { lineNeighbors = Set.union (Set.fromList newNeighbourList) (lineNeighbors line') }) 
   
-  near_to (lineIpp line) remoteipp -- // injects this switch as hints into it's neighbors, fully seeded now
+  near_to (lineEnd line) remoteipp -- // injects this switch as hints into it's neighbors, fully seeded now
   return ()
 
 -- ---------------------------------------------------------------------
@@ -978,13 +986,12 @@ seeVisible True  line  selfipp  remoteipp = do
  * generate a .see for an +end, using a switch as a hint
  * -}
 
---near_to :: IPP -> IPP -> TeleHash (Either String [Hash])
 near_to :: Hash -> IPP -> TeleHash (Either String [Hash])
-near_to end ipp = do
+near_to endHash ipp = do
   state <- get
 
   let
-    endHash = mkHash end
+    -- endHash = mkHash end
     master = (swMaster state)
 
   case (getLineMaybe master (mkHash ipp)) of
@@ -1005,17 +1012,17 @@ near_to end ipp = do
           where 
             dist = (distanceTo endHash a) - (distanceTo endHash b)
             
-      near_to_see line end endHash ipp see
+      near_to_see line endHash ipp see
       
-near_to_see :: Line -> IPP -> Hash -> IPP -> [Hash] -> TeleHash (Either String [Hash])
-near_to_see line end endHash ipp []  = do return $ Left "empty see list"      
-near_to_see line end endHash ipp see = do                    
+near_to_see :: Line -> Hash -> IPP -> [Hash] -> TeleHash (Either String [Hash])
+near_to_see line endHash ipp []  = do return $ Left "empty see list"      
+near_to_see line endHash ipp see = do                    
       let
         firstSee     = head see      
         firstSeeHash = firstSee
         lineNeighborKeys = (lineNeighbors line)
         lineEndHash  = lineEnd line
-      io (putStrLn $ ("\tNEARTO " ++ (show end) ++ "\t" ++ (show ipp) ++ "\t" ++ (show $ Set.size lineNeighborKeys) 
+      io (putStrLn $ ("\tNEARTO " ++ (show endHash) ++ "\t" ++ (show ipp) ++ "\t" ++ (show $ Set.size lineNeighborKeys) 
           ++ ">" ++ (show $ length see)
           ++ "\t" ++ (show $ distanceTo firstSeeHash endHash) ++ "=" ++ (show $ distanceTo lineEndHash endHash)))
         
@@ -1025,12 +1032,12 @@ near_to_see line end endHash ipp see = do
         True -> 
           -- this +end == this line then replace the neighbors cache with this result 
           -- and each in the result walk and insert self into their neighbors
-          case ((lineIpp line) == end) of
+          case (lineEndHash == endHash) of
             True -> do
-              io (putStrLn ("NEIGH for " ++ (show end) ++ " was " ++ (show lineNeighborKeys) ++ (show $ length see)))
+              io (putStrLn ("NEIGH for " ++ (show endHash) ++ " was " ++ (show lineNeighborKeys) ++ (show $ length see)))
               let neigh = Set.fromList $ take 5 see
               updateTelehashLine (line {lineNeighbors = neigh})
-              io (putStrLn ("NEIGH for " ++ (show end) ++ " is " ++ (show neigh) ++ (show $ length see)))
+              io (putStrLn ("NEIGH for " ++ (show endHash) ++ " is " ++ (show neigh) ++ (show $ length see)))
 
               mapM_ (\hash -> addNeighbour hash endHash ipp) $ Set.toList neigh
               io (putStrLn ("\t\tSEE distance=" ++ (show $ distanceTo endHash firstSeeHash) ++ " count=" ++ (show $ length see) ))
@@ -1041,7 +1048,7 @@ near_to_see line end endHash ipp see = do
         False -> do
           -- whomever is closer, if any, tail recurse endseeswitch them
           Just lineFirstSee <- getLineMaybeM firstSee
-          near_to end (lineIpp lineFirstSee)
+          near_to endHash (lineIpp lineFirstSee)
 
 
 -- ---------------------------------------------------------------------
@@ -1128,17 +1135,10 @@ processSignal "+end" remoteipp telex line = do
     Just end = teleSigEnd telex
   case (hop) of
     0 -> do
-    {-
-    if (hop == 0) {
-        var vis = line.visible ? remoteipp : self.selfipp; // start from a visible switch (should use cached result someday)
-        var hashes = self.near_to(end, vis); // get closest hashes (of other switches)
-        
-    //      console.log("+end hashes: " + JSON.stringify(hashes));
-    -}    
       let
         -- // start from a visible switch (should use cached result someday)
         vis = if (lineVisible line) then (remoteipp) else (selfipp)
-        hashes = near_to end vis -- // get closest hashes (of other switches)
+      Right hashes <- near_to end vis -- // get closest hashes (of other switches)
       io (putStrLn $ "+end hashes: " ++ (show hashes))
       
         -- // convert back to IPPs
@@ -1148,15 +1148,20 @@ processSignal "+end" remoteipp telex line = do
             ipps[self.master[hash].ipp] = 1;
         });
         -}
-      let ipps = map (\h -> hashToIpp master h) hashes
+      let ipps = take 5 $ map (\h -> hashToIpp master h) hashes
       io (putStrLn $ "+end ipps: " ++ (show ipps))
 
         {-
-        // TODO: this is where dampening should happen to not advertise switches that might be too busy
+        -- // TODO: this is where dampening should happen to not advertise switches that might be too busy
         if (!line.visibled) {
             ipps[self.selfipp] = line.visibled = 1; // mark ourselves visible at least once
         }
-        
+        -}
+      let   
+        ipps' = if (lineVisibled line) then (ipps) else (selfipp:ipps)
+      updateTelehashLine (line { lineVisibled = True })
+      
+        {-
         var ippKeys = keys(ipps);
         if (ippKeys.length) {
             var telexOut = new Telex(remoteipp);
@@ -1164,26 +1169,42 @@ processSignal "+end" remoteipp telex line = do
             telexOut[".see"] = seeipps;
             self.send(telexOut);
         }
-    }
-    -}    
+       -}    
+      case (ipps') of
+        [] -> do return ()
+        seeipps -> do
+          sendTelex ((mkTelex remoteipp) { teleSee = Just (nub seeipps) })
+          return ()
       return ()
     _ -> do return ()
     
-    {-
-    // this is our .tap, requests to +pop for NATs
-    if (end == self.selfhash && telex["+pop"]) {
-        console.log("POP? " + telex["+pop"]);
-        var tapMatch = telex["+pop"].match(/th\:([\d\.]+)\:(\d+)/);
-        if (tapMatch) {
-            // should we verify that this came from a switch we actually have a tap on?
-            var ip = tapMatch[1];
-            var port = tapMatch[2];
-            console.log(["POP to ", ip, ":", port].join(""));
-            self.send(new Telex([ip, port].join(":")));
-        }
-    }
-  }
-  -}
+    
+  -- // this is our .tap, requests to +pop for NATs
+  case (end == selfhash && (teleSigPop telex) /= Nothing) of
+    True -> do
+      let
+        Just str = teleSigPop telex           
+        [_,ip,port] = split ":" str -- TODO: more robust parsing here
+
+      io (putStrLn $ "POP? " ++ (show $ teleSigPop telex))
+      io (putStrLn $ "POP to " ++ ip ++ ":" ++ port)
+      -- // should we verify that this came from a switch we actually have a tap on?
+      sendTelex (mkTelex (IPP (ip ++ ":" ++ port)))
+      {-
+      if (end == self.selfhash && telex["+pop"]) {
+          console.log("POP? " + telex["+pop"]);
+          var tapMatch = telex["+pop"].match(/th\:([\d\.]+)\:(\d+)/);
+          if (tapMatch) {
+              // should we verify that this came from a switch we actually have a tap on?
+              var ip = tapMatch[1];
+              var port = tapMatch[2];
+              console.log(["POP to ", ip, ":", port].join(""));
+              self.send(new Telex([ip, port].join(":")));
+          }
+      }
+      -}
+      return ()
+    False -> do return ()
   return ()
 
 -- ---------------------------------------------------------------------
