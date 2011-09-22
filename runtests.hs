@@ -105,7 +105,7 @@ test_near_to1 = do
                  , swTaps = []
                  })
 
-  (res,state) <- runStateT (near_to ipp1 ipp2 ) st
+  (res,state) <- runStateT (near_to hash1 ipp2 ) st
 
   case res of
     Left errStr -> return ()
@@ -128,7 +128,7 @@ test_near_to2 = do
                  , swTaps = []
                  })
 
-  (res,state) <- runStateT (near_to ipp1 ipp2) st
+  (res,state) <- runStateT (near_to hash1 ipp2) st
 
   case res of
     Left "empty see list" -> return ()
@@ -174,7 +174,7 @@ hash4 = mkHash ipp4
 test_near_to3 :: Assertion
 test_near_to3 = do
   -- Check that the ipp has some visible neighbours
-  (res,state) <- runStateT (near_to ipp1 ipp2 ) st2
+  (res,state) <- runStateT (near_to hash1 ipp2 ) st2
 
   case res of
     Left msgStr -> assertFailure msgStr
@@ -192,7 +192,7 @@ test_recvTelex1 =
 
 test_parseMsg1Js = 
   parseTelex msg1Js @?= (
-    Telex {teleRing = Nothing, teleSee = Just ["208.68.163.247:42424"],
+    Telex {teleRing = Nothing, teleSee = Just [IPP "208.68.163.247:42424"],
            teleBr = 74, teleTo = IPP "196.209.236.12:34963",
            teleLine = Just 412367436, 
            teleHop = Nothing,

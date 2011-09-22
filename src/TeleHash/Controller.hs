@@ -185,7 +185,8 @@ data Telex = Telex
              , teleSigEnd :: Maybe Hash
              , teleSigPop :: Maybe String
              , teleTap    :: Maybe [Tap]  
-             , teleRest   :: [(String, String)]
+             -- , teleRest   :: [(String, String)]
+             , teleRest   :: Map.Map String String
              , teleMsgLength :: Maybe Int -- length of received Telex  
              } deriving (Data, Typeable, -- For Text.JSON
                                  Eq, Show)
@@ -219,7 +220,7 @@ parseTelex s =
                    teleTo = (IPP to), teleLine = maybeLine, teleHop = maybeHop,
                    teleSigEnd = maybeEnd, teleTap = maybeTap, 
                    teleSigPop = maybePop,
-                   teleRest = map (\(name,val) -> (name, encode val)) (fromJSObject cc), -- horrible, but will do for now
+                   teleRest = Map.fromList $ map (\(name,val) -> (name, encode val)) (fromJSObject cc), -- horrible, but will do for now
                    teleMsgLength = Just msgLength }
      
 -- ---------------------------------------------------------------------
@@ -702,7 +703,7 @@ mkTelex :: IPP -> Telex
 mkTelex seedIPP = 
     -- set _to = seedIPP
   -- Telex Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
-  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing [] Nothing 
+  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing Map.empty Nothing 
                   
 -- ---------------------------------------------------------------------  
 --
@@ -881,18 +882,158 @@ recvTelex msg rinfo = do
         processSignals  rxTelex remoteipp line'
 
     -- TODO: implement rest
+        
+    tapSignals (hasSignals rxTelex) rxTelex
+    
     return ()
 
+-- ---------------------------------------------------------------------
+    
+tapSignals False _      = do return ()
+tapSignals True rxTelex = do
+  {-    
+    if (telex.hasSignals()) {
+        var hop = telex._hop == null ? 0 : parseInt(telex._hop)
+  -}
+  let 
+    hop =
+      case (teleHop rxTelex) of
+        Nothing -> 0
+        Just h -> h
+
+  -- // if not last-hop, check for any active taps (todo: optimize the matching, this is just brute force)
+  case (hop < 4) of
+    False -> return ()
+    True -> do
+      {-
+        if (hop < 4) {
+            keys(self.master)
+            .filter(function(hash){ return self.master[hash].rules != null && self.master[hash].rules.length })
+            .forEach(function(hash){
+      -}
+      master <- gets swMaster
+      mapM_ (\line -> tapLine rxTelex line) $ Map.elems master    
+      {-
+                var pass = 0;
+                var swipp = self.master[hash].ipp;
+                self.master[hash].rules.forEach(function(rule){
+                    console.log(["\tTAP CHECK IS ", swipp, "\t", JSON.stringify(rule)].join(""));
+                    
+                    // all the "is" are in this telex and match exactly
+                    var ruleIsKeys = keys(rule.is);
+                    
+                    if (!ruleIsKeys.every(function(isKey){ 
+                            console.log("IS match: " + telex[isKey] + " = " + rule.is[isKey] + "?");
+                            return telex[isKey] == rule.is[isKey]; })) {
+                        return; // continue
+                    }
+                    
+                    // pass only if all has exist
+                    if (rule.has.every(function(hasKey){ 
+                            console.log("HAS match: " + hasKey + " -> " + (hasKey in telex));
+                            return hasKey in telex; })) {
+                        pass++;
+                    }
+                });
+                
+                // forward this switch a copy
+                if (pass) {
+                    // it's us, it has to be our tap_js        
+                    if (swipp == self.selfipp) {
+                        console.log(["STDOUT[", JSON.stringify(telex), "]"].join(""));
+                    }
+                    else{
+                        var telexOut = new Telex(swipp);
+                        keys(telex).filter(function(key){ return key.match(/^\+.+/); })
+                        .forEach(function(sig){
+                            telexOut[sig] = telex[sig];
+                        });
+                        telexOut["_hop"] = hop + 1;
+                        self.send(telexOut);
+                    }
+                }
+                else{
+                    console.log("\tCHECK MISS");
+                }
+            });
+        }
+        
+    }
+
+  -}
+      return ()
+  return ()
+  
+-- ---------------------------------------------------------------------
+
+tapLine telex line = do 
+  mapM_ (\rule -> processRule rule) $ lineRules line
+  where
+    processRule rule = do
+      io (putStrLn $ "\t TAP CHECK IS " ++ (show $ lineIpp line) ++ "\t" ++ (show rule))
+      mapM (\(k,v) -> matchIs (k,v)) (tapIs rule) 
+      return ()
+      
+    matchIs (isKey,isVal) = do
+      io (putStrLn $ "IS match: " ++ (show $ isKey) ++ "=" ++ (show isKey)++ "?")
+      return ()
+      {-
+      var pass = 0;
+      var swipp = self.master[hash].ipp;
+      self.master[hash].rules.forEach(function(rule){
+          console.log(["\tTAP CHECK IS ", swipp, "\t", JSON.stringify(rule)].join(""));
+                
+          // all the "is" are in this telex and match exactly
+          var ruleIsKeys = keys(rule.is);
+                    
+          if (!ruleIsKeys.every(function(isKey){ 
+                  console.log("IS match: " + telex[isKey] + " = " + rule.is[isKey] + "?");
+                  return telex[isKey] == rule.is[isKey]; })) {
+              return; // continue
+          }
+                    
+          // pass only if all has exist
+          if (rule.has.every(function(hasKey){ 
+                  console.log("HAS match: " + hasKey + " -> " + (hasKey in telex));
+                 return hasKey in telex; })) {
+              pass++;
+          }
+      });
+                
+    // forward this switch a copy
+    if (pass) {
+       // it's us, it has to be our tap_js        
+       if (swipp == self.selfipp) {
+            console.log(["STDOUT[", JSON.stringify(telex), "]"].join(""));
+        }
+        else{
+            var telexOut = new Telex(swipp);
+            keys(telex).filter(function(key){ return key.match(/^\+.+/); })
+            .forEach(function(sig){
+                telexOut[sig] = telex[sig];
+            });
+            telexOut["_hop"] = hop + 1;
+            self.send(telexOut);
+        }
+    }
+    else{
+        console.log("\tCHECK MISS");
+    }
+   });
+  -}
+
+      return ()
+                        
 -- ---------------------------------------------------------------------
 
 processCommands :: Telex -> IPP -> Line -> TeleHash ()
 processCommands rxTelex remoteipp line = do
-  mapM_ (\(k,v) -> processCommand k remoteipp rxTelex line) (getCommands rxTelex)      
+  mapM_ (\k -> processCommand k remoteipp rxTelex line) (getCommands rxTelex)      
   return () 
 
-getCommands telex = filter isCommand (teleRest telex)
+getCommands telex = filter isCommand $ Map.keys (teleRest telex)
   where
-    isCommand (k,_v) = (head k) == '.'
+    isCommand k = (head k) == '.'
 
 -- ---------------------------------------------------------------------
     
@@ -1113,9 +1254,13 @@ processSignals rxTelex remoteipp line = do
   mapM_ (\(k,v) -> processSignal k remoteipp rxTelex line) (getSignals rxTelex)      
   return () 
 
-getSignals telex = filter isSignal (teleRest telex)
+getSignals :: Telex -> [(String, String)]
+getSignals telex = filter isSignal $ Map.assocs (teleRest telex)
   where
     isSignal (k,_v) = (head k) == '+'
+
+hasSignals :: Telex -> Bool
+hasSignals telex = (getSignals telex) /= []
 
 -- ---------------------------------------------------------------------
 
