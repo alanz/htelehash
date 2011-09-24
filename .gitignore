@@ -10,3 +10,13 @@
 /src/TeleHash/irc.hs
 /src/TeleHash/irc.hs~
 /#runtests.hs#
+/.hpc/Main.mix
+/.hpc/TeleHash.Controller.mix
+/Main.hs.html
+/TeleHash.Controller.hs.html
+/coverage.sh~
+/hpc_index.html
+/hpc_index_alt.html
+/hpc_index_exp.html
+/hpc_index_fun.html
+/runtests.tix

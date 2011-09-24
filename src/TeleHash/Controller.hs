@@ -171,7 +171,8 @@ mkLine endPoint@(IPP endPointStr) timeNow =
 
 -- JSON stuff for a Telex
 
-data Tap = Tap { tapIs :: (String,String), tapHas :: [String] } 
+data Tap = Tap { tapIs :: (String,String), 
+                 tapHas :: [String] } 
          deriving (Data, Typeable, -- For Text.JSON
                    Eq, Show)
 
@@ -971,7 +972,7 @@ tapLine telex line = do
   where
     processRule rule = do
       io (putStrLn $ "\t TAP CHECK IS " ++ (show $ lineIpp line) ++ "\t" ++ (show rule))
-      mapM (\(k,v) -> matchIs (k,v)) (tapIs rule) 
+      mapM (\(k,v) -> matchIs (k,v)) [(tapIs rule)]
       return ()
       
     matchIs (isKey,isVal) = do
@@ -1031,6 +1032,7 @@ processCommands rxTelex remoteipp line = do
   mapM_ (\k -> processCommand k remoteipp rxTelex line) (getCommands rxTelex)      
   return () 
 
+getCommands :: Telex -> [String]
 getCommands telex = filter isCommand $ Map.keys (teleRest telex)
   where
     isCommand k = (head k) == '.'

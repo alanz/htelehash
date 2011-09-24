@@ -61,6 +61,7 @@ executable             runtests
     else
         Buildable: False
     main-is:         runtests.hs
+    ghc-options:  -fhpc
 
 source-repository head
   type:     git
