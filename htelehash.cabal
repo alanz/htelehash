@@ -30,9 +30,9 @@ Library
                    , containers       >= 0.2     && < 0.5
                    , Crypto           >= 4.2.3   && < 5.0
                    , bytestring       >= 0.9.1   && < 1.0
-                   , text             >= 0.11.1  && < 0.12
+                   -- , text             >= 0.11.1  && < 0.12
                    , attoparsec       >= 0.9.1   && < 1.0
-                   , aeson            >= 0.3.2   && < 0.4
+                   -- , aeson            >= 0.3.2   && < 0.4
                    , network          >= 2.3.0   && < 2.4
                    , random           >= 1.0     && < 2.0
                    , SHA              >= 1.4.1   && < 1.5
@@ -42,11 +42,18 @@ Library
                    , MissingH         >= 1.1     && < 1.2
                    , transformers     >= 0.2.2   && < 0.3
                    , json             >= 0.4.4   && < 0.5
+                   , hslogger         >= 1.1.5   && < 2
   hs-source-dirs: src
+  Buildable: False
   Exposed-modules:     TeleHash.TeleHash
                        TeleHash.Controller
-  -- Other-modules:       Language.JavaScript.Parser.LexerUtils
   ghc-options:         -Wall
+  --ghc-options:         -Wall -fhpc
+
+executable             main
+    hs-source-dirs:    . src
+    main-is:           main.hs
+    ghc-options:  -Wall -fhpc
 
 executable             runtests
     if flag(buildtests)
@@ -54,8 +61,10 @@ executable             runtests
         cpp-options:   -DTEST
         build-depends: QuickCheck >= 2 && < 3,
                        HUnit,
+                       test-framework-quickcheck2,
                        test-framework-hunit,
-                       test-framework
+                       test-framework,
+                       test-framework-th
         -- hs-source-dirs: . src ./dist/build
         hs-source-dirs: . src 
     else

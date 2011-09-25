@@ -20,3 +20,8 @@
 /hpc_index_exp.html
 /hpc_index_fun.html
 /runtests.tix
+/.hpc/htelehash-0.0.1/TeleHash.Controller.mix
+/.hpc/htelehash-0.0.1/TeleHash.Json.mix
+/.hpc/htelehash-0.0.1/TeleHash.TeleHash.mix
+/main.hs~
+/main.tix

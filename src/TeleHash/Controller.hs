@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 {- # LANGUAGE TypeOperators #-}
 {- # LANGUAGE TemplateHaskell #-}
@@ -6,10 +7,12 @@
 
 -- Above three settings are for the Json stuff using Data.Iso
 
+
 module TeleHash.Controller 
        (
+       runSwitch
        -- For testing
-       recvTelex  
+       , recvTelex  
        , parseTelex
        , mkTelex  
        , Telex(..)
@@ -19,7 +22,7 @@ module TeleHash.Controller
        , IPP(..)  
        , Switch(..)         
        , SocketHandle(..)
-       , TeleHash(..)
+       , TeleHash()
        , encodeMsg  
        , isLineOk
        , isRingOk  
@@ -34,47 +37,49 @@ module TeleHash.Controller
        , getLineMaybe
        ) where
 
-import Control.Applicative
 import Control.Category
 import Control.Concurrent
 import Control.Exception 
 import Control.Monad
 import Control.Monad.Error
-import Control.Monad.IO.Class
 import Control.Monad.State
 import Data.Bits
 import Data.Char
 import Data.List
 import Data.Maybe
 import Data.String.Utils
-import Debug.Trace
+--import Debug.Trace
 import Network.BSD
 import Network.Socket
-import Numeric
 import Text.JSON
 import Text.JSON.Generic
 import Text.JSON.Types
 import Prelude hiding (id, (.), head, either, catch)
-import System.Exit
 import System.IO
+import System.Log.Logger
 import System.Time
---import TeleHash.Json 
+  --import TeleHash.Json 
 
---import Test.QuickCheck
+{-
+import Test.Framework.TH
+import Test.Framework
+import Test.HUnit
+import Test.Framework.Providers.HUnit
+import Test.Framework.Providers.QuickCheck2
+-}
+
+
+
 
 import Text.Printf
-import qualified Codec.Binary.Base64 as B64
 import qualified Control.Concurrent.Actor as A
-import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import qualified Data.Text as T
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
---import Control.Category
 
 {-
 
@@ -92,10 +97,12 @@ type TeleHash = StateT Switch IO
 
 newtype Hash = Hash String
              deriving (Data,Eq,Show,Typeable,Ord)
+unHash :: Hash -> String
 unHash (Hash str) = str
 
 newtype IPP = IPP String
              deriving (Data,Eq,Show,Typeable,Ord)
+unIPP :: IPP -> String
 unIPP (IPP str) = str
 
 data Switch = Switch { swH :: Maybe SocketHandle 
@@ -108,6 +115,7 @@ data Switch = Switch { swH :: Maybe SocketHandle
                      , swTaps :: [Tap]  
                      } deriving (Eq,Show)
 
+nBuckets :: Int
 nBuckets = 160
 
 data SocketHandle = 
@@ -144,7 +152,7 @@ mkLine endPoint@(IPP endPointStr) timeNow =
   let
     [hostIP,port] = split ":" endPointStr
     endPointHash = mkHash endPoint
-    (TOD secs picosecs) = timeNow
+    (TOD _secs picosecs) = timeNow
     ringOut = fromIntegral (1 + (picosecs `mod` 32768))  -- TODO: rand 1..32768
   in  
    Line {
@@ -213,7 +221,7 @@ parseTelex s =
       
       maybeSee' = case maybeSee of
         Nothing -> Nothing
-        Just see -> Just $ map (\s -> (IPP s)) see
+        Just see -> Just $ map (\ss -> (IPP ss)) see
     in 
      -- mkTelex to
      
@@ -248,6 +256,7 @@ getStringArrayMaybe cc field =
       _                         -> Nothing  
   where
     getStr (JSString jsStrVal) = fromJSString jsStrVal
+    getStr x                   = "getStringArrayMaybe:oops:getstr :" ++ (show x)
       
 getIntMaybe :: JSObject JSValue -> String -> Maybe Int
 getIntMaybe cc field =
@@ -364,11 +373,15 @@ getRandom seed =
    res
 
 -- ---------------------------------------------------------------------
+
+main = runSwitch
+
+-- ---------------------------------------------------------------------
 --
 -- Set up actions to run on start and end, and run the main loop
 --
-main :: IO ((),Switch)
-main = bracket initialize disconnect loop
+runSwitch :: IO ((),Switch)
+runSwitch = bracket initialize disconnect loop
   where
     disconnect ss = sClose (slSocket (fromJust $ swH ss))
     
@@ -1000,7 +1013,7 @@ processCommand
   :: String -> IPP -> Telex -> Line -> TeleHash ()
 processCommand ".see" remoteipp telex line = do 
   io (putStrLn $ "processCommand .see")
-  state <- get
+  --state <- get
   Just selfipp <- gets swSelfIpp
   case (teleSee telex) of 
     -- // loop through and establish lines to them (just being dumb for now and trying everyone)
@@ -1011,7 +1024,7 @@ processCommand ".see" remoteipp telex line = do
   
 -- ---------------------------------------------------------------------
 -- Handle the .tap TeleHash command.
-processCommand ".tap" remoteipp telex line = do 
+processCommand ".tap" _remoteipp telex line = do 
   io (putStrLn $ "processCommand .tap:" ++ (show (teleTap telex)) )
   {-
   -- // handle a tap command, add/replace rules
@@ -1612,6 +1625,9 @@ main_actor = do
     threadDelay 20000000
     
 -- ---------------------------------------------------------------------
+-- Testing, see http://hackage.haskell.org/package/test-framework-th
+    
+--main = $(defaultMainGenerator)
 
 
 -- EOF
