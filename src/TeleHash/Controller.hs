@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ExistentialQuantification #-}
 
 {- # LANGUAGE TypeOperators #-}
 {- # LANGUAGE TemplateHaskell #-}
@@ -24,6 +25,7 @@ module TeleHash.Controller
        , SocketHandle(..)
        , TeleHash()
        , encodeMsg  
+       , encodeTelex  
        , isLineOk
        , isRingOk  
        , mkLine  
@@ -35,6 +37,8 @@ module TeleHash.Controller
        , near_to
        , seeVisible
        , getLineMaybe
+       , resolveToSeedIPP
+       , addrFromHostPort
        ) where
 
 import Control.Category
@@ -60,15 +64,6 @@ import System.Log.Logger
 import System.Time
   --import TeleHash.Json 
 
-{-
-import Test.Framework.TH
-import Test.Framework
-import Test.HUnit
-import Test.Framework.Providers.HUnit
-import Test.Framework.Providers.QuickCheck2
--}
-
-
 
 
 import Text.Printf
@@ -79,7 +74,7 @@ import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
-import qualified System.Random as R
+--import qualified System.Random as R
 
 {-
 
@@ -364,14 +359,14 @@ encodeTelex t =
    encode $ toJSObject (to++ring++see++br++line++hop++end++tap++pop)
    
 -- ---------------------------------------------------------------------
-
+{-
 getRandom :: Int -> Int
 getRandom seed = 
   let
     (res,_) = R.randomR (0,32767) (R.mkStdGen seed) 
   in
    res
-
+-}
 -- ---------------------------------------------------------------------
 
 main = runSwitch
@@ -402,11 +397,6 @@ initialize =
        -- Look up the hostname and port.  Either raises an exception
        -- or returns a nonempty list.  First element in that list
        -- is supposed to be the best option.
-       {-
-       let [hostname,port] = split ":" initialSeed
-       addrinfos <- getAddrInfo Nothing (Just hostname) (Just port)
-       let serveraddr = head addrinfos
-       -}
        (serveraddr,ip,port) <- resolveToSeedIPP initialSeed
        let seedIPP = IPP (ip ++ ":" ++ port)
 
@@ -465,23 +455,18 @@ addrFromHostPort hostname port = do
 --
 run :: TeleHash ()
 run = do
-  -- write "NICK" nick
-  -- write "USER" (nick++" 0 * :tutorial bot")
-  -- write "JOIN" chan
-  --asks swH >>= dolisten
   gets swH >>= dolisten
-
 
 -- ---------------------------------------------------------------------
   
 pingSeeds :: TeleHash ()
 pingSeeds = do
-
   seeds <- gets swSeeds
   connected <- gets swConnected
   
   io (putStrLn $ "pingSeeds:" ++ (show connected) ++ " " ++ (show seeds))
-
+  
+  -- TODO: rotate the seeds, so the we use a fresh one each time through
   case (not connected) && (seeds /= []) of
     True -> pingSeed $ head seeds
     False -> return ()
@@ -501,22 +486,16 @@ pingSeed seed =
     io (putStrLn $ "pingSeed seedIPP=" ++ (show seedIPP))
 
     -- TODO: set self.seedsIndex[seedIPP] = true;
-    state <- get
-    put state {swSeedsIndex = Set.insert seedIPP (swSeedsIndex state) }
+    switch <- get
+    put switch {swSeedsIndex = Set.insert seedIPP (swSeedsIndex switch) }
     
     timeNow <- io getClockTime
     
     line <- getOrCreateLine seedIPP timeNow
     let bootTelex = mkTelex seedIPP
-    -- bootTelex["+end"] = line.end; // any end will do, might as well ask for their neighborhood
+    -- // any end will do, might as well ask for their neighborhood
     let bootTelex' = bootTelex { teleSigEnd = Just $ (lineEnd line) }
   
-    -- io (putStrLn $ "pingSeed telex=" ++ (show bootTelex'))
-    
-    -- io (putStrLn $ "sendMsg1:" ++ (show $ bootTelex'))
-    -- io (putStrLn $ "sendMsg3:" ++ (show $ encodeMsg bootTelex'))
-
-    --socketh <- gets swH
     sendTelex bootTelex'
     
     return ()
@@ -525,10 +504,10 @@ pingSeed seed =
 
 getOrCreateLine :: IPP -> ClockTime -> TeleHash Line
 getOrCreateLine seedIPP timeNow = do
-  state <- get
+  switch <- get
   
   let 
-    master = (swMaster state)
+    master = (swMaster switch)
     
     endpointHash = mkHash seedIPP
     
@@ -541,9 +520,9 @@ getOrCreateLine seedIPP timeNow = do
 
     master' = Map.insert endpointHash line' master
     
-    state' = state {swMaster = master'}
+    switch' = switch {swMaster = master'}
     
-  put state'
+  put switch'
   
   return line'
   
@@ -551,8 +530,8 @@ getOrCreateLine seedIPP timeNow = do
   
 getLineMaybeM :: Hash -> TeleHash (Maybe Line)
 getLineMaybeM hashIpp = do
-  state <- get
-  let master = (swMaster state)
+  switch <- get
+  let master = (swMaster switch)
   return $ getLineMaybe master hashIpp
   
 getLineMaybe :: Map.Map Hash Line  -> Hash -> Maybe Line
@@ -567,17 +546,17 @@ getLineMaybe master hashIpp  = lineMaybe
   
 removeLineM :: Hash -> TeleHash ()    
 removeLineM hash = do
-  state <- get
+  switch <- get
   master <- gets swMaster
   
-  put $ state {swMaster = Map.delete hash master}
+  put $ switch {swMaster = Map.delete hash master}
   
 -- ---------------------------------------------------------------------
 
 addNeighbour :: Hash -> Hash -> IPP -> TeleHash ()
 addNeighbour hash end ipp = do
-  state <- get
-  let master = swMaster state
+  switch <- get
+  let master = swMaster switch
   case (getLineMaybe master hash) of
     Just line -> do
       updateTelehashLine (line { lineNeighbors = Set.insert end (lineNeighbors line) })
@@ -594,18 +573,18 @@ myNop = do return ()
 
 updateTelehashLine :: Line -> TeleHash ()
 updateTelehashLine line = do
-  state <- get
+  switch <- get
   
   let 
-    master = (swMaster state)
+    master = (swMaster switch)
     
     endpointHash = lineEnd line
     
     master' = Map.insert endpointHash line master
     
-    state' = state {swMaster = master'}
+    switch' = switch {swMaster = master'}
     
-  put state'
+  put switch'
 
 -- ---------------------------------------------------------------------
   
@@ -876,7 +855,7 @@ recvTelex msg rinfo = do
     let
       rxTelex = parseTelex msg
     
-    state <- get
+    switch <- get
     seedsIndex <- gets swSeedsIndex
 
     (Just hostIP,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
@@ -886,7 +865,7 @@ recvTelex msg rinfo = do
     timeNow <- io getClockTime
     io (putStrLn ("recvTelex:remoteipp=" ++ (show remoteipp) ++ ",seedsIndex="++(show seedsIndex) 
                   ++ ",time=" ++ (show timeNow)))
-    case (swConnected state) of
+    case (swConnected switch) of
       False -> do
         -- TODO : test that _to field is set. Requires different setup for the JSON leg. 
         --        Why would it not be set? Also test that the _to value is us.
@@ -1013,7 +992,7 @@ processCommand
   :: String -> IPP -> Telex -> Line -> TeleHash ()
 processCommand ".see" remoteipp telex line = do 
   io (putStrLn $ "processCommand .see")
-  --state <- get
+  --switch <- get
   Just selfipp <- gets swSelfIpp
   case (teleSee telex) of 
     -- // loop through and establish lines to them (just being dumb for now and trying everyone)
@@ -1050,16 +1029,16 @@ processSee :: Line -> IPP -> IPP -> TeleHash ()
 processSee line remoteipp seeipp = do
   io (putStrLn $ "processSee " ++ (show line) ++ "," ++ (show remoteipp) ++ "," ++ (show seeipp))
 
-  state <- get
+  switch <- get
   Just selfipp  <- gets swSelfIpp
   Just selfhash <- gets swSelfHash
 
   seeVisible (seeipp == remoteipp && not (lineVisible line)) line selfipp remoteipp
   
   let 
-    lineSee = getLineMaybe (swMaster state) (mkHash seeipp)
+    lineSee = getLineMaybe (swMaster switch) (mkHash seeipp)
     
-  case (getLineMaybe (swMaster state) (mkHash seeipp)) of
+  case (getLineMaybe (swMaster switch) (mkHash seeipp)) of
     Just lineSee -> return () -- // skip if we know them already
     Nothing ->
         -- // XXX todo: if we're dialing we'd want to reach out to any of these closer to that $tap_end
@@ -1101,11 +1080,11 @@ seeVisible True  line  selfipp  remoteipp = do
 
 near_to :: Hash -> IPP -> TeleHash (Either String [Hash])
 near_to endHash ipp = do
-  state <- get
+  switch <- get
 
   let
     -- endHash = mkHash end
-    master = (swMaster state)
+    master = (swMaster switch)
 
   case (getLineMaybe master (mkHash ipp)) of
     Nothing -> return $ Left "no line for ipp" 
@@ -1239,7 +1218,7 @@ hasSignals telex = (getSignals telex) /= []
 processSignal "+end" remoteipp telex line = do 
   io (putStrLn $ "processSignal :  +end")
   
-  state <- get
+  switch <- get
   master        <- gets swMaster
   Just selfipp  <- gets swSelfIpp
   Just selfhash <- gets swSelfHash
@@ -1337,8 +1316,8 @@ online rxTelex = do
   let
     selfIpp = (teleTo rxTelex)
     selfhash = mkHash $ teleTo rxTelex
-  state <- get
-  put $ state {swConnected = True
+  switch <- get
+  put $ switch {swConnected = True
               , swSelfIpp = Just selfIpp
               , swSelfHash = Just selfhash
               }
@@ -1368,8 +1347,8 @@ offline = do
     self.connected = false;
     self.master = {};
   -}
-  state <- get
-  put $ state { swSelfIpp = Nothing,
+  switch <- get
+  put $ switch { swSelfIpp = Nothing,
                 swSelfHash = Nothing,
                 swConnected = False,
                 swMaster = Map.empty
@@ -1605,25 +1584,33 @@ io = liftIO
 
 -- From http://hackage.haskell.org/packages/archive/thespian/0.9/doc/html/Control-Concurrent-Actor.html
 
-act1 :: A.Actor Int Int
-act1 = forever $ do
-    (num, addr) <- A.receive
-    liftIO . putStrLn $ "act1: received " ++ (show num)
-    A.send addr (num + 1)
-
-act2 :: Int -> A.Address Int Int -> A.Actor Int Int
-act2 n0 addr = do
-    A.send addr n0
-    forever $ do
-        (num, addr1) <- A.receive
-        liftIO . putStrLn $ "act2: received " ++ (show num)
-        A.send addr1 (num + 1)
-
-main_actor = do
-    addr1 <- A.spawn act1
-    addr2 <- A.spawn $ act2 0 addr1
-    threadDelay 20000000
+act1 :: A.Actor  
+act1 = do
+  me <- A.self
+  liftIO $ print "act1 started"
+  forever $ A.receive
+    [
+      A.Case handler1,
+      A.Default $ liftIO . print $ "act1: received a malformed message"
+    ]
     
+handler1 :: Int -> A.ActorM ()    
+handler1 val = do 
+  liftIO . print $ "act1: received " ++ (show val)
+  return ()
+  
+act2 :: A.Address -> A.Actor
+act2 addr = do
+    A.monitor addr
+    me <- A.self
+    A.send addr (0 :: Int, me)
+  
+a_main = do
+    addr1 <- A.spawn act1
+    addr2 <- A.spawn (act2 addr1)
+    --A.send addr1 5
+    threadDelay 20000000
+
 -- ---------------------------------------------------------------------
 -- Testing, see http://hackage.haskell.org/package/test-framework-th
     

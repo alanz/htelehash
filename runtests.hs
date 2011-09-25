@@ -7,6 +7,7 @@ import Test.HUnit
 
 import Control.Monad.State
 import Data.List
+import Network.Socket
 import System.Time
 import TeleHash.Controller
 import qualified Data.ByteString.Char8 as BC
@@ -291,4 +292,48 @@ case_DistanceTo1 =
 case_DistanceTo2 =
   158 @=? distanceTo (mkHash (IPP "208.68.163.247:42424")) (mkHash (IPP "208.68.160.25:32771"))
 
+-- ---------------------------------------------------------------------
+
+case_EncodeTelex1 =
+  "{\"_to\":\"1.2.3.4:567\",\"_br\":\"0\"}" @=? encodeTelex msg1
+  
+case_EncodeTelex2 =
+  "{\"_to\":\"1.2.3.4:1234\"," ++ 
+  "\"_ring\":\"13\"," ++ 
+  "\".see\":[\"2.3.4.5:2345\",\"3.4.5.6:3456\"]," ++ 
+  "\"_br\":\"234\"," ++
+  "\"_line\":\"4567\"," ++ 
+  "\"_hop\":\"3\"," ++ 
+  "\"+end\":\"255b5a502b0a348883ffa757e0c1ea812a128088\"," ++
+  "\".tap\":[{\"is\":{\".end\":\"foo\",\"has\":[\"+pop\"]}}]," ++
+  "\"+pop\":\"pop_val\"}"
+  @=? 
+  (encodeTelex $ ((mkTelex ipp1) { teleRing = Just 13 
+                               , teleSee = Just [ipp2,ipp3]
+                               , teleBr = 234
+                               , teleLine = Just 4567
+                               , teleHop = Just 3
+                               , teleSigEnd = Just hash1
+                               , teleSigPop = Just "pop_val"
+                               , teleTap = Just [Tap {tapIs = (".end","foo"), tapHas = ["+pop"]}] 
+                               }))
+-- ---------------------------------------------------------------------
+
+--addr :: AddrInfo
+--addr = AddrInfo [] AF_INET Datagram 6 (SockAddrInet (PortNum 1234) 1234) Nothing
+
+case_resolveToSeedIpp :: Assertion
+case_resolveToSeedIpp = do
+  (a,b,c) <- (resolveToSeedIPP "telehash.org:42424")
+
+  case (a,b,c) of
+    (_,"208.68.163.247","42424") -> return ()
+    (x,y,z)        -> assertFailure ("case_resolveToSeedIpp:" ++ (show (x,y,z)))
+
+case_addrFromHostPort = do
+  addr <- addrFromHostPort "1.2.3.4" "42424"
+  case addr of
+    (SockAddrInet 42424 0x04030201) -> return ()
+    (SockAddrInet p h) -> assertFailure ("case_addrFromHostPort:" ++ (show (p,h)))
+    
 -- EOF
