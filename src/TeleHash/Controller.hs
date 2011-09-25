@@ -127,6 +127,7 @@ data Line = Line {
   lineSeenat    :: Maybe ClockTime,
   lineSentat    :: Maybe ClockTime,
   lineLineat    :: Maybe ClockTime,
+  lineTapLast   :: Maybe ClockTime,
   lineBr        :: Int,
   lineBrout     :: Int,
   lineBrin      :: Int,
@@ -158,6 +159,7 @@ mkLine endPoint@(IPP endPointStr) timeNow =
        lineSeenat    = Nothing,
        lineSentat    = Nothing,
        lineLineat    = Nothing,
+       lineTapLast   = Nothing,
        lineBr        = 0,
        lineBrout     = 0,
        lineBrin      = 0,
@@ -891,85 +893,22 @@ recvTelex msg rinfo = do
         processCommands rxTelex remoteipp line'
         processSignals  rxTelex remoteipp line'
 
-    -- TODO: implement rest
-        
     tapSignals (hasSignals rxTelex) rxTelex
     
     return ()
 
 -- ---------------------------------------------------------------------
     
-tapSignals False _      = do return ()
-tapSignals True rxTelex = do
-  {-    
-    if (telex.hasSignals()) {
-        var hop = telex._hop == null ? 0 : parseInt(telex._hop)
-  -}
-  let 
-    hop = safeGetHop rxTelex
-
+tapSignals :: Bool -> Telex -> TeleHash ()
+tapSignals False _       = do return ()
+tapSignals True  rxTelex = do
   -- // if not last-hop, check for any active taps (todo: optimize the matching, this is just brute force)
-  case (hop < 4) of
+  case (safeGetHop rxTelex < 4) of
     False -> return ()
     True -> do
-      {-
-        if (hop < 4) {
-            keys(self.master)
-            .filter(function(hash){ return self.master[hash].rules != null && self.master[hash].rules.length })
-            .forEach(function(hash){
-      -}
       master <- gets swMaster
       mapM_ (\line -> tapLine rxTelex line) $ Map.elems master    
-      {-
-                var pass = 0;
-                var swipp = self.master[hash].ipp;
-                self.master[hash].rules.forEach(function(rule){
-                    console.log(["\tTAP CHECK IS ", swipp, "\t", JSON.stringify(rule)].join(""));
-                    
-                    // all the "is" are in this telex and match exactly
-                    var ruleIsKeys = keys(rule.is);
-                    
-                    if (!ruleIsKeys.every(function(isKey){ 
-                            console.log("IS match: " + telex[isKey] + " = " + rule.is[isKey] + "?");
-                            return telex[isKey] == rule.is[isKey]; })) {
-                        return; // continue
-                    }
-                    
-                    // pass only if all has exist
-                    if (rule.has.every(function(hasKey){ 
-                            console.log("HAS match: " + hasKey + " -> " + (hasKey in telex));
-                            return hasKey in telex; })) {
-                        pass++;
-                    }
-                });
-                
-                // forward this switch a copy
-                if (pass) {
-                    // it's us, it has to be our tap_js        
-                    if (swipp == self.selfipp) {
-                        console.log(["STDOUT[", JSON.stringify(telex), "]"].join(""));
-                    }
-                    else{
-                        var telexOut = new Telex(swipp);
-                        keys(telex).filter(function(key){ return key.match(/^\+.+/); })
-                        .forEach(function(sig){
-                            telexOut[sig] = telex[sig];
-                        });
-                        telexOut["_hop"] = hop + 1;
-                        self.send(telexOut);
-                    }
-                }
-                else{
-                    console.log("\tCHECK MISS");
-                }
-            });
-        }
-        
-    }
-
-  -}
       return ()
-  return ()
   
 -- ---------------------------------------------------------------------
 
@@ -1006,37 +945,12 @@ tapLine telex line = do
             
       io (putStrLn $ "HAS match: " ++ hasKey ++ " -> " ++ (show hasKeyInTelex))
       return (acc && hasKeyInTelex)
-      {-
-      var pass = 0;
-      var swipp = self.master[hash].ipp;
-      self.master[hash].rules.forEach(function(rule){
-          console.log(["\tTAP CHECK IS ", swipp, "\t", JSON.stringify(rule)].join(""));
-                
-          // all the "is" are in this telex and match exactly
-          var ruleIsKeys = keys(rule.is);
-                    
-          if (!ruleIsKeys.every(function(isKey){ 
-                  console.log("IS match: " + telex[isKey] + " = " + rule.is[isKey] + "?");
-                  return telex[isKey] == rule.is[isKey]; })) {
-              return; // continue
-          }
-                    
-          // pass only if all has exist
-          if (rule.has.every(function(hasKey){ 
-                  console.log("HAS match: " + hasKey + " -> " + (hasKey in telex));
-                 return hasKey in telex; })) {
-              pass++;
-          }
-      });
-      -}                
 
     -- // forward this switch a copy
     forward False = do 
-      -- console.log("\tCHECK MISS");
       io (putStrLn $ "\tCHECK MISS")
       return ()
     forward True  = do                  
-      -- var swipp = self.master[hash].ipp;
       let
         swipp = lineIpp line
       Just selfipp <- gets swSelfIpp
@@ -1060,29 +974,6 @@ tapLine telex line = do
         ".pop" -> tel {teleSigPop = (teleSigPop telex)}
         _ -> undefined -- Should never happen, but catch extensions when they come
                        -- TODO: make this recover gracefully and log something, instead
-    {-
-    // forward this switch a copy
-    if (pass) {
-       // it's us, it has to be our tap_js        
-       if (swipp == self.selfipp) {
-            console.log(["STDOUT[", JSON.stringify(telex), "]"].join(""));
-        }
-        else{
-            var telexOut = new Telex(swipp);
-            keys(telex).filter(function(key){ return key.match(/^\+.+/); })
-            .forEach(function(sig){
-                telexOut[sig] = telex[sig];
-            });
-            telexOut["_hop"] = hop + 1;
-            self.send(telexOut);
-        }
-    }
-    else{
-        console.log("\tCHECK MISS");
-    }
-   });
-  -}
-
                         
 -- ---------------------------------------------------------------------
 
@@ -1441,18 +1332,83 @@ online rxTelex = do
   updateTelehashLine (line {lineVisible = True, lineRules = taps })
     
   -- // trigger immediate tapping to move things along
-  taptap
+  taptap timeNow
   
   return ()
                     
                     
 -- ---------------------------------------------------------------------
   
--- TODO: implement this  
-taptap :: TeleHash ()
-taptap = do 
+taptap :: ClockTime -> TeleHash ()
+taptap timeNow@(TOD secs picos) = do 
   io (putStrLn $ "taptap: ***NOT IMPLEMENTED***")
-  return ()
+  {-
+    var self = this;
+    if(!self.connected) return;
+  -}
+  connected <- gets swConnected
+  case (connected) of
+    False -> return ()
+    True -> do
+      taps <- gets swTaps
+      mapM doTap taps
+      return ()
+      
+  where
+    doTap tap = do
+      case (tapIs tap) of
+        ("+end",tapEnd) -> do
+          -- We have tested for online status, these will be set
+          Just selfipp  <- gets swSelfIpp
+          Just selfhash <- gets swSelfHash
+          Right candidateHashes <- near_to (Hash tapEnd) selfipp
+          let hashes = take 3 $ filter (\hash -> hash /= selfhash) candidateHashes
+          mapM_ (\hash -> tapLine tap tapEnd hash) hashes
+          return ()
+        _          -> return ()  
+    {-
+    self.taps.forEach(function(tap){
+        var tapEnd = tap.is["+end"];
+        if (!tapEnd) {
+            return; // continue
+        }
+        
+        var hashes = self.near_to(tapEnd, self.selfipp)
+        .filter(function(hash){ return hash != self.selfhash; }).slice(0,3);
+        
+        if (!hashes || hashes.length == 0) { 
+            return; // continue
+        }
+        -}
+    tapLine tap tapEnd hash = do
+      Just line <- getLineMaybeM hash
+      let (TOD tapLastSecs _) = fromMaybe (TOD 0 0) (lineTapLast line)
+      case (tapLastSecs + 50 > secs) of -- Assuming wall clock secs > 50 
+        True -> return ()
+        False -> do
+          updateTelehashLine (line { lineTapLast = Just timeNow }) 
+          let telexOut = (mkTelex (lineIpp line)) {teleTap = Just [tap] }
+          -- console.log(["\tTAPTAP to ", line.ipp, " end ", tapEnd, " tap ", JSON.stringify(tap)].join(""));
+          io (putStrLn $  "\tTAPTAP to " ++ (show $ lineIpp line) ++ " end " ++ (show tapEnd) ++ " tap " ++ (show tap))
+          sendTelex telexOut
+          return ()
+      return ()
+        {-  
+        hashes.forEach(function(hash){
+            var line = self.master[hash];
+            
+            if (line.taplast && line.taplast + 50 > time()) {
+                return; // only tap every 50sec
+            }
+            line.taplast = time();
+            var telexOut = new Telex(line.ipp); // tap the closest ipp to our target end 
+            telexOut[".tap"] = [tap];
+            console.log(["\tTAPTAP to ", line.ipp, " end ", tapEnd, " tap ", JSON.stringify(tap)].join(""));
+            self.send(telexOut);
+        });
+    });
+  -}
+
   
 -- ---------------------------------------------------------------------
 {-
