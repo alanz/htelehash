@@ -92,6 +92,7 @@ type TeleHash = StateT Switch IO
 
 newtype Hash = Hash String
              deriving (Data,Eq,Show,Typeable,Ord)
+unHash (Hash str) = str
 
 newtype IPP = IPP String
              deriving (Data,Eq,Show,Typeable,Ord)
@@ -186,7 +187,6 @@ data Telex = Telex
              , teleSigEnd :: Maybe Hash
              , teleSigPop :: Maybe String
              , teleTap    :: Maybe [Tap]  
-             -- , teleRest   :: [(String, String)]
              , teleRest   :: Map.Map String String
              , teleMsgLength :: Maybe Int -- length of received Telex  
              } deriving (Data, Typeable, -- For Text.JSON
@@ -586,6 +586,15 @@ updateTelehashLine line = do
   put state'
 
 -- ---------------------------------------------------------------------
+  
+safeGetHop rxTelex = hop 
+  where
+    hop =
+      case (teleHop rxTelex) of
+        Nothing -> 0
+        Just h -> h
+
+-- ---------------------------------------------------------------------
 
 hashToIpp master h = 
   let
@@ -897,10 +906,7 @@ tapSignals True rxTelex = do
         var hop = telex._hop == null ? 0 : parseInt(telex._hop)
   -}
   let 
-    hop =
-      case (teleHop rxTelex) of
-        Nothing -> 0
-        Just h -> h
+    hop = safeGetHop rxTelex
 
   -- // if not last-hop, check for any active taps (todo: optimize the matching, this is just brute force)
   case (hop < 4) of
@@ -967,17 +973,39 @@ tapSignals True rxTelex = do
   
 -- ---------------------------------------------------------------------
 
+tapLine :: Telex -> Line -> TeleHash ()
 tapLine telex line = do 
   mapM_ (\rule -> processRule rule) $ lineRules line
   where
     processRule rule = do
       io (putStrLn $ "\t TAP CHECK IS " ++ (show $ lineIpp line) ++ "\t" ++ (show rule))
-      mapM (\(k,v) -> matchIs (k,v)) [(tapIs rule)]
+      isMatch <- foldM (\acc (k,v) -> matchIs acc (k,v)) True [(tapIs rule)]
+      hasMatch <- foldM (\acc k -> matchHas acc k) True (tapHas rule)
+      forward (isMatch && hasMatch)
       return ()
       
-    matchIs (isKey,isVal) = do
-      io (putStrLn $ "IS match: " ++ (show $ isKey) ++ "=" ++ (show isKey)++ "?")
-      return ()
+    matchIs :: Bool -> (String,String) -> TeleHash Bool  
+    matchIs acc (isKey,isVal) = do
+      let
+        telexIsVal = case (isKey) of
+          ".end" -> teleSigEnd telex
+          _      -> Nothing
+      io (putStrLn $ "IS match: " ++ (show telexIsVal) ++ "=" ++ (show isVal)++ "?")
+      case (isKey) of
+        ".end" -> return (acc && ((teleSigEnd telex) == Just (Hash isVal)))
+        _      -> return False
+    
+    
+    matchHas acc hasKey = do
+      -- console.log("HAS match: " + hasKey + " -> " + (hasKey in telex));
+      hasKeyInTelex <- case (hasKey) of
+        "+pop" -> return $ (teleSigPop telex) /= Nothing
+        x      -> do
+          io (putStrLn $ "HAS match: no code for " ++ (show x))
+          return False
+            
+      io (putStrLn $ "HAS match: " ++ hasKey ++ " -> " ++ (show hasKeyInTelex))
+      return (acc && hasKeyInTelex)
       {-
       var pass = 0;
       var swipp = self.master[hash].ipp;
@@ -1000,7 +1028,39 @@ tapLine telex line = do
               pass++;
           }
       });
-                
+      -}                
+
+    -- // forward this switch a copy
+    forward False = do 
+      -- console.log("\tCHECK MISS");
+      io (putStrLn $ "\tCHECK MISS")
+      return ()
+    forward True  = do                  
+      -- var swipp = self.master[hash].ipp;
+      let
+        swipp = lineIpp line
+      Just selfipp <- gets swSelfIpp
+      -- // it's us, it has to be our tap_js
+      case (swipp == selfipp) of
+        True -> do
+          -- console.log(["STDOUT[", JSON.stringify(telex), "]"].join(""));
+          io (putStrLn $ "STDOUT[" ++ (show telex) ++ "]")
+          return ()
+        False -> do
+          let
+            -- make a new message with all the signals from the old one
+            tx = (mkTelex swipp) {teleHop = Just ((safeGetHop telex) + 1) }
+            signals = getSignals telex
+            tx' = foldl' addSignal tx signals
+          sendTelex tx'
+          
+    addSignal tel (sigName, sigVal) = 
+      case sigName of
+        ".end" -> tel {teleSigEnd = (teleSigEnd telex)}
+        ".pop" -> tel {teleSigPop = (teleSigPop telex)}
+        _ -> undefined -- Should never happen, but catch extensions when they come
+                       -- TODO: make this recover gracefully and log something, instead
+    {-
     // forward this switch a copy
     if (pass) {
        // it's us, it has to be our tap_js        
@@ -1023,7 +1083,6 @@ tapLine telex line = do
    });
   -}
 
-      return ()
                         
 -- ---------------------------------------------------------------------
 
@@ -1275,10 +1334,7 @@ processSignal "+end" remoteipp telex line = do
   Just selfhash <- gets swSelfHash
   
   let 
-    hop =
-      case (teleHop telex) of
-        Nothing -> 0
-        Just h -> h
+    hop = safeGetHop telex
     Just end = teleSigEnd telex
   case (hop) of
     0 -> do
