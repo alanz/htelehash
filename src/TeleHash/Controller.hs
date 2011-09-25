@@ -552,6 +552,13 @@ getLineMaybe master hashIpp  = lineMaybe
       True -> Just member
       False -> Nothing
   
+removeLineM :: Hash -> TeleHash ()    
+removeLineM hash = do
+  state <- get
+  master <- gets swMaster
+  
+  put $ state {swMaster = Map.delete hash master}
+  
 -- ---------------------------------------------------------------------
 
 addNeighbour :: Hash -> Hash -> IPP -> TeleHash ()
@@ -1338,6 +1345,24 @@ online rxTelex = do
                     
                     
 -- ---------------------------------------------------------------------
+
+offline :: TeleHash ()
+offline = do
+  io (putStrLn $ "ONLINE")
+  {-
+    self.selfipp = null;
+    self.selfhash = null;
+    self.connected = false;
+    self.master = {};
+  -}
+  state <- get
+  put $ state { swSelfIpp = Nothing,
+                swSelfHash = Nothing,
+                swConnected = False,
+                swMaster = Map.empty
+              }
+    
+-- ---------------------------------------------------------------------
   
 taptap :: ClockTime -> TeleHash ()
 taptap timeNow@(TOD secs picos) = do 
@@ -1409,7 +1434,137 @@ taptap timeNow@(TOD secs picos) = do
     });
   -}
 
+-- ---------------------------------------------------------------------  
+{-**
+ * Update status of all lines, removing stale ones.
+ *-}
+scanlines :: ClockTime -> TeleHash ()
+scanlines now@(TOD secs picos) = do
+  connected <- gets swConnected
+  case (connected) of
+    False -> return ()
+    True -> do
+      master <- gets swMaster
+      let switches = Map.keys master
+      io (putStrLn $ "SCAN\t" ++ (show $ length switches))
+      valid <- foldM (\acc hash -> fscanline acc hash) True switches
+      
+      seedsIndex <- gets swSeedsIndex
+      Just selfipp  <- gets swSelfIpp
+      case (valid == False && Set.notMember selfipp seedsIndex) of
+        True -> do
+          offline
+          return ()
+        False -> return ()
+      {-
+      if (!valid && !self.seedsIndex[self.selfipp]) {
+        self.offline();
+      -}
+ 
+      return ()
   
+  where
+  {-
+    var self = this;
+    if(!self.connected) return;
+    var now = time();
+    var switches = keys(self.master);
+    var valid = 0;
+    console.log(["SCAN\t" + switches.length].join(""));
+  -}
+    fscanline :: Bool -> Hash -> TeleHash Bool
+    fscanline acc hash = do 
+      res  <- scanline hash
+      return (acc && res)
+                            
+    -- Return whether line is still Ok or not.
+    scanline :: Hash -> TeleHash Bool
+    scanline hash = do
+      Just line <- getLineMaybeM hash
+      Just selfHash <- gets swSelfHash
+      Just selfipp  <- gets swSelfIpp
+      case (selfHash == hash) of
+        True -> return False -- // skip our own endpoint and what is this (continue)
+        False -> do
+          case (lineEnd line /= hash) of
+            True -> return False -- // empty/dead line (continue)
+            False -> do
+              timedOut <- isTimedOut now line
+              case (timedOut) of
+                True -> do
+                  -- // remove line if they never responded or haven't in a while
+                  -- console.log(["\tPURGE[", hash, " ", line.ipp, "] last seen ", now - line.seenat, "s ago"].join(""));
+                  io (putStrLn $ "\tPURGE[" ++ (show hash) ++ " " ++ (show $ lineIpp line) ++ "] last seen " ++ (show $ lineSeenat line))
+                  removeLineM hash 
+                  return False
+                False -> do
+                  -- We have a valid line, return true from here on out
+                  connected <- gets swConnected
+                  case connected of
+                    True -> do
+                      -- // +end ourselves to see if they know anyone closer as a ping
+                      let 
+                        telexOut = (mkTelex $ lineIpp line) { teleSigEnd = Just selfHash }
+                      -- // also .see ourselves if we haven't yet, default for now is to participate in the DHT
+                      let 
+                        telexOut' = if (lineVisibled line) 
+                                      then (telexOut)
+                                      else (telexOut { teleSee = Just [selfipp] })
+                      -- // also .tap our hash for +pop requests for NATs
+                      let
+                        telexOut'' = telexOut' {teleTap = Just [Tap {tapIs  = ("+end", unHash selfHash),
+                                                                   tapHas = ["+pop"] }]
+                                             }
+                      sendTelex telexOut''
+                                                                                   
+                      return True
+                    False ->
+                      return True
+  {-  
+        
+        valid++;
+        
+        if (self.connected) {
+        
+            // +end ourselves to see if they know anyone closer as a ping
+            var telexOut = new Telex(line.ipp);
+            telexOut["+end"] = self.selfhash;
+        
+            // also .see ourselves if we haven't yet, default for now is to participate in the DHT
+            if (!line.visibled++) {
+                telexOut[".see"] = [self.selfipp];
+            }
+            
+            // also .tap our hash for +pop requests for NATs
+            var tapOut = {is: {}};
+            tapOut.is['+end'] = self.selfhash;
+            tapOut.has = ['+pop'];
+            telexOut[".tap"] = [tapOut];
+            self.send(telexOut);
+            
+        }
+    });
+    
+    if (!valid && !self.seedsIndex[self.selfipp]) {
+        self.offline();
+    }
+  -}
+    isTimedOut now@(TOD secs picos) line = do
+      case (lineSeenat line) of
+        Nothing -> do
+          let (TOD initSecs _) = (lineInit line)
+          return (secs - initSecs > 70)
+        Just (TOD seenatSecs _) -> 
+          return (secs - seenatSecs > 70)
+        {-
+        if ((line.seenat == 0 && now - line.init > 70)
+                || (line.seenat != 0 && now - line.seenat > 70)) {
+            // remove line if they never responded or haven't in a while
+            console.log(["\tPURGE[", hash, " ", line.ipp, "] last seen ", now - line.seenat, "s ago"].join(""));
+            self.master[hash] = {};
+            return;
+        }
+        -}
 -- ---------------------------------------------------------------------
 {-
 /**
