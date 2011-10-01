@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {- # LANGUAGE TypeOperators #-}
 {- # LANGUAGE TemplateHaskell #-}
@@ -41,7 +42,7 @@ module TeleHash.Controller
        , addrFromHostPort
        ) where
 
-import Control.Category
+--import Control.Category
 import Control.Concurrent
 import Control.Exception 
 import Control.Monad
@@ -63,7 +64,6 @@ import System.IO
 import System.Log.Logger
 import System.Time
   --import TeleHash.Json 
-
 
 
 import Text.Printf
@@ -346,13 +346,13 @@ encodeTelex t =
       Just r -> [(".tap", JSArray $ map toJSTap r)]
       Nothing -> []
       
-    toJSTap tap = JSObject $ toJSObject [
+    toJSTap atap = JSObject $ toJSObject [
       ("is", JSObject $ toJSObject [
           (k, JSString $ toJSString v),
-          ("has", showJSON $ JSArray (map (\s -> JSString (toJSString s)) (tapHas tap)))
+          ("has", showJSON $ JSArray (map (\s -> JSString (toJSString s)) (tapHas atap)))
           ])]
       where
-      (k,v) = tapIs tap
+      (k,v) = tapIs atap
 
       
   in
@@ -369,8 +369,21 @@ getRandom seed =
 -}
 -- ---------------------------------------------------------------------
 
+main :: IO ((), Switch)
 main = runSwitch
 
+-- ---------------------------------------------------------------------
+
+data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx String SockAddr
+              deriving (Typeable, Show, Eq)
+
+onesec :: Int
+onesec = 1000000       
+                       
+timer :: Int -> a -> Chan a -> IO ()
+timer timeoutVal signalValue channel  = forever $ 
+  threadDelay timeoutVal >> writeChan channel signalValue 
+  
 -- ---------------------------------------------------------------------
 --
 -- Set up actions to run on start and end, and run the main loop
@@ -381,14 +394,14 @@ runSwitch = bracket initialize disconnect loop
     disconnect ss = sClose (slSocket (fromJust $ swH ss))
     
     loop st    = catch (runStateT run st) (exc)
-    -- loop st    = catch (runErrorT run st) (exc)
 
     exc :: SomeException -> IO ((),Switch)
-    exc e = return ((),undefined)
+    exc _e = return ((),undefined)
 
 
 -- ---------------------------------------------------------------------
 -- Hardcoded params for now    
+initialSeed :: String
 initialSeed = "telehash.org:42424"
 
 initialize :: IO Switch
@@ -434,11 +447,11 @@ resolve hostname port = do
   addrinfos <- getAddrInfo Nothing (Just hostname) (Just port)
   let serveraddr = head addrinfos
       
-  (Just hostname,Just servicename) <- (getNameInfo [NI_NUMERICHOST] True True (addrAddress serveraddr))
+  (Just resolvedhost,Just servicename) <- (getNameInfo [NI_NUMERICHOST] True True (addrAddress serveraddr))
   --putStrLn $ "resolve:" ++ (show hostname) ++ " " ++ (show servicename)
                            
   --return (serveraddr,port)         
-  return (serveraddr,hostname,servicename)         
+  return (serveraddr,resolvedhost,servicename)         
   
 -- ---------------------------------------------------------------------
 
@@ -455,7 +468,28 @@ addrFromHostPort hostname port = do
 --
 run :: TeleHash ()
 run = do
-  gets swH >>= dolisten
+  ch1 <- io (newChan)
+  _ <- io (forkIO (timer (10 * onesec) SignalPingSeeds ch1))
+  _ <- io (forkIO (timer (10 * onesec) SignalScanLines ch1))
+  _ <- io (forkIO (timer (30 * onesec) SignalTapTap ch1)) 
+  -- listener ch1
+
+  h <- gets swH 
+  _ <- io (forkIO (dolisten h ch1))
+  
+  -- Get the ball rolling immediately
+  pingSeeds
+
+  -- Process the async messages from the various sources above
+  forever $ do
+    s <- io (readChan ch1)
+    io (putStrLn $ "got signal: " ++ (show s))
+    timeNow <- io getClockTime
+    case s of
+      SignalPingSeeds      -> pingSeeds
+      SignalScanLines      -> scanlines timeNow
+      SignalTapTap         -> taptap timeNow
+      SignalMsgRx msg addr -> recvTelex msg addr
 
 -- ---------------------------------------------------------------------
   
@@ -478,7 +512,7 @@ pingSeed seed =
   do
     io (putStrLn $ "pingSeed " ++ (show seed))
     
-    (serveraddr,ip,port) <- io (resolveToSeedIPP seed)
+    (_serveraddr,ip,port) <- io (resolveToSeedIPP seed)
     
     --io (putStrLn $ "pingSeed serveraddr=" ++ (show serveraddr))
     
@@ -588,6 +622,7 @@ updateTelehashLine line = do
 
 -- ---------------------------------------------------------------------
   
+safeGetHop :: Telex -> Int
 safeGetHop rxTelex = hop 
   where
     hop =
@@ -597,6 +632,7 @@ safeGetHop rxTelex = hop
 
 -- ---------------------------------------------------------------------
 
+hashToIpp :: Map.Map Hash Line -> Hash -> IPP
 hashToIpp master h = 
   let
     Just line = getLineMaybe master h
@@ -610,8 +646,7 @@ isLineOk line secsNow msg = lineOk
   where
     timedOut =
       case (lineLineat line) of
-        Just (TOD secs picos) -> secsNow - secs > 10 
-        --Just (TOD secs picos) -> secsNow - secs > 60 
+        Just (TOD secs _picos) -> secsNow - secs > 10 
         Nothing -> False  
   
     msgLineOk = case (teleLine msg) of
@@ -643,7 +678,7 @@ isRingOk line msg = ringOk
 -- ---------------------------------------------------------------------
     
 checkLine :: Line -> Telex -> ClockTime -> (Bool, Line)
-checkLine line msg timeNow@(TOD secsNow picosecsNow) = 
+checkLine line msg timeNow@(TOD secsNow _picosecsNow) = 
   let
     lineOk = isLineOk line secsNow msg
   
@@ -718,35 +753,15 @@ mkTelex seedIPP =
                   
 -- ---------------------------------------------------------------------  
 --
--- Process each line from the server
+-- Listen for incoming messages and drop them in the FIFO
 --
-dolisten :: Maybe SocketHandle -> TeleHash ()
-dolisten (Just h) = forever $ do
-    -- TODO: move this pingSeeds call out to an actor, driven by a timer.
-    pingSeeds
-    
-    -- TODO: is this a blocking call?
-    (msg,rinfo) <- io (SB.recvFrom (slSocket h) 1000)
+dolisten :: Maybe SocketHandle -> Chan Signal -> IO ()
+dolisten (Just h) channel = forever $ do
+    (msg,rinfo) <- (SB.recvFrom (slSocket h) 1000)
 
-    io (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
-    -- io (putStrLn ("dolisten:rx=" ++ (show (parseTelex (BC.unpack msg)))))
-    -- eval $ parseTelex (head $ BL.toChunks msg)
-    recvTelex (BC.unpack msg) rinfo
+    (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
+    (writeChan channel (SignalMsgRx (BC.unpack msg) rinfo))
 
-  where
-    forever a = a >> forever a
-
--- ---------------------------------------------------------------------  
---
--- Dispatch a command
---
-eval :: Maybe Telex -> TeleHash ()
---eval     "!uptime"             = uptime >>= privmsg
---eval     "!quit"               = write "QUIT" ":Exiting" >> io (exitWith ExitSuccess)
---eval x | "!id " `isPrefixOf` x = privmsg (drop 4 x)
-eval     _                     = return () -- ignore everything else
---eval     _                     = io (exitWith ExitSuccess)
- 
 -- ---------------------------------------------------------------------  
 
 sendTelex :: Telex -> TeleHash ()
@@ -822,7 +837,7 @@ sendDgram socketh msgJson addr =
                         sendstr (genericDrop sent omsg)
                         
 -- ---------------------------------------------------------------------  
-
+{-
 --sendMsg :: Json a => SocketHandle -> a -> IO ()
 sendMsg socketh msg =
   sendstr sendmsg
@@ -835,7 +850,7 @@ sendMsg socketh msg =
       sendstr [] = return ()
       sendstr omsg = do sent <- sendTo (slSocket socketh) omsg (slAddress socketh)
                         sendstr (genericDrop sent omsg)
-          
+-}          
 -- ---------------------------------------------------------------------
 
 -- (telex._line ? "OPEN":"RINGING")
@@ -967,7 +982,7 @@ tapLine telex line = do
             tx' = foldl' addSignal tx signals
           sendTelex tx'
           
-    addSignal tel (sigName, sigVal) = 
+    addSignal tel (sigName, _sigVal) = 
       case sigName of
         ".end" -> tel {teleSigEnd = (teleSigEnd telex)}
         ".pop" -> tel {teleSigPop = (teleSigPop telex)}
@@ -1035,11 +1050,11 @@ processSee line remoteipp seeipp = do
 
   seeVisible (seeipp == remoteipp && not (lineVisible line)) line selfipp remoteipp
   
-  let 
-    lineSee = getLineMaybe (swMaster switch) (mkHash seeipp)
+  -- let 
+  --   lineSee = getLineMaybe (swMaster switch) (mkHash seeipp)
     
   case (getLineMaybe (swMaster switch) (mkHash seeipp)) of
-    Just lineSee -> return () -- // skip if we know them already
+    Just _lineSee -> return () -- // skip if we know them already
     Nothing ->
         -- // XXX todo: if we're dialing we'd want to reach out to any of these closer to that $tap_end
         -- // also check to see if we want them in a bucket
@@ -1070,7 +1085,7 @@ seeVisible True  line  selfipp  remoteipp = do
   Right newNeighbourList <- near_to (lineEnd line') selfipp
   updateTelehashLine (line' { lineNeighbors = Set.union (Set.fromList newNeighbourList) (lineNeighbors line') }) 
   
-  near_to (lineEnd line) remoteipp -- // injects this switch as hints into it's neighbors, fully seeded now
+  _ <- near_to (lineEnd line) remoteipp -- // injects this switch as hints into it's neighbors, fully seeded now
   return ()
 
 -- ---------------------------------------------------------------------
@@ -1107,8 +1122,8 @@ near_to endHash ipp = do
       near_to_see line endHash ipp see
       
 near_to_see :: Line -> Hash -> IPP -> [Hash] -> TeleHash (Either String [Hash])
-near_to_see line endHash ipp []  = do return $ Left "empty see list"      
-near_to_see line endHash ipp see = do                    
+near_to_see _line _endHash _ipp []  = do return $ Left "empty see list"      
+near_to_see line  endHash  ipp  see = do                    
       let
         firstSee     = head see      
         firstSeeHash = firstSee
@@ -1145,6 +1160,7 @@ near_to_see line endHash ipp see = do
 
 -- ---------------------------------------------------------------------
 
+bucket_want :: Hash -> IPP -> Bool
 bucket_want selfhash ipp = 
   {-
     var self = this;
@@ -1156,6 +1172,7 @@ bucket_want selfhash ipp =
     return 1; // for now we're always taking everyone, in future need to be more selective when the bucket is "full"!
   -}
   let
+    -- // for now we're always taking everyone, in future need to be more selective when the bucket is "full"!
     pos = distanceTo (mkHash ipp) selfhash
   in
    (pos >= 0) && (pos <= nBuckets)
@@ -1191,9 +1208,9 @@ distanceTo :: Hash -> Hash -> Int
 distanceTo (Hash this) (Hash h) = go 156 (reverse diffs)
   where
     go acc [] = acc
-    go acc (-1:[]) = -1
+    go _acc (-1:[]) = -1
     go acc (-1:xs) = go (acc - 4) xs
-    go acc (x:xs) = acc + x 
+    go acc (x:_xs) = acc + x 
     
     diffs = map (\(a,b) -> sbtab !! (xor (digitToInt a) (digitToInt b))) $ zip this h
     sbtab = [-1,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3]
@@ -1202,7 +1219,7 @@ distanceTo (Hash this) (Hash h) = go 156 (reverse diffs)
 
 processSignals :: Telex -> IPP -> Line -> TeleHash ()
 processSignals rxTelex remoteipp line = do
-  mapM_ (\(k,v) -> processSignal k remoteipp rxTelex line) (getSignals rxTelex)      
+  mapM_ (\(k,_v) -> processSignal k remoteipp rxTelex line) (getSignals rxTelex)      
   return () 
 
 getSignals :: Telex -> [(String, String)]
@@ -1215,10 +1232,11 @@ hasSignals telex = (getSignals telex) /= []
 
 -- ---------------------------------------------------------------------
 
+processSignal :: String -> IPP -> Telex -> Line -> TeleHash ()
 processSignal "+end" remoteipp telex line = do 
   io (putStrLn $ "processSignal :  +end")
   
-  switch <- get
+  -- switch <- get
   master        <- gets swMaster
   Just selfipp  <- gets swSelfIpp
   Just selfhash <- gets swSelfHash
@@ -1357,7 +1375,7 @@ offline = do
 -- ---------------------------------------------------------------------
   
 taptap :: ClockTime -> TeleHash ()
-taptap timeNow@(TOD secs picos) = do 
+taptap timeNow@(TOD secs _picos) = do 
   io (putStrLn $ "taptap: ***NOT IMPLEMENTED***")
   {-
     var self = this;
@@ -1380,7 +1398,7 @@ taptap timeNow@(TOD secs picos) = do
           Just selfhash <- gets swSelfHash
           Right candidateHashes <- near_to (Hash tapEnd) selfipp
           let hashes = take 3 $ filter (\hash -> hash /= selfhash) candidateHashes
-          mapM_ (\hash -> tapLine tap tapEnd hash) hashes
+          mapM_ (\hash -> doTapLine tap tapEnd hash) hashes
           return ()
         _          -> return ()  
     {-
@@ -1397,7 +1415,7 @@ taptap timeNow@(TOD secs picos) = do
             return; // continue
         }
         -}
-    tapLine tap tapEnd hash = do
+    doTapLine tap tapEnd hash = do
       Just line <- getLineMaybeM hash
       let (TOD tapLastSecs _) = fromMaybe (TOD 0 0) (lineTapLast line)
       case (tapLastSecs + 50 > secs) of -- Assuming wall clock secs > 50 
@@ -1431,7 +1449,7 @@ taptap timeNow@(TOD secs picos) = do
  * Update status of all lines, removing stale ones.
  *-}
 scanlines :: ClockTime -> TeleHash ()
-scanlines now@(TOD secs picos) = do
+scanlines now@(TOD _secs _picos) = do
   connected <- gets swConnected
   case (connected) of
     False -> return ()
@@ -1541,7 +1559,7 @@ scanlines now@(TOD secs picos) = do
         self.offline();
     }
   -}
-    isTimedOut now@(TOD secs picos) line = do
+    isTimedOut (TOD secs _picos) line = do
       case (lineSeenat line) of
         Nothing -> do
           let (TOD initSecs _) = (lineInit line)
@@ -1579,37 +1597,6 @@ mkHash (IPP str) =
 --
 io :: IO a -> TeleHash a
 io = liftIO
-
--- ---------------------------------------------------------------------
-
--- From http://hackage.haskell.org/packages/archive/thespian/0.9/doc/html/Control-Concurrent-Actor.html
-
-act1 :: A.Actor  
-act1 = do
-  me <- A.self
-  liftIO $ print "act1 started"
-  forever $ A.receive
-    [
-      A.Case handler1,
-      A.Default $ liftIO . print $ "act1: received a malformed message"
-    ]
-    
-handler1 :: Int -> A.ActorM ()    
-handler1 val = do 
-  liftIO . print $ "act1: received " ++ (show val)
-  return ()
-  
-act2 :: A.Address -> A.Actor
-act2 addr = do
-    A.monitor addr
-    me <- A.self
-    A.send addr (0 :: Int, me)
-  
-a_main = do
-    addr1 <- A.spawn act1
-    addr2 <- A.spawn (act2 addr1)
-    --A.send addr1 5
-    threadDelay 20000000
 
 -- ---------------------------------------------------------------------
 -- Testing, see http://hackage.haskell.org/package/test-framework-th
