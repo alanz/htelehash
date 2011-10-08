@@ -646,7 +646,7 @@ isLineOk line secsNow msg = lineOk
   where
     timedOut =
       case (lineLineat line) of
-        Just (TOD secs _picos) -> secsNow - secs > 10 
+        Just (TOD secs _picos) -> secsNow - secs > 30 -- Was 10 
         Nothing -> False  
   
     msgLineOk = case (teleLine msg) of
@@ -711,23 +711,6 @@ checkLine line msg timeNow@(TOD secsNow _picosecsNow) =
                    
     valid = lineOk && ringOk
     
-
-  -- TODO: *1. Update state with the new line value                          
-  --       2. Return a true/false value as per the original             
-  --       3. Do the rest of the processing, as required in original
-  {-
-    // we're valid at this point, line or otherwise, track bytes
-    console.log([
-        "\tBR ", line.ipp, " [", line.br, " += ",
-        br, "] DIFF ", (line.bsent - t._br)].join(""));
-    line.br += br;
-    line.brin = t._br;
-    
-    // they can't send us that much more than what we've told them to, bad!
-    if (line.br - line.brout > 12000) {
-        return false;
-    }
-  -}
     msgLength = fromJust (teleMsgLength msg)
     
     line''' = if valid
@@ -738,7 +721,6 @@ checkLine line msg timeNow@(TOD secsNow _picosecsNow) =
     brOk = (lineBr line''') - (lineBrout line''') <= 12000
     
     
-  -- updateTelehashLine line'''
   in
    (valid && brOk, line''' { lineSeenat = Just timeNow })
   
@@ -1042,7 +1024,8 @@ processCommand cmd _remoteipp _telex _line = do
 -- We are processing a single .see entry here, which is not ourselves
 processSee :: Line -> IPP -> IPP -> TeleHash ()
 processSee line remoteipp seeipp = do
-  io (putStrLn $ "processSee " ++ (show line) ++ "," ++ (show remoteipp) ++ "," ++ (show seeipp))
+  -- io (putStrLn $ "processSee " ++ (show line) ++ "," ++ (show remoteipp) ++ "," ++ (show seeipp))
+  io (putStrLn $ "processSee " ++ (show remoteipp) ++ "," ++ (show seeipp))
 
   switch <- get
   Just selfipp  <- gets swSelfIpp
@@ -1358,13 +1341,7 @@ online rxTelex = do
 
 offline :: TeleHash ()
 offline = do
-  io (putStrLn $ "ONLINE")
-  {-
-    self.selfipp = null;
-    self.selfhash = null;
-    self.connected = false;
-    self.master = {};
-  -}
+  io (putStrLn $ "OFFLINE")
   switch <- get
   put $ switch { swSelfIpp = Nothing,
                 swSelfHash = Nothing,
@@ -1376,7 +1353,7 @@ offline = do
   
 taptap :: ClockTime -> TeleHash ()
 taptap timeNow@(TOD secs _picos) = do 
-  io (putStrLn $ "taptap: ***NOT IMPLEMENTED***")
+  io (putStrLn $ "taptap: " ++ (show timeNow))
   {-
     var self = this;
     if(!self.connected) return;
@@ -1463,14 +1440,10 @@ scanlines now@(TOD _secs _picos) = do
       Just selfipp  <- gets swSelfIpp
       case (valid == False && Set.notMember selfipp seedsIndex) of
         True -> do
+          io (putStrLn $ "scanlines:" ++ (show now))
           offline
           return ()
         False -> return ()
-      {-
-      if (!valid && !self.seedsIndex[self.selfipp]) {
-        self.offline();
-      -}
- 
       return ()
   
   where
@@ -1490,11 +1463,11 @@ scanlines now@(TOD _secs _picos) = do
     -- Return whether line is still Ok or not.
     scanline :: Hash -> TeleHash Bool
     scanline hash = do
-      Just line <- getLineMaybeM hash
+      Just line     <- getLineMaybeM hash
       Just selfHash <- gets swSelfHash
       Just selfipp  <- gets swSelfIpp
       case (selfHash == hash) of
-        True -> return False -- // skip our own endpoint and what is this (continue)
+        True -> return True -- False -- // skip our own endpoint and what is this (continue)
         False -> do
           case (lineEnd line /= hash) of
             True -> return False -- // empty/dead line (continue)
