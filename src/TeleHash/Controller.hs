@@ -60,12 +60,13 @@ import Text.JSON.Generic
 import Text.JSON.Types
 import Prelude hiding (id, (.), head, either, catch)
 import System.IO
+import System.Log.Handler.Simple  
 import System.Log.Logger
 import System.Time
   --import TeleHash.Json 
 
 
-import Text.Printf
+--import Text.Printf
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Digest.Pure.SHA as SHA
@@ -354,7 +355,8 @@ encodeTelex t =
 
       
   in
-   encode $ toJSObject (to++ring++see++br++line++hop++end++tap++pop)
+   -- encode $ toJSObject (to++ring++see++br++line++hop++end++tap++pop)
+   encode $    toJSObject (to++end++ring++see++tap++line++br++hop++pop)
    
 -- ---------------------------------------------------------------------
 {-
@@ -368,7 +370,11 @@ getRandom seed =
 -- ---------------------------------------------------------------------
 
 main :: IO ((), Switch)
-main = runSwitch
+main = do
+  s <- streamHandler stdout DEBUG
+  -- updateGlobalLogger rootLoggerName (addHandler s) -- setHandlers [s]
+  updateGlobalLogger rootLoggerName (setHandlers [s])
+  runSwitch
 
 -- ---------------------------------------------------------------------
 
@@ -473,7 +479,6 @@ run = do
   _ <- io (forkIO (timer (10 * onesec) SignalPingSeeds ch1))
   _ <- io (forkIO (timer (10 * onesec) SignalScanLines ch1))
   _ <- io (forkIO (timer (30 * onesec) SignalTapTap ch1)) 
-  -- listener ch1
 
   h <- gets swH 
   _ <- io (forkIO (dolisten h ch1))
@@ -486,13 +491,13 @@ run = do
     s <- io (readChan ch1)
     timeNow <- io getClockTime
     -- io (putStrLn $ "got signal: " ++ (show s) ++ " at " ++ (show timeNow))
-    io (putStrLn $ "got signal:at " ++ (show timeNow))
+    -- io (putStrLn $ "got signal:at " ++ (show timeNow))
     case s of
       SignalPingSeeds      -> pingSeeds
       SignalScanLines      -> scanlines timeNow
       SignalTapTap         -> taptap timeNow
       SignalMsgRx msg addr -> recvTelex msg addr
-    io (putStrLn $ "done signal:at " ++ (show timeNow))
+    -- io (putStrLn $ "done signal:at " ++ (show timeNow))
       
 
 -- ---------------------------------------------------------------------
@@ -738,13 +743,6 @@ checkLine line msg timeNow@(TOD secsNow _picosecsNow) =
                  Left _  ->  line''
                     
     brOk = (lineBr line''') - (lineBrout line''') <= 12000
-    {-
-    // we're valid at this point, line or otherwise, track bytes
-    console.log([
-        "\tBR ", line.ipp, " [", line.br, " += ",
-        br, "] DIFF ", (line.bsent - t._br)].join(""));
-    -}
-    
   in
    case valid of
      Left err -> Left err
@@ -889,7 +887,7 @@ recvTelex msg rinfo = do
     
     timeNow <- io getClockTime
     --console.log(["RECV from ", remoteipp, ": ", JSON.stringify(telex)].join(""));
-    logT ("RECV from " ++ (show remoteipp) ++ ":"++ (show msg)
+    logT ("RECV from " ++ (show remoteipp) ++ ":"++ msg
                   ++ " at " ++ (show timeNow))
     case (swConnected switch) of
       False -> do
@@ -903,16 +901,24 @@ recvTelex msg rinfo = do
             return () -- TODO: no further processing. This is not a control return
 
       True -> do
-        logT ( "recvTelex:already online")
+        -- logT ( "recvTelex:already online")
+        myNop
 
     -- // if this is a switch we know, check a few things
     line <- getOrCreateLine remoteipp timeNow
     let lstat = checkLine line rxTelex timeNow
     case lstat of
       Left reason -> do
-        logT ( "\tLINE FAIL[" ++ reason ++ ", " ++ (show line))
+        logT ( "\tLINE FAIL[" ++ reason ++ ", " ++ (show (lineIpp line, lineEnd line)))
         myNop
       Right line' -> do
+        -- // we're valid at this point, line or otherwise, track bytes
+        let diff = (lineBsent line') - (teleBr rxTelex)
+        -- console.log(["\tBR ", line.ipp, " [", line.br, " += ",br, "] DIFF ", (line.bsent - t._br)].join(""));
+        logT ("\tBR " ++ (show $ lineIpp line') ++ " [" ++ (show $ lineBr line') ++ " += " ++ (show $ length msg) ++ "] DIFF " ++ 
+              (show (diff, (lineBsent line') , (teleBr rxTelex))))
+              -- (show $ ((lineBsent line') , (teleBr rxTelex)) ))
+
         logT ( "\tLINE STATUS " ++ (getLineStatus rxTelex))
         updateTelehashLine line'
         processCommands rxTelex remoteipp line'
@@ -1017,7 +1023,7 @@ getCommands telex = filter isCommand $ Map.keys (teleRest telex)
 processCommand
   :: String -> IPP -> Telex -> Line -> TeleHash ()
 processCommand ".see" remoteipp telex line = do 
-  logT ( "processCommand .see")
+  -- logT ( "processCommand .see")
   --switch <- get
   Just selfipp <- gets swSelfIpp
   case (teleSee telex) of 
@@ -1030,7 +1036,7 @@ processCommand ".see" remoteipp telex line = do
 -- ---------------------------------------------------------------------
 -- Handle the .tap TeleHash command.
 processCommand ".tap" _remoteipp telex line = do 
-  logT ( "processCommand .tap:" ++ (show (teleTap telex)) )
+  -- logT ( "processCommand .tap:" ++ (show (teleTap telex)) )
   {-
   -- // handle a tap command, add/replace rules
   if (telex[".tap"] && isArray(telex[".tap"])) {
@@ -1054,7 +1060,7 @@ processCommand cmd _remoteipp _telex _line = do
 processSee :: Line -> IPP -> IPP -> TeleHash ()
 processSee line remoteipp seeipp = do
   -- logT ( "processSee " ++ (show line) ++ "," ++ (show remoteipp) ++ "," ++ (show seeipp))
-  logT ( "processSee " ++ (show remoteipp) ++ "," ++ (show seeipp))
+  -- logT ( "processSee " ++ (show remoteipp) ++ "," ++ (show seeipp))
 
   switch <- get
   Just selfipp  <- gets swSelfIpp
@@ -1392,7 +1398,7 @@ taptap timeNow@(TOD secs _picos) = do
     False -> return ()
     True -> do
       taps <- gets swTaps
-      mapM doTap taps
+      mapM_ doTap taps
       return ()
       
   where

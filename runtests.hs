@@ -39,9 +39,9 @@ case_seeVisible2 = do
   let 
     Just lineNew = getLineMaybe (swMaster state) hash2
   
-  case (line == lineNew) of
+  case (lineVisible line == lineVisible lineNew) of
     True  -> assertFailure ("Line is the same:" ++ (show line))
-    False -> assertFailure ("Line has been modified*:" ++ (show lineNew))
+    False -> return ()
 
 -- ---------------------------------------------------------------------
           
@@ -302,13 +302,13 @@ case_EncodeTelex1 =
   
 case_EncodeTelex2 =
   "{\"_to\":\"1.2.3.4:1234\"," ++ 
+  "\"+end\":\"255b5a502b0a348883ffa757e0c1ea812a128088\"," ++
   "\"_ring\":\"13\"," ++ 
   "\".see\":[\"2.3.4.5:2345\",\"3.4.5.6:3456\"]," ++ 
-  "\"_br\":\"234\"," ++
-  "\"_line\":\"4567\"," ++ 
-  "\"_hop\":\"3\"," ++ 
-  "\"+end\":\"255b5a502b0a348883ffa757e0c1ea812a128088\"," ++
   "\".tap\":[{\"is\":{\".end\":\"foo\",\"has\":[\"+pop\"]}}]," ++
+  "\"_line\":\"4567\"," ++ 
+  "\"_br\":\"234\"," ++
+  "\"_hop\":\"3\"," ++ 
   "\"+pop\":\"pop_val\"}"
   @=? 
   (encodeTelex $ ((mkTelex ipp1) { teleRing = Just 13 
