@@ -5,6 +5,7 @@ import Test.Framework.Providers.QuickCheck2
 import Test.Framework.TH
 import Test.HUnit
 
+import Control.Concurrent
 import Control.Monad.State
 import Data.List
 import Network.Socket
@@ -35,11 +36,12 @@ case_seeVisible2 = do
     line = mkLine ipp2 (TOD 1000 999)
   (res,state) <- runStateT (seeVisible True line ipp1 ipp2 ) st2
 
-  let Just lineNew = getLineMaybe (swMaster state) hash2
+  let 
+    Just lineNew = getLineMaybe (swMaster state) hash2
   
   case (line == lineNew) of
     True  -> assertFailure ("Line is the same:" ++ (show line))
-    False -> assertFailure ("Line has been modified:" ++ (show lineNew))
+    False -> assertFailure ("Line has been modified*:" ++ (show lineNew))
 
 -- ---------------------------------------------------------------------
           
@@ -202,27 +204,28 @@ case_lineOk_msgRingValid4 =
 -- ---------------------------------------------------------------------
 
 case_lineOk_ringMatch =
-  True @=? isLineOk (line1 {lineLine = Just 12345, lineRingout = 5 }) 1008 (msg1 { teleLine = Just 12345 })
+  Right True @=? isLineOk (line1 {lineLine = Just 12345, lineRingout = 5 }) 1008 (msg1 { teleLine = Just 12345 })
 
 case_lineOk_ringMisMatch =
-  False @=? isLineOk (line1 {lineLine = Just 12345, lineRingout = 7 }) 1008 (msg1 { teleLine = Just 12345 })
+  Left "msgLineOk=False,timedOut=False" @=? isLineOk (line1 {lineLine = Just 12345, lineRingout = 7 }) 1008 (msg1 { teleLine = Just 12345 })
 
 case_lineOk_lineMatch1 =
-  True @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 12345 })
+  Right True @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 12345 })
 
 case_lineOk_lineMatch2 =
-  True @=?isLineOk (line1 {lineLineat = Nothing, lineRingout=15}) 1003 (msg1 {teleLine = Just 12345})
+  Right True @=?isLineOk (line1 {lineLineat = Nothing, lineRingout=15}) 1003 (msg1 {teleLine = Just 12345})
 
 case_lineOk_lineMisMatch =
-  False @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 1 })
+  Left "msgLineOk=False,timedOut=False" @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 1 })
 
 -- ---------------------------------------------------------------------
 
 case_lineOk_timeoutOk =
-  True @=? isLineOk line1 1010 msg1
+  Right True @=? isLineOk line1 1010 msg1
   
 case_lineOk_timeoutFail =
-  False @=? isLineOk line1 1011 msg1
+  -- Left "False" @=? isLineOk line1 1011 msg1
+  Left "msgLineOk=True,timedOut=True" @=? isLineOk line1 1041 msg1
 
 line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
 msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
@@ -235,14 +238,13 @@ msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
 -- drop line if brin/brout delta > 12k
 
 case_checkLineBrDrop =
-  (False, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 12004, lineBrin = 100, lineBrout = 3,
-                lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
+  (Left "lineOk=Right True,ringOk=True,brOk=False")
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11904, lineBrout = 3}) 
                 (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
                 (TOD 1000 999)
 
 case_checkLineBrNoDrop =
-  (True, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 12003, lineBrin = 100, lineBrout = 3,
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineBr = 12003, lineBrin = 100, lineBrout = 3,
                 lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11903, lineBrout = 3}) 
                 (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
@@ -250,14 +252,14 @@ case_checkLineBrNoDrop =
 
 
 case_checkLineRing1 =
-  (True, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100,
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100,
                 lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
                 (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
                 (TOD 1000 999)
 
 case_checkLineRing2 =
-  (True, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100,
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100,
                 lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
                 (msg1 {teleLine = Nothing, teleRing = Just 823}) 
@@ -266,12 +268,13 @@ case_checkLineRing2 =
 -- -----------------------------------------------
 
 case_checkLine1 =
-  (True, line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100}) 
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100})
   @=? checkLine line1 msg1 (TOD 1000 999)
 
 case_checkLine2 =
-  (False, line1 {lineSeenat = Just (TOD 1020 999), lineBr = 10, lineBrin = 0}) 
-  @=? checkLine line1 msg1 (TOD 1020 999)
+  Left "msgLineOk=True,timedOut=True"
+  -- @=? checkLine line1 msg1 (TOD 1020 999)
+  @=? checkLine line1 msg1 (TOD 1050 999)
 
 -- ---------------------------------------------------------------------
           

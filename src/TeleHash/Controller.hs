@@ -67,7 +67,7 @@ import System.Time
 
 
 import Text.Printf
-import qualified Control.Concurrent.Actor as A
+--import qualified Control.Concurrent.Actor as A
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Digest.Pure.SHA as SHA
@@ -641,12 +641,13 @@ hashToIpp master h =
 
 -- ---------------------------------------------------------------------
 
-isLineOk :: Line -> Integer -> Telex -> Bool
-isLineOk line secsNow msg = lineOk
+-- TODO: What return type makes sense? The Bool will always be true.
+isLineOk :: Line -> Integer -> Telex -> Either String Bool
+isLineOk line secsNow msg = result
   where
     timedOut =
       case (lineLineat line) of
-        Just (TOD secs _picos) -> secsNow - secs > 30 -- Was 10 
+        Just (TOD secs _picos) -> secsNow - secs > 40 -- Was 10 
         Nothing -> False  
   
     msgLineOk = case (teleLine msg) of
@@ -657,6 +658,10 @@ isLineOk line secsNow msg = lineOk
       Nothing -> True  
       
     lineOk = msgLineOk && not timedOut
+    
+    result = case (lineOk) of
+      True -> Right True
+      False -> Left $ "msgLineOk=" ++ (show msgLineOk) ++ ",timedOut=" ++ (show timedOut) 
 
 -- ---------------------------------------------------------------------
 
@@ -677,13 +682,13 @@ isRingOk line msg = ringOk
     
 -- ---------------------------------------------------------------------
     
-checkLine :: Line -> Telex -> ClockTime -> (Bool, Line)
+checkLine :: Line -> Telex -> ClockTime -> Either String Line
 checkLine line msg timeNow@(TOD secsNow _picosecsNow) = 
   let
     lineOk = isLineOk line secsNow msg
   
-    line' = if lineOk 
-              then case (lineLineat line) of
+    line' = case lineOk of
+              Right _ -> case (lineLineat line) of
                 Just _ -> line
                 Nothing -> case (teleLine msg) of
                   Just msgLine ->
@@ -692,8 +697,8 @@ checkLine line msg timeNow@(TOD secsNow _picosecsNow) =
                           lineLineat = Just timeNow
                          }
                   Nothing -> line
-              else line
-                   
+              Left _ -> line
+
     ringOk = isRingOk line' msg
     
     line'' = case (teleRing msg) of
@@ -709,22 +714,27 @@ checkLine line msg timeNow@(TOD secsNow _picosecsNow) =
                                  })
                Nothing -> line'
                    
-    valid = lineOk && ringOk
+    valid = case lineOk of
+              Left err -> Left err
+              Right _  -> if ringOk then (Right True) else (Left "ringOk=False")
     
     msgLength = fromJust (teleMsgLength msg)
     
-    line''' = if valid
-                 then line'' { lineBr = (lineBr line'') + msgLength,
+    line''' = case valid of
+                 Right _ -> line'' { lineBr = (lineBr line'') + msgLength,
                                lineBrin = msgLength }
-                 else line''
+                 Left _  ->  line''
                     
     brOk = (lineBr line''') - (lineBrout line''') <= 12000
     
     
   in
-   (valid && brOk, line''' { lineSeenat = Just timeNow })
-  
-
+   case valid of
+     Left err -> Left err
+     Right _ -> case brOk of
+       True -> Right $ line''' { lineSeenat = Just timeNow }
+       False -> Left $ "lineOk=" ++ (show lineOk) ++ ",ringOk=" ++ (show ringOk) ++ ",brOk=" ++ (show brOk) 
+       
 -- ---------------------------------------------------------------------
 
 mkTelex :: IPP -> Telex
@@ -878,12 +888,12 @@ recvTelex msg rinfo = do
 
     -- // if this is a switch we know, check a few things
     line <- getOrCreateLine remoteipp timeNow
-    let (lstat, line') = checkLine line rxTelex timeNow
+    let lstat = checkLine line rxTelex timeNow
     case lstat of
-      False -> do
-        io (putStrLn $ "LINE FAIL[" ++ (show line))
+      Left reason -> do
+        io (putStrLn $ "LINE FAIL[" ++ reason ++ ", " ++ (show line))
         myNop
-      True -> do
+      Right line' -> do
         io (putStrLn $ "LINE STATUS " ++ (getLineStatus rxTelex))
         updateTelehashLine line'
         processCommands rxTelex remoteipp line'
