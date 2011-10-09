@@ -333,10 +333,88 @@ case_resolveToSeedIpp = do
     (_,"208.68.163.247","42424") -> return ()
     (x,y,z)        -> assertFailure ("case_resolveToSeedIpp:" ++ (show (x,y,z)))
 
+case_addrFromHostPort :: Assertion
 case_addrFromHostPort = do
   addr <- addrFromHostPort "1.2.3.4" "42424"
   case addr of
     (SockAddrInet 42424 0x04030201) -> return ()
     (SockAddrInet p h) -> assertFailure ("case_addrFromHostPort:" ++ (show (p,h)))
     
+-- ---------------------------------------------------------------------
+
+-- If the line is not already known, insert it, making it a neighbour to itself. Else return it.
+case_getOrCreateLine_firstTime = do
+  (line,state) <- runStateT (getOrCreateLine ipp1 (TOD 1000 9999)) st1
+
+  let t1 = TOD 1000 9999
+  
+  if (lineIpp line /= ipp1) 
+    then (assertFailure $ "ipp wrong, got " ++ (show (lineIpp line)))
+    else return ()
+
+  if (lineEnd line /= hash1) 
+    then (assertFailure $ "end wrong, got " ++ (show (lineEnd line)))
+    else return ()
+         
+  let (TOD s1 ps1) = (lineInit line)
+  if (lineInit line /= (TOD 1000 9999)) 
+    then (assertFailure $ "lineInit wrong, got " ++ (show (s1,ps1)))
+    else return ()
+  
+  if ((Set.toList (lineNeighbors line)) /= [hash1]) 
+    then (assertFailure $ "neighbours wrong, got " ++ (show (lineNeighbors line)))
+    else return ()
+
+  if (Map.size (swMaster state) /= 1)
+    then (assertFailure $ "state swMaster size wrong, got " ++ (show (Map.size (swMaster state))))
+    else return ()
+
+  if (Map.notMember hash1 (swMaster state))
+    then (assertFailure $ "line notMember state swMaster")
+    else return ()
+     
+  if ((swMaster state) Map.! hash1 /= line)
+    then (assertFailure $ "returned line /= swMaster line")
+    else return ()
+
+-- ---------------------------------------------------------------------         
+  
+case_getOrCreateLine_alreadyThere = do
+  let st = st1 {swMaster = Map.fromList 
+                           [
+                             (hash1,
+                              (mkLine ipp1 (TOD 1000 1234) ) {lineNeighbors = Set.fromList [hash1]})
+                             ]}
+           
+  let t1 = TOD 1000 9999
+           
+  (line,state) <- runStateT (getOrCreateLine ipp1 t1) st
+
+  if (lineIpp line /= ipp1) 
+    then (assertFailure $ "ipp wrong, got " ++ (show (lineIpp line)))
+    else return ()
+
+  let (TOD s1 ps1) = (lineInit line)
+  if (lineInit line /= (TOD 1000 1234)) 
+    then (assertFailure $ "lineInit wrong, got " ++ (show (s1,ps1)))
+    else return ()
+
+  if ((Set.toList (lineNeighbors line)) /= [hash1]) 
+    then (assertFailure $ "neighbours wrong, got " ++ (show (lineNeighbors line)))
+    else return ()
+
+  if (lineEnd line /= hash1) 
+    then (assertFailure $ "end wrong, got " ++ (show (lineEnd line)))
+    else return ()
+         
+  if (Map.size (swMaster state) /= 1)
+    then (assertFailure $ "state swMaster size wrong, got " ++ (show (Map.size (swMaster state))))
+    else return ()
+
+  if (Map.notMember hash1 (swMaster state))
+    then (assertFailure $ "line notMember state swMaster")
+    else return ()
+
+
+  
 -- EOF

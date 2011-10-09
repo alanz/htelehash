@@ -40,6 +40,7 @@ module TeleHash.Controller
        , getLineMaybe
        , resolveToSeedIPP
        , addrFromHostPort
+       , getOrCreateLine  
        ) where
 
 import Control.Concurrent
@@ -531,8 +532,6 @@ pingSeed seed =
 
     switch <- get
     put switch {swSeedsIndex = Set.insert seedIPP (swSeedsIndex switch) }
-        
-    
     
     timeNow <- io getClockTime
     
