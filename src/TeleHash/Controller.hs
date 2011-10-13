@@ -41,6 +41,7 @@ module TeleHash.Controller
        , resolveToSeedIPP
        , addrFromHostPort
        , getOrCreateLine  
+       , online  
        ) where
 
 import Control.Concurrent
@@ -874,9 +875,6 @@ recvTelex :: String -> SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
     -- logT ( ("recvTelex:" ++  (show (parseTelex msg))))
     
-    let
-      rxTelex = parseTelex msg
-    
     switch <- get
     seedsIndex <- gets swSeedsIndex
 
@@ -888,13 +886,16 @@ recvTelex msg rinfo = do
     --console.log(["RECV from ", remoteipp, ": ", JSON.stringify(telex)].join(""));
     logT ("RECV from " ++ (show remoteipp) ++ ":"++ msg
                   ++ " at " ++ (show timeNow))
+    let
+      rxTelex = parseTelex msg
+    
     case (swConnected switch) of
       False -> do
         -- TODO : test that _to field is set. Requires different setup for the JSON leg. 
         --        Why would it not be set? Also test that the _to value is us.
         -- // must have come from a trusted seed and have our to IPP info
         case (Set.member remoteipp seedsIndex ) of
-          True -> online(rxTelex)
+          True -> online rxTelex timeNow
           False -> do
             logT ( "recvTelex:we're offline and don't like that")
             return () -- TODO: no further processing. This is not a control return
@@ -1343,8 +1344,8 @@ processSignal cmd _remoteipp _telex _line = do
 
 -- ---------------------------------------------------------------------
 
-online :: Telex -> TeleHash ()
-online rxTelex = do 
+online :: Telex -> ClockTime -> TeleHash ()
+online rxTelex timeNow = do 
                     
   logT "\tONLINE"
   
@@ -1359,7 +1360,6 @@ online rxTelex = do
   
   logT ( ("\tSELF[" ++ (show selfIpp) ++ " = " ++ (show selfhash) ++ "]"))
     
-  timeNow <- io getClockTime
   line <- getOrCreateLine selfIpp timeNow
 
   taps <- gets swTaps

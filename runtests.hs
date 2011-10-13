@@ -218,6 +218,7 @@ case_lineOk_lineMatch2 =
 case_lineOk_lineMisMatch =
   Left "msgLineOk=False,timedOut=False" @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 1 })
 
+
 -- ---------------------------------------------------------------------
 
 case_lineOk_timeoutOk =
@@ -263,6 +264,12 @@ case_checkLineRing2 =
                 lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
                 (msg1 {teleLine = Nothing, teleRing = Just 823}) 
+                (TOD 1000 999)
+
+case_checkLineRingInvalid =
+  (Left "ringOk=False") 
+  @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
+                (msg1 {teleLine = Nothing, teleRing = Just 32769}) 
                 (TOD 1000 999)
 
 -- -----------------------------------------------
@@ -415,6 +422,25 @@ case_getOrCreateLine_alreadyThere = do
     then (assertFailure $ "line notMember state swMaster")
     else return ()
 
-
+-- ---------------------------------------------------------------------         
   
+case_online = do
+  (line,state) <- runStateT (online msg1 (TOD 1000 9999)) st1
+  
+  if (swConnected state == True)
+    then return ()
+    else (assertFailure $ "online:swConnected fail" ++ (show $ (line,state)))
+
+  if (swSelfIpp state == Just (IPP "1.2.3.4:567"))
+    then return ()
+    else (assertFailure $ "online:swSelfIpp fail" ++ (show $ (line,state)))
+
+  if (swSelfHash state == Just (mkHash (IPP "1.2.3.4:567")))
+    then return ()
+    else (assertFailure $ "online:swSelfHash fail" ++ (show $ (line,state)))
+
+  if (Map.size (swMaster state) == 1)
+    then return ()
+    else (assertFailure $ "online:swMaster size fail" ++ (show $ (line,state)))
+
 -- EOF
