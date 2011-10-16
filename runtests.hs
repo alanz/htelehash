@@ -167,9 +167,11 @@ msg1Js = "{\".tap\":[{\"has\":[\"+pop\"],\"is\":{\"+end\":\"38666817e1b38470644e
        "\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\","++
        "\"_to\":\"196.209.236.12:34963\"}"
 
-case_encodeMsg1Js =
+{-
+_case_encodeMsg1Js =
   encodeMsg msg1Js @?= "\"{\\\".tap\\\":[{\\\"has\\\":[\\\"+pop\\\"],\\\"is\\\":{\\\"+end\\\":\\\"38666817e1b38470644e004b9356c1622368fa57\\\"}}],\\\"_line\\\":412367436,\\\".see\\\":[\\\"208.68.163.247:42424\\\"],\\\"_br\\\":74,\\\"+end\\\":\\\"38666817e1b38470644e004b9356c1622368fa57\\\",\\\"_to\\\":\\\"196.209.236.12:34963\\\"}\""
-  
+  -}
+
 -- --------------------------------------------
 
 -- lineOk tests
@@ -229,7 +231,8 @@ case_lineOk_timeoutFail =
   Left "msgLineOk=True,timedOut=True" @=? isLineOk line1 1041 msg1
 
 line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
-msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
+-- msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
+msg1 = (mkTelex ipp1) { teleMsgLength = Just 100 }
 
 -- ---------------------------------------------------------------------
 -- checkLine tests, in terms of modifying line state
@@ -305,7 +308,7 @@ case_DistanceTo2 =
 -- ---------------------------------------------------------------------
 
 case_EncodeTelex1 =
-  "{\"_to\":\"1.2.3.4:567\",\"_br\":\"0\"}" @=? encodeTelex msg1
+  "{\"_to\":\"1.2.3.4:1234\",\"_br\":0}" @=? encodeTelex msg1
   
 case_EncodeTelex2 =
   "{\"_to\":\"1.2.3.4:1234\"," ++ 
@@ -314,8 +317,8 @@ case_EncodeTelex2 =
   "\".see\":[\"2.3.4.5:2345\",\"3.4.5.6:3456\"]," ++ 
   "\".tap\":[{\"is\":{\".end\":\"foo\",\"has\":[\"+pop\"]}}]," ++
   "\"_line\":\"4567\"," ++ 
-  "\"_br\":\"234\"," ++
-  "\"_hop\":\"3\"," ++ 
+  "\"_br\":234," ++
+  "\"_hop\":3," ++ 
   "\"+pop\":\"pop_val\"}"
   @=? 
   (encodeTelex $ ((mkTelex ipp1) { teleRing = Just 13 
@@ -431,16 +434,84 @@ case_online = do
     then return ()
     else (assertFailure $ "online:swConnected fail" ++ (show $ (line,state)))
 
-  if (swSelfIpp state == Just (IPP "1.2.3.4:567"))
+  if (swSelfIpp state == Just (IPP "1.2.3.4:1234"))
     then return ()
     else (assertFailure $ "online:swSelfIpp fail" ++ (show $ (line,state)))
 
-  if (swSelfHash state == Just (mkHash (IPP "1.2.3.4:567")))
+  if (swSelfHash state == Just (mkHash (IPP "1.2.3.4:1234")))
     then return ()
     else (assertFailure $ "online:swSelfHash fail" ++ (show $ (line,state)))
 
   if (Map.size (swMaster state) == 1)
     then return ()
     else (assertFailure $ "online:swMaster size fail" ++ (show $ (line,state)))
+
+-- ---------------------------------------------------------------------         
+
+case_prepareTelex_bSentOk = do
+  let
+    st = st1 { swMaster = 
+                  Map.fromList [
+                    (hash1,
+                     (mkLine ipp1 (TOD 1000 999) ) {lineBsent = 10000, lineBrin = 100 }) 
+                    ]}
+       
+  (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st
+  
+  if (res /= Nothing)
+    then return ()
+    else (assertFailure $ "prepareTelex:" ++ (show $ res))
+
+case_prepareTelex_bSentFail = do
+  let
+    st = st1 { swMaster = 
+                  Map.fromList [
+                    (hash1,
+                     (mkLine ipp1 (TOD 1000 999) ) {lineBsent = 10101, lineBrin = 100 }) 
+                    ]}
+       
+  (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st
+  
+  if (res == Nothing)
+    then return ()
+    else (assertFailure $ "prepareTelex:" ++ (show $ (res,state)))
+
+case_prepareTelex_ringout = do
+  (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st1
+  
+  let
+    Just (line,msgJson) = res
+    msg = parseTelex msgJson
+                                 
+  if (teleLine msg == Nothing)
+    then return ()
+    else (assertFailure $ "prepareTelex:line set " ++ (show $ msg))
+
+  if (teleRing msg /= Nothing)
+    then return ()
+    else (assertFailure $ "prepareTelex:ring not set " ++ (show $ (msgJson,msg)))
+ 
+case_prepareTelex_line = do
+  let
+    st = st1 { swMaster = 
+                  Map.fromList [
+                    (hash1,
+                     (mkLine ipp1 (TOD 1000 999) ) {lineLine = Just 123456}) 
+                    ]}
+       
+  (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st
+  
+  let
+    Just (line,msgJson) = res
+    msg = parseTelex msgJson
+                                 
+  if (teleLine msg /= Nothing)
+    then return ()
+    else (assertFailure $ "prepareTelex:line set " ++ (show $ msg))
+
+  if (teleRing msg == Nothing)
+    then return ()
+    else (assertFailure $ "prepareTelex:ring not set " ++ (show $ (msgJson,msg)))
+
 
 -- EOF

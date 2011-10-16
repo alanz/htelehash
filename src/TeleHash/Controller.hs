@@ -25,7 +25,6 @@ module TeleHash.Controller
        , Switch(..)         
        , SocketHandle(..)
        , TeleHash()
-       , encodeMsg  
        , encodeTelex  
        , isLineOk
        , isRingOk  
@@ -42,6 +41,7 @@ module TeleHash.Controller
        , addrFromHostPort
        , getOrCreateLine  
        , online  
+       , prepareTelex  
        ) where
 
 import Control.Concurrent
@@ -258,6 +258,7 @@ getIntMaybe :: JSObject JSValue -> String -> Maybe Int
 getIntMaybe cc field =
   case (get_field cc field) of
       Just (JSRational _ jsVal)  -> Just $ round (jsVal)
+      Just (JSString jsStrVal)  -> Just $ read (fromJSString jsStrVal)
       _                         -> Nothing  
 
 {-
@@ -325,14 +326,16 @@ encodeTelex t =
       Just r -> [(".see", showJSON $ JSArray (map (\s -> JSString (toJSString (unIPP s))) r))]
       Nothing -> []
     
-    br = [("_br", JSString $ toJSString $ show (teleBr t))]
+    -- br = [("_br", JSString $ toJSString $ show (teleBr t))]
+    br = [("_br", JSRational False (fromIntegral (teleBr t)))]
 
     line = case (teleLine t) of
       Just r -> [("_line", JSString $ toJSString $ show r)]
       Nothing -> []
 
     hop = case (teleHop t) of
-      Just r -> [("_hop", JSString $ toJSString $ show r)]
+      -- Just r -> [("_hop", JSString $ toJSString $ show r)]
+      Just r -> [("_hop", JSRational False (fromIntegral r))]
       Nothing -> []
       
     end = case (teleSigEnd t) of
@@ -770,7 +773,7 @@ dolisten (Just h) channel = forever $ do
     (writeChan channel (SignalMsgRx (BC.unpack msg) rinfo))
 
 -- ---------------------------------------------------------------------  
-
+{-
 sendTelex :: Telex -> TeleHash ()
 sendTelex msg = do 
   timeNow <- io getClockTime
@@ -822,14 +825,60 @@ sendTelex msg = do
       updateTelehashLine(line')
       
       --return ()
-  
-
+-}
+sendTelex :: Telex -> TeleHash ()
+sendTelex msg = do 
+  timeNow <- io getClockTime
+  res <- prepareTelex msg timeNow
+  case (res) of
+    Nothing -> return ()
+    Just (line,msgJson) -> do
+      -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
+      logT ( "SEND[:" ++ (show $ teleTo msg) ++ "]\t" ++ (msgJson))
+                
+      Just socketh <- gets swH
+      addr <- io (addrFromHostPort (lineHost line) (linePort line))
+      io (sendDgram socketh msgJson addr)
+      
+      updateTelehashLine(line)
+      
 -- ---------------------------------------------------------------------  
-       
--- encodeMsg msg = BC.unpack $ head $ BL.toChunks $ encode $ toJSON msg
-encodeMsg :: Data a => a -> String
-encodeMsg msg = encodeJSON msg
 
+prepareTelex :: Telex -> ClockTime -> TeleHash (Maybe (Line,String))
+prepareTelex msg timeNow = do 
+  line <- getOrCreateLine (teleTo msg) timeNow
+  
+  -- check br and drop if too much
+  --  if (line.bsent - line.brin > 10000) {
+  --      console.log("\tMAX SEND DROP\n");
+  --      return;
+  --  }
+
+  let brBad = (lineBsent line) - (lineBrin line) > 10000
+  case brBad of
+    True -> do
+      logT ( "MAX SEND DROP ")
+      return Nothing
+    False -> do
+      -- if a line is open use that, else send a ring
+      let
+        msg' = if (lineLine line == Nothing) 
+               then (msg {teleRing = Just (lineRingout line)})
+               else (msg {teleLine = Just (fromJust (lineLine line))})
+                    
+        -- update our bytes tracking and send current state
+        -- telex._br = line.brout = line.br;
+        msg'' = msg' { teleBr = lineBr line }
+        
+        msgJson = encodeTelex msg''
+    
+        line' = line { 
+            lineBrout = lineBr line 
+          , lineBsent = (lineBsent line) + (length msgJson)
+          , lineSentat = Just timeNow            
+          }       
+        
+      return (Just (line',msgJson))
 
 -- ---------------------------------------------------------------------  
 
