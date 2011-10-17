@@ -447,6 +447,7 @@ case_online = do
     else (assertFailure $ "online:swMaster size fail" ++ (show $ (line,state)))
 
 -- ---------------------------------------------------------------------         
+-- ---------------------------------------------------------------------         
 
 case_prepareTelex_bSentOk = do
   let
@@ -462,6 +463,8 @@ case_prepareTelex_bSentOk = do
     then return ()
     else (assertFailure $ "prepareTelex:" ++ (show $ res))
 
+-- ---------------------------------------------------------------------         
+
 case_prepareTelex_bSentFail = do
   let
     st = st1 { swMaster = 
@@ -475,6 +478,8 @@ case_prepareTelex_bSentFail = do
   if (res == Nothing)
     then return ()
     else (assertFailure $ "prepareTelex:" ++ (show $ (res,state)))
+
+-- ---------------------------------------------------------------------         
 
 case_prepareTelex_ringout = do
   (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st1
@@ -491,6 +496,8 @@ case_prepareTelex_ringout = do
     then return ()
     else (assertFailure $ "prepareTelex:ring not set " ++ (show $ (msgJson,msg)))
  
+-- ---------------------------------------------------------------------         
+
 case_prepareTelex_line = do
   let
     st = st1 { swMaster = 
@@ -513,5 +520,38 @@ case_prepareTelex_line = do
     then return ()
     else (assertFailure $ "prepareTelex:ring not set " ++ (show $ (msgJson,msg)))
 
+-- ---------------------------------------------------------------------         
+
+case_prepareTelex_counters = do
+  let
+    st = st1 { swMaster = 
+                  Map.fromList [
+                    (hash1,
+                     (mkLine ipp1 (TOD 1000 999) ) {lineBr = 100, lineBrout = 10, lineBsent = 120}) 
+                    ]}
+       
+  (res,state) <- runStateT (prepareTelex msg1 (TOD 10003 9999)) st
+  
+  let
+    Just (line,msgJson) = res
+    msg = parseTelex msgJson
+                                 
+  if (lineBr line == 100)
+    then return ()
+    else (assertFailure $ "prepareTelex:lineBr " ++ (show $ line))
+
+  if (lineBrout line == 100)
+    then return ()
+    else (assertFailure $ "prepareTelex:lineBrout " ++ (show $ line))
+
+  if (lineBsent line == 120 + (length msgJson))
+    then return ()
+    else (assertFailure $ "prepareTelex:lineBsent " ++ (show $ line))
+
+  if (lineSentat line == Just (TOD 10003 9999))
+    then return ()
+    else (assertFailure $ "prepareTelex:lineSentat " ++ (show $ line))
+
+-- ---------------------------------------------------------------------         
 
 -- EOF

@@ -604,6 +604,7 @@ removeLineM hash = do
   master <- gets swMaster
   
   put $ switch {swMaster = Map.delete hash master}
+  -- TODO: what about neighbours?
   
 -- ---------------------------------------------------------------------
 
@@ -938,6 +939,8 @@ recvTelex msg rinfo = do
     let
       rxTelex = parseTelex msg
     
+    isOnline <- checkOnline rxTelex remoteipp timeNow
+    {-
     case (swConnected switch) of
       False -> do
         -- TODO : test that _to field is set. Requires different setup for the JSON leg. 
@@ -947,35 +950,63 @@ recvTelex msg rinfo = do
           True -> online rxTelex timeNow
           False -> do
             logT ( "recvTelex:we're offline and don't like that")
-            return () -- TODO: no further processing. This is not a control return
+            return () -- TODO: no further processing. ++FIX++This should be a control return
 
       True -> do
         -- logT ( "recvTelex:already online")
         myNop
+    -}
+      
+    case isOnline of                
+      False -> return ()
+      True -> do
+        -- // if this is a switch we know, check a few things
+        line <- getOrCreateLine remoteipp timeNow
+        let lstat = checkLine line rxTelex timeNow
+        case lstat of
+          Left reason -> do
+            logT ( "\tLINE FAIL[" ++ reason ++ ", " ++ (show (lineIpp line, lineEnd line)))
+            myNop
+          Right line' -> do
+            -- // we're valid at this point, line or otherwise, track bytes
+            let diff = (lineBsent line') - (teleBr rxTelex)
+            -- console.log(["\tBR ", line.ipp, " [", line.br, " += ",br, "] DIFF ", (line.bsent - t._br)].join(""));
+            logT ("\tBR " ++ (show $ lineIpp line') ++ " [" ++ (show $ lineBr line') ++ " += " ++ (show $ length msg) ++ "] DIFF " ++ 
+                  (show (diff, (lineBsent line') , (teleBr rxTelex))))
+                   -- (show $ ((lineBsent line') , (teleBr rxTelex)) ))
 
-    -- // if this is a switch we know, check a few things
-    line <- getOrCreateLine remoteipp timeNow
-    let lstat = checkLine line rxTelex timeNow
-    case lstat of
-      Left reason -> do
-        logT ( "\tLINE FAIL[" ++ reason ++ ", " ++ (show (lineIpp line, lineEnd line)))
-        myNop
-      Right line' -> do
-        -- // we're valid at this point, line or otherwise, track bytes
-        let diff = (lineBsent line') - (teleBr rxTelex)
-        -- console.log(["\tBR ", line.ipp, " [", line.br, " += ",br, "] DIFF ", (line.bsent - t._br)].join(""));
-        logT ("\tBR " ++ (show $ lineIpp line') ++ " [" ++ (show $ lineBr line') ++ " += " ++ (show $ length msg) ++ "] DIFF " ++ 
-              (show (diff, (lineBsent line') , (teleBr rxTelex))))
-              -- (show $ ((lineBsent line') , (teleBr rxTelex)) ))
+            logT ( "\tLINE STATUS " ++ (getLineStatus rxTelex))
+            updateTelehashLine line'
+            processCommands rxTelex remoteipp line'
+            processSignals  rxTelex remoteipp line'
 
-        logT ( "\tLINE STATUS " ++ (getLineStatus rxTelex))
-        updateTelehashLine line'
-        processCommands rxTelex remoteipp line'
-        processSignals  rxTelex remoteipp line'
-
-    tapSignals (hasSignals rxTelex) rxTelex
+        tapSignals (hasSignals rxTelex) rxTelex
     
-    return ()
+        return ()
+
+-- ---------------------------------------------------------------------
+        
+checkOnline :: Telex -> IPP -> ClockTime -> TeleHash Bool
+checkOnline rxTelex remoteipp timeNow = do
+  switch <- get
+  seedsIndex <- gets swSeedsIndex
+
+  case (swConnected switch) of
+      False -> do
+        -- TODO : test that _to field is set. Requires different setup for the JSON leg. 
+        --        Why would it not be set? Also test that the _to value is us.
+        -- // must have come from a trusted seed and have our to IPP info
+        case (Set.member remoteipp seedsIndex ) of
+          True -> do
+            online rxTelex timeNow
+            return True
+          False -> do
+            logT ( "recvTelex:we're offline and don't like that")
+            return False
+
+      True -> do
+        -- logT ( "recvTelex:already online")
+        return True
 
 -- ---------------------------------------------------------------------
     
@@ -1399,19 +1430,27 @@ online rxTelex timeNow = do
   logT "\tONLINE"
   
   let
-    selfIpp = (teleTo rxTelex)
+    selfIpp  = (teleTo rxTelex)
     selfhash = mkHash $ teleTo rxTelex
   switch <- get
   put $ switch {swConnected = True
-              , swSelfIpp = Just selfIpp
-              , swSelfHash = Just selfhash
+              , swSelfIpp   = Just selfIpp
+              , swSelfHash  = Just selfhash
               }
   
   logT ( ("\tSELF[" ++ (show selfIpp) ++ " = " ++ (show selfhash) ++ "]"))
     
   line <- getOrCreateLine selfIpp timeNow
 
+  -- ++AZ++
+  switch <- get
+  -- let taps' = (Tap ("+end",unHash selfhash) ["+news"]):(swTaps switch)
+  let taps' = (Tap ("+end",unHash selfhash) ["+news"]):[]
+  put $ switch { swTaps = taps'}
+  -- ++AZ++
+
   taps <- gets swTaps
+  
   updateTelehashLine (line {lineVisible = True, lineRules = taps })
     
   -- // trigger immediate tapping to move things along
