@@ -406,20 +406,39 @@ logT str = io (warningM "Controller" str)
 runSwitch :: IO ((),Switch)
 runSwitch = bracket initialize disconnect loop
   where
-    disconnect ss = sClose (slSocket (fromJust $ swH ss))
+    disconnect (_,ss) = sClose (slSocket (fromJust $ swH ss))
     
-    loop st    = catch (runStateT run st) (exc)
+    loop (ch,st) = catch (runStateT (run ch) st) (exc)
 
     exc :: SomeException -> IO ((),Switch)
     exc _e = return ((),undefined)
 
+-- ---------------------------------------------------------------------
+--
+-- Set up actions to run on start and end, and run the main loop in
+-- its own thread
+--
+    
+startSwitchThread :: IO ThreadId
+startSwitchThread = do
+  (ch,st) <- initialize 
+  -- thread <- forkIO (io (runStateT run st))
+  thread <- forkIO (doit ch st)
+  return thread
+  
+  where
+    doit :: Chan Signal -> Switch -> IO ()
+    doit ch st = do
+      runStateT (run ch) st
+      return ()
 
+    
 -- ---------------------------------------------------------------------
 -- Hardcoded params for now    
 initialSeed :: String
 initialSeed = "telehash.org:42424"
 
-initialize :: IO Switch
+initialize :: IO (Chan a,Switch)
 initialize = do 
   -- Look up the hostname and port.  Either raises an exception
   -- or returns a nonempty list.  First element in that list
@@ -436,11 +455,13 @@ initialize = do
     
   socketName <- getSocketName sock
   warningM "Controller" ("server listening " ++ (show socketName))
-       
+         
+  ch1 <- newChan
+
   -- Save off the socket, and server address in a handle
-  return $ (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed] 
-            (Set.fromList [seedIPP])
-            False Map.empty Nothing Nothing [])
+  return $ (ch1, (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed] 
+                  (Set.fromList [seedIPP])
+                  False Map.empty Nothing Nothing []))
 
 -- ---------------------------------------------------------------------
        
@@ -478,9 +499,9 @@ addrFromHostPort hostname port = do
 -- We're in the Switch monad now, so we've connected successfully
 -- Start processing commands
 --
-run :: TeleHash ()
-run = do
-  ch1 <- io (newChan)
+run :: Chan Signal -> TeleHash ()
+run ch1 = do
+  -- ch1 <- io (newChan)
   _ <- io (forkIO (timer (10 * onesec) SignalPingSeeds ch1))
   _ <- io (forkIO (timer (10 * onesec) SignalScanLines ch1))
   _ <- io (forkIO (timer (30 * onesec) SignalTapTap ch1)) 
