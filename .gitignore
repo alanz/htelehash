@@ -26,3 +26,5 @@
 /main.hs~
 /main.tix
 /runcoverage.sh~
+/client_session_key.aes
+/src/TeleHash/Web.hs~

@@ -13,6 +13,7 @@
 module TeleHash.Controller 
        (
        runSwitch
+       , startSwitchThread
        -- For testing
        , recvTelex  
        , parseTelex
@@ -419,12 +420,12 @@ runSwitch = bracket initialize disconnect loop
 -- its own thread
 --
     
-startSwitchThread :: IO ThreadId
+startSwitchThread :: IO (Chan Signal,ThreadId)
 startSwitchThread = do
   (ch,st) <- initialize 
   -- thread <- forkIO (io (runStateT run st))
   thread <- forkIO (doit ch st)
-  return thread
+  return (ch,thread)
   
   where
     doit :: Chan Signal -> Switch -> IO ()

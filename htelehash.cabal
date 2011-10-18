@@ -45,6 +45,7 @@ Library
   Buildable: False
   Exposed-modules:     TeleHash.TeleHash
                        TeleHash.Controller
+                       TeleHash.Web
   --ghc-options:         -Wall
   ghc-options:         -Wall -fhpc
 
