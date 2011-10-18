@@ -14,6 +14,9 @@ module TeleHash.Controller
        (
        runSwitch
        , startSwitchThread
+       , Signal(..)  
+       , Reply(..)  
+       , querySwitch  
        -- For testing
        , recvTelex  
        , parseTelex
@@ -388,6 +391,9 @@ data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx Str
               SignalGetSwitch
               deriving (Typeable, Show, Eq)
 
+data Reply = ReplyGetSwitch Switch
+           deriving (Typeable, Show, Eq)
+
 onesec :: Int
 onesec = 1000000       
                        
@@ -395,6 +401,14 @@ timer :: Int -> a -> Chan a -> IO ()
 timer timeoutVal signalValue channel  = forever $ 
   threadDelay timeoutVal >> writeChan channel signalValue 
   
+-- ---------------------------------------------------------------------
+-- Routines to interact with the running switch, via the comms channel
+querySwitch :: Chan Signal -> Chan b -> IO b
+querySwitch ch1 ch2 = do
+  writeChan ch1 SignalGetSwitch
+  res <- readChan ch2
+  return res
+
 -- ---------------------------------------------------------------------
 -- Logging
 
@@ -408,9 +422,9 @@ logT str = io (warningM "Controller" str)
 runSwitch :: IO ((),Switch)
 runSwitch = bracket initialize disconnect loop
   where
-    disconnect (_,ss) = sClose (slSocket (fromJust $ swH ss))
+    disconnect (_,_,ss) = sClose (slSocket (fromJust $ swH ss))
     
-    loop (ch,st) = catch (runStateT (run ch) st) (exc)
+    loop (ch1,ch2,st) = catch (runStateT (run ch1 ch2) st) (exc)
 
     exc :: SomeException -> IO ((),Switch)
     exc _e = return ((),undefined)
@@ -421,17 +435,17 @@ runSwitch = bracket initialize disconnect loop
 -- its own thread
 --
     
-startSwitchThread :: IO (Chan Signal,ThreadId)
+startSwitchThread :: IO (Chan Signal,Chan Reply,ThreadId)
 startSwitchThread = do
-  (ch,st) <- initialize 
+  (ch1,ch2,st) <- initialize 
   -- thread <- forkIO (io (runStateT run st))
-  thread <- forkIO (doit ch st)
-  return (ch,thread)
+  thread <- forkIO (doit ch1 ch2 st)
+  return (ch1,ch2,thread)
   
   where
-    doit :: Chan Signal -> Switch -> IO ()
-    doit ch st = do
-      runStateT (run ch) st
+    doit :: Chan Signal -> Chan Reply -> Switch -> IO ()
+    doit ch1 ch2 st = do
+      runStateT (run ch1 ch2) st
       return ()
 
     
@@ -440,7 +454,7 @@ startSwitchThread = do
 initialSeed :: String
 initialSeed = "telehash.org:42424"
 
-initialize :: IO (Chan a,Switch)
+initialize :: IO (Chan a,Chan b,Switch)
 initialize = do 
   -- Look up the hostname and port.  Either raises an exception
   -- or returns a nonempty list.  First element in that list
@@ -459,11 +473,12 @@ initialize = do
   warningM "Controller" ("server listening " ++ (show socketName))
          
   ch1 <- newChan
+  ch2 <- newChan
 
   -- Save off the socket, and server address in a handle
-  return $ (ch1, (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed] 
-                  (Set.fromList [seedIPP])
-                  False Map.empty Nothing Nothing []))
+  return $ (ch1, ch2, (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed] 
+                       (Set.fromList [seedIPP])
+                       False Map.empty Nothing Nothing []))
 
 -- ---------------------------------------------------------------------
        
@@ -501,8 +516,8 @@ addrFromHostPort hostname port = do
 -- We're in the Switch monad now, so we've connected successfully
 -- Start processing commands
 --
-run :: Chan Signal -> TeleHash ()
-run ch1 = do
+run :: Chan Signal -> Chan Reply -> TeleHash ()
+run ch1 ch2 = do
   -- ch1 <- io (newChan)
   _ <- io (forkIO (timer (10 * onesec) SignalPingSeeds ch1))
   _ <- io (forkIO (timer (10 * onesec) SignalScanLines ch1))
@@ -525,9 +540,19 @@ run ch1 = do
       SignalScanLines      -> scanlines timeNow
       SignalTapTap         -> taptap timeNow
       SignalMsgRx msg addr -> recvTelex msg addr
+      -- External commands
+      SignalGetSwitch      -> do
+        sw <- getSwitch
+        io (writeChan ch2 (ReplyGetSwitch sw))
     -- io (putStrLn $ "done signal:at " ++ (show timeNow))
       
+-- ---------------------------------------------------------------------
 
+getSwitch :: TeleHash Switch      
+getSwitch = do
+  state <- get
+  return state
+  
 -- ---------------------------------------------------------------------
   
 pingSeeds :: TeleHash ()

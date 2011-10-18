@@ -7,11 +7,17 @@ module TeleHash.Web
        ) where 
 
 -- From http://www.yesodweb.com/book/rest
+import Control.Concurrent
+import TeleHash.Controller
 import Yesod
-data R = R
+
+data R = R (Chan Signal) (Chan Reply)
+
+
 mkYesod "R" [parseRoutes|
 / RootR GET
 /#String NameR GET
+/fn/#String FnR GET
 |]
 instance Yesod R where
     approot _ = ""
@@ -23,20 +29,20 @@ getRootR = defaultLayout $ do
 $(function(){
     $("a").click(function(){
         jQuery.getJSON($(this).attr("href"), function(o){
-            $("div").text(o.name);
+            $("div").text(o.fn);
         });
         return false;
     });
 });
 |]
-    let names = words "Larry Moe Curly"
+    let fns = words "Switch"
     addHamlet [hamlet|
-<div id="results">
+<div id="fn">
     Your results will be placed here if you have Javascript enabled.
 <ul>
-    $forall name <- names
+    $forall fn <- fns
         <li>
-            <a href="@{NameR name}">#{name}
+            <a href="@{FnR fn}">#{fn}
 |]
 
 getNameR name = do
@@ -46,8 +52,17 @@ getNameR name = do
     let json = jsonMap [("name", jsonScalar name)]
     defaultLayoutJson widget json
 
-main = warpDebug 4000 R
+getFnR fn = do
+    let widget = do
+          setTitle $ toHtml fn
+          addHamlet [hamlet|Looks like you have Javascript off. Fn: #{fn}|]
+    -- let json = jsonMap [("fn", jsonScalar fn)]
+    (R ch1 ch2) <- getYesod      
+    sw <- liftIO (querySwitch ch1 ch2)
+    -- let json = jsonMap [("fn", jsonScalar "hello world")]
+    let json = jsonMap [("fn", jsonScalar $ show sw)]
+    defaultLayoutJson widget json
 
-runWeb = main
+runWeb ch1 ch2  = warpDebug 4000 (R ch1 ch2)
 
 -- EOF

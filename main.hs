@@ -17,17 +17,17 @@ main = do
     C.runSwitch
 -}
 
---main :: IO ((),C.Switch)
+main :: IO ()
 main = do
     s <- streamHandler stdout DEBUG
     -- updateGlobalLogger rootLoggerName (addHandler s) -- setHandlers [s]
     updateGlobalLogger rootLoggerName (setHandlers [s])
 
     -- C.runSwitch
-    (ch,thread) <- C.startSwitchThread
+    (ch1,ch2,thread) <- C.startSwitchThread
 
-    runWeb
-    catch (runWeb) (exc thread)
+    --runWeb
+    catch (runWeb ch1 ch2) (exc thread)
 
     where
       exc :: ThreadId -> SomeException -> IO ()

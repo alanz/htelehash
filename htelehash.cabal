@@ -34,7 +34,6 @@ Library
                    , network          >= 2.3.0   && < 2.4
                    , random           >= 1.0     && < 2.0
                    , SHA              >= 1.5.0   && < 1.9
-                   -- , thespian         >= 0.9     && < 1.0
                    , dataenc          >= 0.14    && < 0.15
                    , old-time         >= 1.0     && < 2.0
                    , MissingH         >= 1.1     && < 1.2
