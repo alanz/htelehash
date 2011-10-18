@@ -384,7 +384,8 @@ main = do
 
 -- ---------------------------------------------------------------------
 
-data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx String SockAddr
+data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx String SockAddr |
+              SignalGetSwitch
               deriving (Typeable, Show, Eq)
 
 onesec :: Int
