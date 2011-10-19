@@ -113,6 +113,8 @@ data Switch = Switch { swH :: Maybe SocketHandle
                      , swSelfIpp :: Maybe IPP
                      , swSelfHash :: Maybe Hash
                      , swTaps :: [Tap]  
+                     , swCountTx :: Int  
+                     , swCountRx :: Int  
                      } deriving (Eq,Show)
 
 nBuckets :: Int
@@ -478,7 +480,7 @@ initialize = do
   -- Save off the socket, and server address in a handle
   return $ (ch1, ch2, (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed] 
                        (Set.fromList [seedIPP])
-                       False Map.empty Nothing Nothing []))
+                       False Map.empty Nothing Nothing [] 0 0))
 
 -- ---------------------------------------------------------------------
        
@@ -885,6 +887,9 @@ sendTelex msg = do
       -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
       logT ( "SEND[:" ++ (show $ teleTo msg) ++ "]\t" ++ (msgJson))
                 
+      switch <- get
+      put switch {swCountTx = (swCountTx switch) + 1 }
+        
       Just socketh <- gets swH
       addr <- io (addrFromHostPort (lineHost line) (linePort line))
       io (sendDgram socketh msgJson addr)
@@ -973,6 +978,8 @@ recvTelex :: String -> SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
     -- logT ( ("recvTelex:" ++  (show (parseTelex msg))))
     
+    switch' <- get
+    put switch' { swCountRx = (swCountRx switch') + 1 }
     switch <- get
     seedsIndex <- gets swSeedsIndex
 
@@ -988,23 +995,6 @@ recvTelex msg rinfo = do
       rxTelex = parseTelex msg
     
     isOnline <- checkOnline rxTelex remoteipp timeNow
-    {-
-    case (swConnected switch) of
-      False -> do
-        -- TODO : test that _to field is set. Requires different setup for the JSON leg. 
-        --        Why would it not be set? Also test that the _to value is us.
-        -- // must have come from a trusted seed and have our to IPP info
-        case (Set.member remoteipp seedsIndex ) of
-          True -> online rxTelex timeNow
-          False -> do
-            logT ( "recvTelex:we're offline and don't like that")
-            return () -- TODO: no further processing. ++FIX++This should be a control return
-
-      True -> do
-        -- logT ( "recvTelex:already online")
-        myNop
-    -}
-      
     case isOnline of                
       False -> return ()
       True -> do

@@ -13,15 +13,19 @@ import Yesod
 
 data R = R (Chan Signal) (Chan Reply)
 
+-- ---------------------------------------------------------------------
 
 mkYesod "R" [parseRoutes|
 / RootR GET
-/#String NameR GET
+-- /#String NameR GET
 /fn/#String FnR GET
 |]
 instance Yesod R where
     approot _ = ""
 
+-- ---------------------------------------------------------------------
+    
+getRootR :: GHandler sub R RepHtml
 getRootR = defaultLayout $ do
     setTitle "Homepage"
     addScriptRemote "http://ajax.googleapis.com/ajax/libs/jquery/1.4/jquery.min.js"
@@ -35,7 +39,7 @@ $(function(){
     });
 });
 |]
-    let fns = words "Switch"
+    let fns = words "Switch Counts"
     addHamlet [hamlet|
 <div id="fn">
     Your results will be placed here if you have Javascript enabled.
@@ -45,12 +49,7 @@ $(function(){
             <a href="@{FnR fn}">#{fn}
 |]
 
-getNameR name = do
-    let widget = do
-            setTitle $ toHtml name
-            addHamlet [hamlet|Looks like you have Javascript off. Name: #{name}|]
-    let json = jsonMap [("name", jsonScalar name)]
-    defaultLayoutJson widget json
+-- ---------------------------------------------------------------------
 
 getFnR fn = do
     let widget = do
@@ -59,10 +58,27 @@ getFnR fn = do
     -- let json = jsonMap [("fn", jsonScalar fn)]
     (R ch1 ch2) <- getYesod      
     sw <- liftIO (querySwitch ch1 ch2)
-    -- let json = jsonMap [("fn", jsonScalar "hello world")]
-    let json = jsonMap [("fn", jsonScalar $ show sw)]
+    -- let json = jsonMap [("fn", jsonScalar $ prettySwitch sw)]
+    let json = case fn of
+          "Switch" -> jsonMap [("fn", jsonScalar $ prettySwitch sw)]
+          "Counts" -> jsonMap [("fn", jsonScalar $ prettyCounts sw)]
+          _        -> jsonMap [("fn", jsonScalar $ "unknown fn:" ++ fn)]
     defaultLayoutJson widget json
 
+-- ---------------------------------------------------------------------
+    
+prettySwitch (ReplyGetSwitch sw) =    
+  ("Connected:" ++ (show $ swConnected sw) ++ ",Seeds:" ++ (show $ swSeeds sw) 
+   ++ ",IPP:" ++ (show $ swSelfIpp sw) ++ ",Hash:" ++ (show $ swSelfHash sw))
+  
+-- ---------------------------------------------------------------------
+    
+prettyCounts (ReplyGetSwitch sw) =    
+  ("Tx:" ++ (show $ swCountTx sw) ++ ",Rx:" ++ (show $ swCountRx sw) )
+  
+-- ---------------------------------------------------------------------
+
+runWeb :: Chan Signal -> Chan Reply -> IO ()
 runWeb ch1 ch2  = warpDebug 4000 (R ch1 ch2)
 
 -- EOF
