@@ -59,6 +59,9 @@ case_near_to1 = do
                  , swSelfIpp = Nothing 
                  , swSelfHash = Nothing 
                  , swTaps = []
+                 , swCountOnline = 0           
+                 , swCountTx = 0           
+                 , swCountRx = 0              
                  })
 
   (res,state) <- runStateT (near_to hash1 ipp2 ) st
@@ -82,6 +85,9 @@ case_near_to2 = do
                  , swSelfIpp = Nothing 
                  , swSelfHash = Nothing 
                  , swTaps = []
+                 , swCountOnline = 0           
+                 , swCountTx = 0           
+                 , swCountRx = 0              
                  })
 
   (res,state) <- runStateT (near_to hash1 ipp2) st
@@ -100,6 +106,9 @@ st1 = (Switch {swH = Nothing
               , swSelfIpp = Nothing 
               , swSelfHash = Nothing 
               , swTaps = []
+              , swCountOnline = 0           
+              , swCountTx = 0           
+              , swCountRx = 0              
               })
 
 st2 = (Switch {swH = Nothing
@@ -116,6 +125,9 @@ st2 = (Switch {swH = Nothing
               , swSelfIpp = Nothing 
               , swSelfHash = Nothing 
               , swTaps = []
+              , swCountOnline = 0           
+              , swCountTx = 0           
+              , swCountRx = 0              
               })
       
 ipp1 = IPP "1.2.3.4:1234"

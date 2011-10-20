@@ -113,6 +113,7 @@ data Switch = Switch { swH :: Maybe SocketHandle
                      , swSelfIpp :: Maybe IPP
                      , swSelfHash :: Maybe Hash
                      , swTaps :: [Tap]  
+                     , swCountOnline :: Int  
                      , swCountTx :: Int  
                      , swCountRx :: Int  
                      } deriving (Eq,Show)
@@ -480,7 +481,7 @@ initialize = do
   -- Save off the socket, and server address in a handle
   return $ (ch1, ch2, (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed] 
                        (Set.fromList [seedIPP])
-                       False Map.empty Nothing Nothing [] 0 0))
+                       False Map.empty Nothing Nothing [] 0 0 0))
 
 -- ---------------------------------------------------------------------
        
@@ -1474,6 +1475,7 @@ online rxTelex timeNow = do
   put $ switch {swConnected = True
               , swSelfIpp   = Just selfIpp
               , swSelfHash  = Just selfhash
+              , swCountOnline = (swCountOnline switch) + 1                
               }
   
   logT ( ("\tSELF[" ++ (show selfIpp) ++ " = " ++ (show selfhash) ++ "]"))

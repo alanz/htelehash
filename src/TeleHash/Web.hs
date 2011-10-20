@@ -39,7 +39,7 @@ $(function(){
     });
 });
 |]
-    let fns = words "Switch Counts"
+    let fns = words "Switch Counts RawSwitch"
     addHamlet [hamlet|
 <div id="fn">
     Your results will be placed here if you have Javascript enabled.
@@ -60,9 +60,10 @@ getFnR fn = do
     sw <- liftIO (querySwitch ch1 ch2)
     -- let json = jsonMap [("fn", jsonScalar $ prettySwitch sw)]
     let json = case fn of
-          "Switch" -> jsonMap [("fn", jsonScalar $ prettySwitch sw)]
-          "Counts" -> jsonMap [("fn", jsonScalar $ prettyCounts sw)]
-          _        -> jsonMap [("fn", jsonScalar $ "unknown fn:" ++ fn)]
+          "RawSwitch" -> jsonMap [("fn", jsonScalar $ show sw)]
+          "Switch"    -> jsonMap [("fn", jsonScalar $ prettySwitch sw)]
+          "Counts"    -> jsonMap [("fn", jsonScalar $ prettyCounts sw)]
+          _            -> jsonMap [("fn", jsonScalar $ "unknown fn:" ++ fn)]
     defaultLayoutJson widget json
 
 -- ---------------------------------------------------------------------
@@ -74,7 +75,7 @@ prettySwitch (ReplyGetSwitch sw) =
 -- ---------------------------------------------------------------------
     
 prettyCounts (ReplyGetSwitch sw) =    
-  ("Tx:" ++ (show $ swCountTx sw) ++ ",Rx:" ++ (show $ swCountRx sw) )
+  ("Online:" ++ (show $ swCountOnline sw) ++ "Tx:" ++ (show $ swCountTx sw) ++ ",Rx:" ++ (show $ swCountRx sw) )
   
 -- ---------------------------------------------------------------------
 
