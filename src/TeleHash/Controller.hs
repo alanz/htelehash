@@ -278,6 +278,7 @@ getTapMaybe cc field =
       _                         -> Nothing  
   where
     getTap (JSObject jsobj) = foldl' dTap (Tap ("","") []) $ fromJSObject jsobj
+    getTap _                = error "Should never happen"
 
     dTap tap ("is",  JSObject o) = tap {tapIs = (k, fromJSString str)}
       where
@@ -285,11 +286,12 @@ getTapMaybe cc field =
         
     --dTap tap ("has", o) = tap {tapHas= [show o]}
     dTap tap ("has", JSArray arr) = tap {tapHas= map (\(JSString s) -> fromJSString s) arr}
+    dTap _   _                    = error "Should never happen"
     
 -- ---------------------------------------------------------------------
     
-test_parseTelex :: Maybe Telex
-test_parseTelex = parseTelex _inp
+_test_parseTelex :: Maybe Telex
+_test_parseTelex = parseTelex _inp
 
 _inp :: [Char]
 _inp = ("{\"_ring\":17904," ++
@@ -440,7 +442,7 @@ startSwitchThread = do
   where
     doit :: Chan Signal -> Chan Reply -> Switch -> IO ()
     doit ch1 ch2 st = do
-      runStateT (run ch1 ch2) st
+      _ <- runStateT (run ch1 ch2) st
       return ()
 
     
@@ -541,8 +543,8 @@ run ch1 ch2 = do
 
 getSwitch :: TeleHash Switch      
 getSwitch = do
-  state <- get
-  return state
+  switch <- get
+  return switch
   
 -- ---------------------------------------------------------------------
   
@@ -708,13 +710,17 @@ hashToIpp master h =
 
 -- ---------------------------------------------------------------------
 
+cTIMEOUT :: Integer
+cTIMEOUT = 90
+--cTIMEOUT = 70        
+
 -- TODO: What return type makes sense? The Bool will always be true.
 isLineOk :: Line -> Integer -> Telex -> Either String Bool
 isLineOk line secsNow msg = result
   where
     timedOut =
       case (lineLineat line) of
-        Just (TOD secs _picos) -> secsNow - secs > 40 -- Was 10 
+        Just (TOD secs _picos) -> secsNow - secs > cTIMEOUT -- 40 -- Was 10 
         Nothing -> False  
   
     msgLineOk = case (teleLine msg) of
@@ -813,6 +819,7 @@ mkTelex seedIPP =
 -- Listen for incoming messages and drop them in the FIFO
 --
 dolisten :: Maybe SocketHandle -> Chan Signal -> IO ()
+dolisten Nothing _ = return ()
 dolisten (Just h) channel = forever $ do
     (msg,rinfo) <- (SB.recvFrom (slSocket h) 1000)
 
@@ -909,8 +916,8 @@ recvTelex msg rinfo = do
     
     switch' <- get
     put switch' { swCountRx = (swCountRx switch') + 1 }
-    switch <- get
-    seedsIndex <- gets swSeedsIndex
+    -- switch <- get
+    -- seedsIndex <- gets swSeedsIndex
 
     (Just hostIP,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
     let
@@ -1418,10 +1425,10 @@ online rxTelex timeNow = do
   line <- getOrCreateLine selfIpp timeNow
 
   -- ++AZ++
-  switch <- get
+  switch' <- get
   -- let taps' = (Tap ("+end",unHash selfhash) ["+news"]):(swTaps switch)
   let taps' = (Tap ("+end",unHash selfhash) ["+news"]):[]
-  put $ switch { swTaps = taps'}
+  put $ switch' { swTaps = taps'}
   -- ++AZ++
 
   taps <- gets swTaps
@@ -1605,9 +1612,9 @@ scanlines now@(TOD _secs _picos) = do
       case (lineSeenat line) of
         Nothing -> do
           let (TOD initSecs _) = (lineInit line)
-          return (secs - initSecs > 70)
+          return (secs - initSecs > cTIMEOUT)
         Just (TOD seenatSecs _) -> 
-          return (secs - seenatSecs > 70)
+          return (secs - seenatSecs > cTIMEOUT)
         {-
         if ((line.seenat == 0 && now - line.init > 70)
                 || (line.seenat != 0 && now - line.seenat > 70)) {
@@ -1617,6 +1624,7 @@ scanlines now@(TOD _secs _picos) = do
             return;
         }
         -}
+
 -- ---------------------------------------------------------------------
 {-
 /**

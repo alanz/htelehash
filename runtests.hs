@@ -242,7 +242,8 @@ case_lineOk_timeoutOk =
   
 case_lineOk_timeoutFail =
   -- Left "False" @=? isLineOk line1 1011 msg1
-  Left "msgLineOk=True,timedOut=True" @=? isLineOk line1 1041 msg1
+  -- Left "msgLineOk=True,timedOut=True" @=? isLineOk line1 1041 msg1
+  Left "msgLineOk=True,timedOut=True" @=? isLineOk line1 1071 msg1
 
 line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
 -- msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
@@ -298,7 +299,8 @@ case_checkLine1 =
 case_checkLine2 =
   Left "msgLineOk=True,timedOut=True"
   -- @=? checkLine line1 msg1 (TOD 1020 999)
-  @=? checkLine line1 msg1 (TOD 1050 999)
+  -- @=? checkLine line1 msg1 (TOD 1050 999)
+  @=? checkLine line1 msg1 (TOD 1080 999)
 
 -- ---------------------------------------------------------------------
           

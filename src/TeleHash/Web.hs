@@ -73,12 +73,14 @@ getStatsR = do
 
 -- ---------------------------------------------------------------------
     
+prettySwitch :: Reply -> String
 prettySwitch (ReplyGetSwitch sw) =    
   ("Connected:" ++ (show $ swConnected sw) ++ ",Seeds:" ++ (show $ swSeeds sw) 
    ++ ",IPP:" ++ (show $ swSelfIpp sw) ++ ",Hash:" ++ (show $ swSelfHash sw))
   
 -- ---------------------------------------------------------------------
     
+prettyCounts :: Reply -> String
 prettyCounts (ReplyGetSwitch sw) =    
   ("Online:" ++ (show $ swCountOnline sw) ++ ",Tx:" ++ (show $ swCountTx sw) ++ ",Rx:" ++ (show $ swCountRx sw) )
   

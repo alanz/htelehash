@@ -5,4 +5,6 @@
    without checking the ring/line combo. When a second msg comes in
    from the seed, we fail the ring/line test for the stale line value.
 
+3. Getting messages from the seed every 10 seconds, but still fail
+   with a timeout. Why?
 
