@@ -4,10 +4,12 @@ import Test.Framework.Providers.HUnit
 import Test.Framework.Providers.QuickCheck2
 import Test.Framework.TH
 import Test.HUnit
+import Test.QuickCheck
 
 import Control.Concurrent
 import Control.Monad.State
 import Data.List
+import Data.Maybe
 import Network.Socket
 import System.Time
 import TeleHash.Controller
@@ -160,7 +162,7 @@ _case_recvTelex1 =
 
 case_parseMsg1Js = 
   parseTelex msg1Js @?= (
-    Telex {teleRing = Nothing, teleSee = Just [IPP "208.68.163.247:42424"],
+    Just Telex {teleRing = Nothing, teleSee = Just [IPP "208.68.163.247:42424"],
            teleBr = 74, teleTo = IPP "196.209.236.12:34963",
            teleLine = Just 412367436, 
            teleHop = Nothing,
@@ -302,11 +304,11 @@ case_checkLine2 =
           
 case_getCommands1 =
   [".see",".tap"]
-  @=? (getCommands $ parseTelex "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\",\".see\":[\"196.215.40.28:59056\"],\".tap\":[{\"is\":{\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"},\"has\":[\"+pop\"]}],\"_line\":252817576,\"_br\":89}")
+  @=? (getCommands $ fromJust $ parseTelex "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\",\".see\":[\"196.215.40.28:59056\"],\".tap\":[{\"is\":{\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"},\"has\":[\"+pop\"]}],\"_line\":252817576,\"_br\":89}")
   
 case_getSignals1 =
   [("+end","\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"")]
-  @=? (getSignals $ parseTelex "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\",\".see\":[\"196.215.40.28:59056\"],\".tap\":[{\"is\":{\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"},\"has\":[\"+pop\"]}],\"_line\":252817576,\"_br\":89}")
+  @=? (getSignals $ fromJust $ parseTelex "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\",\".see\":[\"196.215.40.28:59056\"],\".tap\":[{\"is\":{\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"},\"has\":[\"+pop\"]}],\"_line\":252817576,\"_br\":89}")
 
 
 -- ----------------------------------------------------------------------
@@ -498,7 +500,7 @@ case_prepareTelex_ringout = do
   
   let
     Just (line,msgJson) = res
-    msg = parseTelex msgJson
+    Just msg = parseTelex msgJson
                                  
   if (teleLine msg == Nothing)
     then return ()
@@ -522,7 +524,7 @@ case_prepareTelex_line = do
   
   let
     Just (line,msgJson) = res
-    msg = parseTelex msgJson
+    Just msg = parseTelex msgJson
                                  
   if (teleLine msg /= Nothing)
     then return ()
@@ -563,6 +565,77 @@ case_prepareTelex_counters = do
   if (lineSentat line == Just (TOD 10003 9999))
     then return ()
     else (assertFailure $ "prepareTelex:lineSentat " ++ (show $ line))
+
+-- ---------------------------------------------------------------------         
+
+prop_idempotent :: [Int] -> Bool
+prop_idempotent xs = sort (sort xs) == sort xs
+
+-- ---------------------------------------------------------------------         
+
+prop_parseTelexJson =
+  forAll telehashJson $ \msgJson ->
+  Nothing /= parseTelex msgJson
+       
+-- ---------------------------------------------------------------------         
+
+-- Trying to write an arbitrary generator of valid Telehash javascript
+-- strings.
+-- See http://book.realworldhaskell.org/read/testing-and-quality-assurance.html
+-- and http://jasani.org/2008/01/03/testing-haskell-with-quickcheck/
+
+
+telehashJson :: Gen String
+telehashJson = do
+  name <- identifier
+  i <- ipp
+  br <- choose (0,1000000) :: Gen Int
+  let toClause = ("\"_to\":\"" ++ (unIPP i) ++ "\"")
+  let brClause = ("\"_br\":" ++ (show br))
+  return ("{" ++ toClause ++ "," ++ brClause ++ "}")
+  
+ipp :: Gen IPP
+ipp = do
+  port <- choose (1024,65535) :: Gen Int
+  quads <- vectorOf 4 (choose (1,255) :: Gen Int)
+  let ip = intercalate "." $ map show quads
+  return (IPP (ip ++ ":" ++ (show port)))
+  
+-- Library functions
+iden0 :: Gen Char
+iden0 = oneof [ elements ['a'..'z'], elements ['A'..'Z'], elements ['0'..'9'] ]
+
+idenN :: Gen String
+idenN = listOf iden0
+
+opt :: Gen String -> Gen String
+opt g = oneof [ g, return "" ]
+
+identifier :: Gen String
+--identifier = iden0 >>= \i0 -> idenN >>= return . (i0:)  
+identifier = do
+  -- note: could use listOf1, instead.
+  firstChar <- iden0 
+  rest <- idenN
+  return (firstChar:rest)
+
+s = sample identifier
+
+-- Need a newtype, else get complaints about arbitrary instance already existing
+newtype GenJsonTelex = GJT String deriving Show
+unGJT (GJT str) = str
+
+instance Arbitrary GenJsonTelex where
+  arbitrary = do 
+    str <- elements (['A'..'Z'] ++ ['a' .. 'z'] ++ " ~!@#$%^&*()")
+    return (GJT [str])
+
+samples :: IO [GenJsonTelex]
+samples = sample' arbitrary :: IO [GenJsonTelex]
+
+samples' = do
+  s <- samples
+  return (mapM unGJT s)
 
 -- ---------------------------------------------------------------------         
 

@@ -18,6 +18,7 @@ data R = R (Chan Signal) (Chan Reply)
 mkYesod "R" [parseRoutes|
 / RootR GET
 -- /#String NameR GET
+/stats StatsR GET
 /fn/#String FnR GET
 |]
 instance Yesod R where
@@ -28,43 +29,47 @@ instance Yesod R where
 getRootR :: GHandler sub R RepHtml
 getRootR = defaultLayout $ do
     setTitle "Homepage"
-    addScriptRemote "http://ajax.googleapis.com/ajax/libs/jquery/1.4/jquery.min.js"
-    addJulius [julius|
-$(function(){
-    $("a").click(function(){
-        jQuery.getJSON($(this).attr("href"), function(o){
-            $("div").text(o.fn);
-        });
-        return false;
-    });
-});
-|]
-    let fns = words "Switch Counts RawSwitch"
     addHamlet [hamlet|
-<div id="fn">
-    Your results will be placed here if you have Javascript enabled.
 <ul>
-    $forall fn <- fns
-        <li>
-            <a href="@{FnR fn}">#{fn}
-|]
+  <li> <a href="@{FnR "Switch"}">Switch
+  <li> <a href="@{FnR "RawSwitch"}">RawSwitch
+  <li> <a href="@{StatsR}">stats
 
+|]
+{-
+
+-}
 -- ---------------------------------------------------------------------
 
+getFnR :: [Char] -> Handler RepHtml
 getFnR fn = do
-    let widget = do
-          setTitle $ toHtml fn
-          addHamlet [hamlet|Looks like you have Javascript off. Fn: #{fn}|]
     -- let json = jsonMap [("fn", jsonScalar fn)]
     (R ch1 ch2) <- getYesod      
     sw <- liftIO (querySwitch ch1 ch2)
     -- let json = jsonMap [("fn", jsonScalar $ prettySwitch sw)]
     let json = case fn of
-          "RawSwitch" -> jsonMap [("fn", jsonScalar $ show sw)]
-          "Switch"    -> jsonMap [("fn", jsonScalar $ prettySwitch sw)]
-          "Counts"    -> jsonMap [("fn", jsonScalar $ prettyCounts sw)]
-          _            -> jsonMap [("fn", jsonScalar $ "unknown fn:" ++ fn)]
-    defaultLayoutJson widget json
+          "RawSwitch" -> show sw
+          "Switch"    -> prettySwitch sw
+          "Counts"    -> prettyCounts sw
+          _           -> "unknown fn:" ++ fn
+    let widget = do
+          setTitle $ toHtml fn
+          addHamlet [hamlet|Fn: #{fn}<br/><pre>#{json}</pre>|]
+    defaultLayout widget 
+
+-- ---------------------------------------------------------------------
+
+getStatsR :: Handler RepHtml
+getStatsR = do
+  (R ch1 ch2) <- getYesod      
+  sw <- liftIO (querySwitch ch1 ch2)
+  let content = prettyCounts sw
+
+  let widget = do
+        setTitle $ "Stats"
+        addHamlet [hamlet|Content = #{content}.|]
+      
+  defaultLayout widget
 
 -- ---------------------------------------------------------------------
     
@@ -75,7 +80,7 @@ prettySwitch (ReplyGetSwitch sw) =
 -- ---------------------------------------------------------------------
     
 prettyCounts (ReplyGetSwitch sw) =    
-  ("Online:" ++ (show $ swCountOnline sw) ++ "Tx:" ++ (show $ swCountTx sw) ++ ",Rx:" ++ (show $ swCountRx sw) )
+  ("Online:" ++ (show $ swCountOnline sw) ++ ",Tx:" ++ (show $ swCountTx sw) ++ ",Rx:" ++ (show $ swCountRx sw) )
   
 -- ---------------------------------------------------------------------
 

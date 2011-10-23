@@ -1,2 +1,8 @@
 1. The initial ping telex has a '.see' value of 'null'.
 
+2. If the switch goes offline, then sends a new ring to a seed. The
+   seed sends an old reply with the old line value, we go online
+   without checking the ring/line combo. When a second msg comes in
+   from the seed, we fail the ring/line test for the stale line value.
+
+
