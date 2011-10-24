@@ -468,7 +468,6 @@ case_online = do
     else (assertFailure $ "online:swMaster size fail" ++ (show $ (line,state)))
 
 -- ---------------------------------------------------------------------         
--- ---------------------------------------------------------------------         
 
 case_prepareTelex_bSentOk = do
   let
@@ -643,6 +642,24 @@ samples = sample' arbitrary :: IO [GenJsonTelex]
 samples' = do
   s <- samples
   return (mapM unGJT s)
+
+-- ---------------------------------------------------------------------         
+
+case_removeLineM = do
+  if (Map.size (swMaster st2) == 3)
+    then return ()
+    else (assertFailure $ "removeLineM:starting with 3 lines " ++ (show $ (swMaster st2)))
+         
+  (line,state) <- runStateT (removeLineM hash2) st2
+  
+  if (Map.size (swMaster state) == 2)
+    then return ()
+    else (assertFailure $ "removeLineM:expected 2 lines left" ++ (show $ (swMaster state)))
+
+  if (Map.keys (swMaster state) == sort [hash1,hash3])
+    then return ()
+    else (assertFailure $ "removeLineM:wrong lines left" ++ (show $ (swMaster state)))
+
 
 -- ---------------------------------------------------------------------         
 

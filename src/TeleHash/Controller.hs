@@ -47,6 +47,7 @@ module TeleHash.Controller
        , getOrCreateLine  
        , online  
        , prepareTelex  
+       , removeLineM  
        ) where
 
 import Control.Concurrent
@@ -590,7 +591,7 @@ pingSeed seed =
     return ()
    
 -- ---------------------------------------------------------------------
-
+{-
 getOrCreateLine :: IPP -> ClockTime -> TeleHash Line
 getOrCreateLine seedIPP timeNow = do
   switch <- get
@@ -620,6 +621,19 @@ getOrCreateLine seedIPP timeNow = do
     False -> myNop
   
   return line'
+-}
+getOrCreateLine :: IPP -> ClockTime -> TeleHash Line
+getOrCreateLine seedIPP timeNow = do
+  lineMaybe <- getLineMaybeM (mkHash seedIPP)
+  case lineMaybe of
+    Just line -> return line
+    Nothing -> do
+      -- console.log(["\tNEWLINE[", endpoint, "]"].join(""));
+      logT $ "\tNEWLINE[" ++ (show seedIPP) ++ "]"
+      let line = mkLine seedIPP timeNow
+      updateTelehashLine line       
+      return line
+  
   
 -- ---------------------------------------------------------------------
   
