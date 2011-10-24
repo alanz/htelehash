@@ -718,11 +718,16 @@ cTIMEOUT = 90
 isLineOk :: Line -> Integer -> Telex -> Either String Bool
 isLineOk line secsNow msg = result
   where
-    timedOut =
+    -- // first, if it's been more than 10 seconds after a line opened, 
+    -- // be super strict, no more ringing allowed, _line absolutely required
+    ringTimedOut =
       case (lineLineat line) of
-        Just (TOD secs _picos) -> secsNow - secs > cTIMEOUT -- 40 -- Was 10 
+        Just (TOD secs _picos) -> case (secsNow - secs > 10) of
+          True -> (teleLine msg) /= (lineLine line)
+          False -> False
         Nothing -> False  
   
+    -- // second, process incoming _line
     msgLineOk = case (teleLine msg) of
       Just msgLineNum -> 
         case (lineLine line) of
@@ -730,11 +735,11 @@ isLineOk line secsNow msg = result
           Nothing -> True -- only test if we have a value
       Nothing -> True  
       
-    lineOk = msgLineOk && not timedOut
+    lineOk = msgLineOk && not ringTimedOut
     
     result = case (lineOk) of
       True -> Right True
-      False -> Left $ "msgLineOk=" ++ (show msgLineOk) ++ ",timedOut=" ++ (show timedOut) 
+      False -> Left $ "msgLineOk=" ++ (show msgLineOk) ++ ",ringTimedOut=" ++ (show ringTimedOut) 
 
 -- ---------------------------------------------------------------------
 

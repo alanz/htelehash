@@ -8,3 +8,5 @@
 3. Getting messages from the seed every 10 seconds, but still fail
    with a timeout. Why?
 
+4. Why do we generate a NEWLINE log entry every RECV? Should store the
+   new line

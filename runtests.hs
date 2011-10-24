@@ -223,7 +223,7 @@ case_lineOk_ringMatch =
   Right True @=? isLineOk (line1 {lineLine = Just 12345, lineRingout = 5 }) 1008 (msg1 { teleLine = Just 12345 })
 
 case_lineOk_ringMisMatch =
-  Left "msgLineOk=False,timedOut=False" @=? isLineOk (line1 {lineLine = Just 12345, lineRingout = 7 }) 1008 (msg1 { teleLine = Just 12345 })
+  Left "msgLineOk=False,ringTimedOut=False" @=? isLineOk (line1 {lineLine = Just 12345, lineRingout = 7 }) 1008 (msg1 { teleLine = Just 12345 })
 
 case_lineOk_lineMatch1 =
   Right True @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 12345 })
@@ -232,7 +232,7 @@ case_lineOk_lineMatch2 =
   Right True @=?isLineOk (line1 {lineLineat = Nothing, lineRingout=15}) 1003 (msg1 {teleLine = Just 12345})
 
 case_lineOk_lineMisMatch =
-  Left "msgLineOk=False,timedOut=False" @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 1 })
+  Left "msgLineOk=False,ringTimedOut=False" @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 1 })
 
 
 -- ---------------------------------------------------------------------
@@ -243,9 +243,11 @@ case_lineOk_timeoutOk =
 case_lineOk_timeoutFail =
   -- Left "False" @=? isLineOk line1 1011 msg1
   -- Left "msgLineOk=True,timedOut=True" @=? isLineOk line1 1041 msg1
-  Left "msgLineOk=True,timedOut=True" @=? isLineOk line1 1071 msg1
+  Left "msgLineOk=True,ringTimedOut=True" @=? isLineOk (line1 {lineLineat = Just (TOD 1000 999), lineLine=Just 30}) 1011 msg1
 
-line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
+
+--line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
+line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineRingout = 5, lineBr = 10 }
 -- msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
 msg1 = (mkTelex ipp1) { teleMsgLength = Just 100 }
 
@@ -263,23 +265,26 @@ case_checkLineBrDrop =
                 (TOD 1000 999)
 
 case_checkLineBrNoDrop =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineBr = 12003, lineBrin = 100, lineBrout = 3,
-                lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999), 
+                  lineBr = 12003, lineBrin = 100, lineBrout = 3,
+                  lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11903, lineBrout = 3}) 
                 (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
                 (TOD 1000 999)
 
 
 case_checkLineRing1 =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100,
-                lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999), 
+                  lineBr = 110, lineBrin = 100, lineRingin = Just 823, 
+                  lineLine = Just 12345, lineRingout = 15}) 
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
                 (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
                 (TOD 1000 999)
 
 case_checkLineRing2 =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100,
-                lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999), 
+                  lineBr = 110, lineBrin = 100, lineRingin = Just 823, 
+                  lineLine = Just 12345, lineRingout = 15}) 
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
                 (msg1 {teleLine = Nothing, teleRing = Just 823}) 
                 (TOD 1000 999)
@@ -297,10 +302,10 @@ case_checkLine1 =
   @=? checkLine line1 msg1 (TOD 1000 999)
 
 case_checkLine2 =
-  Left "msgLineOk=True,timedOut=True"
+  Left "msgLineOk=True,ringTimedOut=True"
   -- @=? checkLine line1 msg1 (TOD 1020 999)
   -- @=? checkLine line1 msg1 (TOD 1050 999)
-  @=? checkLine line1 msg1 (TOD 1080 999)
+  @=? checkLine (line1 {lineLineat = Just (TOD 1000 999), lineLine=Just 30}) msg1 (TOD 1011 999)
 
 -- ---------------------------------------------------------------------
           
