@@ -1529,7 +1529,7 @@ scanlines now@(TOD _secs _picos) = do
       master <- gets swMaster
       let switches = Map.keys master
       logT ( "SCAN\t" ++ (show $ length switches))
-      valid <- foldM (\acc hash -> fscanline acc hash) True switches
+      valid <- foldM (\acc hash -> fscanline acc hash) False switches
       
       seedsIndex <- gets swSeedsIndex
       Just selfipp  <- gets swSelfIpp
@@ -1542,18 +1542,10 @@ scanlines now@(TOD _secs _picos) = do
       return ()
   
   where
-  {-
-    var self = this;
-    if(!self.connected) return;
-    var now = time();
-    var switches = keys(self.master);
-    var valid = 0;
-    console.log(["SCAN\t" + switches.length].join(""));
-  -}
     fscanline :: Bool -> Hash -> TeleHash Bool
     fscanline acc hash = do 
       res  <- scanline hash
-      return (acc && res)
+      return (acc || res) -- Any one must be valid.
                             
     -- Return whether line is still Ok or not.
     scanline :: Hash -> TeleHash Bool
@@ -1598,35 +1590,7 @@ scanlines now@(TOD _secs _picos) = do
                       return True
                     False ->
                       return True
-  {-  
-        
-        valid++;
-        
-        if (self.connected) {
-        
-            // +end ourselves to see if they know anyone closer as a ping
-            var telexOut = new Telex(line.ipp);
-            telexOut["+end"] = self.selfhash;
-        
-            // also .see ourselves if we haven't yet, default for now is to participate in the DHT
-            if (!line.visibled++) {
-                telexOut[".see"] = [self.selfipp];
-            }
-            
-            // also .tap our hash for +pop requests for NATs
-            var tapOut = {is: {}};
-            tapOut.is['+end'] = self.selfhash;
-            tapOut.has = ['+pop'];
-            telexOut[".tap"] = [tapOut];
-            self.send(telexOut);
-            
-        }
-    });
-    
-    if (!valid && !self.seedsIndex[self.selfipp]) {
-        self.offline();
-    }
-  -}
+                      
     isTimedOut (TOD secs _picos) line = do
       case (lineSeenat line) of
         Nothing -> do
@@ -1634,15 +1598,6 @@ scanlines now@(TOD _secs _picos) = do
           return (secs - initSecs > cTIMEOUT)
         Just (TOD seenatSecs _) -> 
           return (secs - seenatSecs > cTIMEOUT)
-        {-
-        if ((line.seenat == 0 && now - line.init > 70)
-                || (line.seenat != 0 && now - line.seenat > 70)) {
-            // remove line if they never responded or haven't in a while
-            console.log(["\tPURGE[", hash, " ", line.ipp, "] last seen ", now - line.seenat, "s ago"].join(""));
-            self.master[hash] = {};
-            return;
-        }
-        -}
 
 -- ---------------------------------------------------------------------
 {-
