@@ -10,3 +10,7 @@
 
 4. Why do we generate a NEWLINE log entry every RECV? Should store the
    new line
+
+5. MAX SEND DROP does not seem to actually drop the line
+  
+6. MAX SEND DROP seems to be doing the wrong calculation

@@ -813,8 +813,8 @@ checkLine line msg timeNow@(TOD secsNow _picosecsNow) =
     msgLength = fromJust (teleMsgLength msg)
     
     line''' = case valid of
-                 Right _ -> line'' { lineBr = (lineBr line'') + msgLength,
-                               lineBrin = msgLength }
+                 Right _ -> line'' { lineBr   = (lineBr line'') + msgLength,
+                                     lineBrin = teleBr msg }
                  Left _  ->  line''
                     
     brOk = (lineBr line''') - (lineBrout line''') <= 12000

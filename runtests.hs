@@ -249,7 +249,7 @@ case_lineOk_timeoutFail =
 --line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
 line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineRingout = 5, lineBr = 10 }
 -- msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
-msg1 = (mkTelex ipp1) { teleMsgLength = Just 100 }
+msg1 = (mkTelex ipp1) { teleMsgLength = Just 100, teleBr = 97 }
 
 -- ---------------------------------------------------------------------
 -- checkLine tests, in terms of modifying line state
@@ -266,7 +266,7 @@ case_checkLineBrDrop =
 
 case_checkLineBrNoDrop =
   (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999), 
-                  lineBr = 12003, lineBrin = 100, lineBrout = 3,
+                  lineBr = 12003, lineBrin = 97, lineBrout = 3,
                   lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11903, lineBrout = 3}) 
                 (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
@@ -275,7 +275,7 @@ case_checkLineBrNoDrop =
 
 case_checkLineRing1 =
   (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999), 
-                  lineBr = 110, lineBrin = 100, lineRingin = Just 823, 
+                  lineBr = 110, lineBrin = 97, lineRingin = Just 823, 
                   lineLine = Just 12345, lineRingout = 15}) 
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
                 (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
@@ -283,7 +283,7 @@ case_checkLineRing1 =
 
 case_checkLineRing2 =
   (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999), 
-                  lineBr = 110, lineBrin = 100, lineRingin = Just 823, 
+                  lineBr = 110, lineBrin = 97, lineRingin = Just 823, 
                   lineLine = Just 12345, lineRingout = 15}) 
   @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
                 (msg1 {teleLine = Nothing, teleRing = Just 823}) 
@@ -298,7 +298,7 @@ case_checkLineRingInvalid =
 -- -----------------------------------------------
 
 case_checkLine1 =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 100})
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 97})
   @=? checkLine line1 msg1 (TOD 1000 999)
 
 case_checkLine2 =
@@ -329,7 +329,7 @@ case_DistanceTo2 =
 -- ---------------------------------------------------------------------
 
 case_EncodeTelex1 =
-  "{\"_to\":\"1.2.3.4:1234\",\"_br\":0}" @=? encodeTelex msg1
+  "{\"_to\":\"1.2.3.4:1234\",\"_br\":97}" @=? encodeTelex msg1
   
 case_EncodeTelex2 =
   "{\"_to\":\"1.2.3.4:1234\"," ++ 
