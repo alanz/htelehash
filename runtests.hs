@@ -660,7 +660,24 @@ case_removeLineM = do
     then return ()
     else (assertFailure $ "removeLineM:wrong lines left" ++ (show $ (swMaster state)))
 
+-- ---------------------------------------------------------------------
+  
+case_processSee = do
+  let
+    remoteipp = ipp1
+    seeipp    = ipp2
+    line = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1,hash2]}
+  
+    st = st1 { swSelfIpp  = Just ipp1,
+               swSelfHash = Just hash1,
+               swMaster   = Map.fromList [(hash1,line)] }
+       
+  (line,state) <- runStateT (processSee line remoteipp seeipp) st
 
+  if (True)
+     then (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+     else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+  
 -- ---------------------------------------------------------------------         
 
 -- EOF
