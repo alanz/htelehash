@@ -2,6 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 {- # LANGUAGE TypeOperators #-}
 {- # LANGUAGE TemplateHaskell #-}
@@ -49,6 +50,8 @@ module TeleHash.Controller
        , prepareTelex  
        , removeLineM  
        , processSee  
+       , processCommand  
+       , doNullSendDgram  
        ) where
 
 import Control.Concurrent
@@ -109,7 +112,20 @@ data Switch = Switch { swH :: Maybe SocketHandle
                      , swCountOnline :: Int  
                      , swCountTx :: Int  
                      , swCountRx :: Int  
-                     } deriving (Eq,Show)
+                     , swSender :: (String -> SockAddr -> TeleHash ())
+                       } deriving (Eq,Show)
+
+-- instance (Show Switch) where
+--   show sw = "{" ++ (intersperse "," [show(swH),show(swSeeds),show(swSeedsIndex),show(swConnected),show(swMaster),show(swSelfIpp),show(swSelfHash),show(swTaps),show(swCountOnline),show(swCountTx),show(swCountRx)]) ++ "}"
+
+instance (Show (String -> SockAddr -> TeleHash ())) where
+  --show doNullSendDgram = "doNullSendDgram"
+  --show doSendDgram     = "doSendDgram"
+  show _               = "send func"
+  
+instance (Eq (String -> SockAddr -> TeleHash ())) where
+  (==) _ _ = True
+  (/=) _ _ = False
 
 nBuckets :: Int
 nBuckets = 160
@@ -391,7 +407,7 @@ data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx Str
               deriving (Typeable, Show, Eq)
 
 data Reply = ReplyGetSwitch Switch
-           deriving (Typeable, Show, Eq)
+           deriving (Typeable, Show)
 
 onesec :: Int
 onesec = 1000000       
@@ -477,7 +493,7 @@ initialize = do
   -- Save off the socket, and server address in a handle
   return $ (ch1, ch2, (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed] 
                        (Set.fromList [seedIPP])
-                       False Map.empty Nothing Nothing [] 0 0 0))
+                       False Map.empty Nothing Nothing [] 0 0 0 doSendDgram))
 
 -- ---------------------------------------------------------------------
        
@@ -831,12 +847,26 @@ sendTelex msg = do
       switch <- get
       put switch {swCountTx = (swCountTx switch) + 1 }
         
-      Just socketh <- gets swH
       addr <- io (addrFromHostPort (lineHost line) (linePort line))
-      io (sendDgram socketh msgJson addr)
+      --Just socketh <- gets swH
+      --io (sendDgram socketh msgJson addr)
+      sender <- gets swSender
+      sender msgJson addr
       
       updateTelehashLine(line)
       
+-- ---------------------------------------------------------------------  
+
+doNullSendDgram :: String -> SockAddr -> TeleHash ()
+doNullSendDgram msgJson addr = do 
+  logT ("doNullSendDgram[" ++ msgJson ++ "] to " ++ (show addr))                                  
+
+doSendDgram :: String -> SockAddr -> TeleHash ()
+doSendDgram msgJson addr = do
+  Just socketh <- gets swH
+  io (sendDgram socketh msgJson addr)
+  
+
 -- ---------------------------------------------------------------------  
 
 prepareTelex :: Telex -> ClockTime -> TeleHash (Maybe (Line,String))
@@ -1124,10 +1154,11 @@ processSee line remoteipp seeipp = do
     
   case (getLineMaybe (swMaster switch) (mkHash seeipp)) of
     Just _lineSee -> return () -- // skip if we know them already
-    Nothing ->
+    Nothing -> do
         -- // XXX todo: if we're dialing we'd want to reach out to any of these closer to that $tap_end
         -- // also check to see if we want them in a bucket
-        case (bucket_want selfhash seeipp) of
+        bw <- bucket_want selfhash seeipp
+        case (bw) of
           True -> do
             -- // send direct (should open our outgoing to them)
             sendTelex ((mkTelex seeipp) { teleSigEnd = Just selfhash })
@@ -1229,8 +1260,9 @@ near_to_see line  endHash  ipp  see = do
 
 -- ---------------------------------------------------------------------
 
-bucket_want :: Hash -> IPP -> Bool
-bucket_want selfhash ipp = 
+-- // see if we want to try this switch or not, and maybe prune the bucket
+bucket_want :: Hash -> IPP -> TeleHash Bool
+bucket_want selfhash ipp = do
   {-
     var self = this;
     var pos = new Hash(ipp).distanceTo(self.selfhash);
@@ -1243,8 +1275,10 @@ bucket_want selfhash ipp =
   let
     -- // for now we're always taking everyone, in future need to be more selective when the bucket is "full"!
     pos = distanceTo (mkHash ipp) selfhash
-  in
-   (pos >= 0) && (pos <= nBuckets)
+  -- console.log(["\tBUCKET WANT[", pos, " ", ipp, "]"].join(""));
+  logT ( "\tBUCKET WANT[" ++ (show pos) ++ " " ++ (show ipp) ++ "]")
+
+  return ((pos >= 0) && (pos <= nBuckets))
    
 
 -- ---------------------------------------------------------------------

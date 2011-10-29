@@ -64,6 +64,7 @@ case_near_to1 = do
                  , swCountOnline = 0           
                  , swCountTx = 0           
                  , swCountRx = 0              
+                 , swSender = doNullSendDgram              
                  })
 
   (res,state) <- runStateT (near_to hash1 ipp2 ) st
@@ -89,7 +90,8 @@ case_near_to2 = do
                  , swTaps = []
                  , swCountOnline = 0           
                  , swCountTx = 0           
-                 , swCountRx = 0              
+                 , swCountRx = 0
+                 , swSender = doNullSendDgram              
                  })
 
   (res,state) <- runStateT (near_to hash1 ipp2) st
@@ -111,6 +113,7 @@ st1 = (Switch {swH = Nothing
               , swCountOnline = 0           
               , swCountTx = 0           
               , swCountRx = 0              
+              , swSender = doNullSendDgram              
               })
 
 st2 = (Switch {swH = Nothing
@@ -130,6 +133,7 @@ st2 = (Switch {swH = Nothing
               , swCountOnline = 0           
               , swCountTx = 0           
               , swCountRx = 0              
+              , swSender = doNullSendDgram              
               })
       
 ipp1 = IPP "1.2.3.4:1234"
@@ -661,21 +665,130 @@ case_removeLineM = do
     else (assertFailure $ "removeLineM:wrong lines left" ++ (show $ (swMaster state)))
 
 -- ---------------------------------------------------------------------
+{-
+See process.
+
+Receive a telex from a remote switch with a list of ipps in it, that
+can be seen from the remote ipp
+
+1. Do not process an IPP of ourselves
+
+2. Only process a see once, tracked in the lineVisible flag
+
+3. For the self-see, ie. line making iteslf visible
+   TODO:*** still to test*** set the line neighbours to be the near_to list of the see list. 
+   [Why near_to, why not just the list?]
+
+4. If we already have a record of the line, do not process it
+
+5. If we bucket_want the ipp, send it a direct message to it and a
+   +pop to the originator to open it up in both directions
+
+-}
   
-case_processSee = do
+case_processSee_Self = do
   let
-    remoteipp = ipp1
-    seeipp    = ipp2
-    line = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1,hash2]}
+    remoteipp = ipp2
+    seeipp    = ipp1
+    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
   
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
-               swMaster   = Map.fromList [(hash1,line)] }
+               swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
+         
+    telex = (mkTelex ipp1) { teleSee = Just [ipp1] }
        
-  (line,state) <- runStateT (processSee line remoteipp seeipp) st
+  (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
 
-  if (True)
-     then (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+  if (state == st)
+     then return ()
+     else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+  
+-- ---------------------------------------------------------------------         
+
+case_processSee_AlreadyVisible = do
+  let
+    remoteipp = ipp1
+    seeipp    = ipp1
+    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = True}
+  
+    st = st1 { swSelfIpp  = Just ipp1,
+               swSelfHash = Just hash1,
+               swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
+         
+    telex = (mkTelex ipp1) { teleSee = Just [ipp1] }
+       
+  (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
+
+  if (state == st)
+     then return ()
+     else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+  
+-- ---------------------------------------------------------------------         
+
+case_processSee_NotVisible = do
+  let
+    remoteipp = ipp2
+    seeipp    = ipp1
+    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+  
+    st = st1 { swSelfIpp  = Just ipp1,
+               swSelfHash = Just hash1,
+               swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
+         
+    telex = (mkTelex ipp1) { teleSee = Just [ipp2] }
+       
+  (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
+
+  let line2' = (swMaster state) Map.! hash2
+  if (lineVisible line2')
+     then return ()
+     else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+  
+-- ---------------------------------------------------------------------         
+
+case_processSee_LineKnown = do
+  let
+    remoteipp = ipp2
+    seeipp    = ipp1
+    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+    line3 = (mkLine ipp3 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash3], lineVisible = False}
+  
+    st = st1 { swSelfIpp  = Just ipp1,
+               swSelfHash = Just hash1,
+               swMaster   = Map.fromList [(hash1,line1),(hash2,line2),(hash3,line3)] }
+         
+    telex = (mkTelex ipp1) { teleSee = Just [ipp3] }
+       
+  (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
+
+  if (state == st)
+     then return ()
+     else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+  
+-- ---------------------------------------------------------------------         
+
+case_processSee_LineUnKnown = do
+  let
+    remoteipp = ipp2
+    seeipp    = ipp1
+    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+  
+    st = st1 { swSelfIpp  = Just ipp1,
+               swSelfHash = Just hash1,
+               swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
+         
+    telex = (mkTelex ipp1) { teleSee = Just [ipp3] }
+       
+  (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
+
+  if (Map.member hash3 (swMaster state))
+     then return ()
      else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
   
 -- ---------------------------------------------------------------------         
