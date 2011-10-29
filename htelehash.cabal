@@ -65,6 +65,7 @@ executable             runtests
                        test-framework-hunit,
                        test-framework,
                        test-framework-th
+                       , knob
         -- hs-source-dirs: . src ./dist/build
         hs-source-dirs: . src 
     else

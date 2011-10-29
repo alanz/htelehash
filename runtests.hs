@@ -8,11 +8,16 @@ import Test.QuickCheck
 
 import Control.Concurrent
 import Control.Monad.State
+import Data.Knob
 import Data.List
 import Data.Maybe
 import Network.Socket
+import System.IO
+import System.Log.Handler.Simple  
+import System.Log.Logger
 import System.Time
 import TeleHash.Controller
+--import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -791,6 +796,49 @@ case_processSee_LineUnKnown = do
      then return ()
      else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
   
+-- ---------------------------------------------------------------------         
+
+case_processSee_sendTelexes = do
+  let
+    remoteipp = ipp2
+    seeipp    = ipp1
+    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+  
+    st = st1 { swSelfIpp  = Just ipp1,
+               swSelfHash = Just hash1,
+               swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
+         
+    telex = (mkTelex ipp1) { teleSee = Just [ipp3] }
+       
+  knob <- setupLogger
+  
+  (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
+
+  l <- retrieveLog knob
+  --let
+  --   [_,m1,m2] = lines l
+  
+  -- if (m1 == "foo" && m2 == "bar")
+  if (False)
+     then return ()
+     else (assertFailure $ "processSee:" ++ (show $ lines l))
+  
+-- ---------------------------------------------------------------------         
+
+setupLogger :: IO Knob
+setupLogger = do  
+  knob <- newKnob (BC.pack [])
+  h <- newFileHandle knob "testlog.txt" WriteMode
+  s <- streamHandler h DEBUG
+  updateGlobalLogger rootLoggerName (setHandlers [s])
+  return knob
+
+retrieveLog :: MonadIO m => Knob -> m [Char]
+retrieveLog knob = do
+  bytes <- Data.Knob.getContents knob
+  return (BC.unpack bytes)
+
 -- ---------------------------------------------------------------------         
 
 -- EOF
