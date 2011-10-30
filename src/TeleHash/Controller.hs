@@ -11,51 +11,51 @@
 -- Above three settings are for the Json stuff using Data.Iso
 
 
-module TeleHash.Controller 
+module TeleHash.Controller
        (
        runSwitch
        , startSwitchThread
-       , Signal(..)  
-       , Reply(..)  
-       , querySwitch  
+       , Signal(..)
+       , Reply(..)
+       , querySwitch
        -- For testing
-       , recvTelex  
+       , recvTelex
        , parseTelex
-       , mkTelex  
+       , mkTelex
        , Telex(..)
-       , Hash(..)  
-       , Tap(..)  
+       , Hash(..)
+       , Tap(..)
        , Line(..)
-       , IPP(..)  
-       , unIPP  
-       , Switch(..)         
+       , IPP(..)
+       , unIPP
+       , Switch(..)
        , SocketHandle(..)
        , TeleHash()
-       , encodeTelex  
+       , encodeTelex
        , isLineOk
-       , isRingOk  
-       , mkLine  
-       , checkLine  
-       , getCommands  
-       , getSignals  
-       , mkHash  
+       , isRingOk
+       , mkLine
+       , checkLine
+       , getCommands
+       , getSignals
+       , mkHash
        , distanceTo
        , near_to
        , seeVisible
        , getLineMaybe
        , resolveToSeedIPP
        , addrFromHostPort
-       , getOrCreateLine  
-       , online  
-       , prepareTelex  
-       , removeLineM  
-       , processSee  
-       , processCommand  
-       , doNullSendDgram  
+       , getOrCreateLine
+       , online
+       , prepareTelex
+       , removeLineM
+       , processSee
+       , processCommand
+       , doNullSendDgram
        ) where
 
 import Control.Concurrent
-import Control.Exception 
+import Control.Exception
 import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State
@@ -72,7 +72,7 @@ import Text.JSON.Generic
 import Text.JSON.Types
 import Prelude hiding (id, (.), head, either, catch)
 import System.IO
-import System.Log.Handler.Simple  
+import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
@@ -84,7 +84,7 @@ import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
---import qualified System.Random as R
+import qualified System.Random as R
 
 --
 -- The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
@@ -101,17 +101,17 @@ newtype IPP = IPP String
 unIPP :: IPP -> String
 unIPP (IPP str) = str
 
-data Switch = Switch { swH :: Maybe SocketHandle 
+data Switch = Switch { swH :: Maybe SocketHandle
                      , swSeeds :: [String] -- IPP?
                      , swSeedsIndex :: Set.Set IPP
                      , swConnected :: Bool
-                     , swMaster :: Map.Map Hash Line  
+                     , swMaster :: Map.Map Hash Line
                      , swSelfIpp :: Maybe IPP
                      , swSelfHash :: Maybe Hash
-                     , swTaps :: [Tap]  
-                     , swCountOnline :: Int  
-                     , swCountTx :: Int  
-                     , swCountRx :: Int  
+                     , swTaps :: [Tap]
+                     , swCountOnline :: Int
+                     , swCountTx :: Int
+                     , swCountRx :: Int
                      , swSender :: (String -> SockAddr -> TeleHash ())
                        } deriving (Eq,Show)
 
@@ -122,7 +122,7 @@ instance (Show (String -> SockAddr -> TeleHash ())) where
   --show doNullSendDgram = "doNullSendDgram"
   --show doSendDgram     = "doSendDgram"
   show _               = "send func"
-  
+
 instance (Eq (String -> SockAddr -> TeleHash ())) where
   (==) _ _ = True
   (/=) _ _ = False
@@ -130,7 +130,7 @@ instance (Eq (String -> SockAddr -> TeleHash ())) where
 nBuckets :: Int
 nBuckets = 160
 
-data SocketHandle = 
+data SocketHandle =
     SocketHandle {slSocket :: Socket
                  , slAddress :: SockAddr
                  } deriving (Eq,Show)
@@ -141,7 +141,7 @@ data Line = Line {
   lineHost      :: String, -- Split out host IP
   linePort      :: String, -- Split out port
   lineRingout   :: Int,    --  rand(32768),
-  lineRingin    :: Maybe Int, 
+  lineRingin    :: Maybe Int,
   lineLine      :: Maybe Int, -- When line is live, product of our ringout and their ringin
   lineInit      :: ClockTime,
   lineSeenat    :: Maybe ClockTime,
@@ -158,20 +158,21 @@ data Line = Line {
   lineRules     :: [Tap]
   } deriving (Eq,Show)
 
-mkLine :: IPP -> ClockTime -> Line
-mkLine endPoint@(IPP endPointStr) timeNow =
+mkLine :: IPP -> ClockTime -> Int -> Line
+mkLine endPoint@(IPP endPointStr) timeNow ringOutVal =
   let
     [hostIP,port] = split ":" endPointStr
     endPointHash = mkHash endPoint
-    (TOD _secs picosecs) = timeNow
-    ringOut = fromIntegral (1 + (picosecs `mod` 32768))  -- TODO: rand 1..32768
-  in  
+    --(TOD _secs picosecs) = timeNow
+    -- ringOut = fromIntegral (1 + (picosecs `mod` 32768))  -- TODO: rand 1..32768
+    --ringOut <- liftIO (R.randomRIO (1,32768))
+  in
    Line {
        lineIpp       = endPoint,
        lineEnd       = endPointHash,
        lineHost      = hostIP,
        linePort      = port,
-       lineRingout   = ringOut,
+       lineRingout   = ringOutVal,
        lineRingin    = Nothing,
        lineLine      = Nothing,
        lineInit      = timeNow,
@@ -186,19 +187,19 @@ mkLine endPoint@(IPP endPointStr) timeNow =
        lineNeighbors = Set.fromList [endPointHash],
        lineVisible   = False,
        lineVisibled  = False,
-       lineRules     = []                       
+       lineRules     = []
        }
 
 -- ---------------------------------------------------------------------
 
 -- JSON stuff for a Telex
 
-data Tap = Tap { tapIs :: (String,String), 
-                 tapHas :: [String] } 
+data Tap = Tap { tapIs :: (String,String),
+                 tapHas :: [String] }
          deriving (Data, Typeable, -- For Text.JSON
                    Eq, Show)
 
-data Telex = Telex 
+data Telex = Telex
              { teleRing   :: Maybe Int
              , teleSee    :: Maybe [IPP]
              , teleBr     :: Int
@@ -207,18 +208,18 @@ data Telex = Telex
              , teleHop    :: Maybe Int
              , teleSigEnd :: Maybe Hash
              , teleSigPop :: Maybe String
-             , teleTap    :: Maybe [Tap]  
+             , teleTap    :: Maybe [Tap]
              , teleRest   :: Map.Map String String
-             , teleMsgLength :: Maybe Int -- length of received Telex  
+             , teleMsgLength :: Maybe Int -- length of received Telex
              } deriving (Data, Typeable, -- For Text.JSON
                                  Eq, Show)
 
 parseTelex :: String -> Maybe Telex
-parseTelex s = 
-    let 
+parseTelex s =
+    let
       decoded = (decode s :: Result JSValue)
       Ok (JSObject cc) = decoded
-      
+
       Just to   = getStringMaybe      cc "_to"
       maybeRing = getIntMaybe         cc "_ring"
       maybeSee  = getStringArrayMaybe cc ".see"
@@ -229,24 +230,24 @@ parseTelex s =
       maybeTap  = getTapMaybe         cc ".tap"
       maybePop  = getStringMaybe      cc "+pop"
       msgLength = length s
-      
+
       maybeSee' = case maybeSee of
         Nothing -> Nothing
         Just see -> Just $ map (\ss -> (IPP ss)) see
-    in 
+    in
      -- mkTelex to
      case decoded of
        Ok _ ->
-         Just (mkTelex (IPP to)) {teleRing = maybeRing, 
-                   teleSee = maybeSee', 
-                   teleBr = br, 
+         Just (mkTelex (IPP to)) {teleRing = maybeRing,
+                   teleSee = maybeSee',
+                   teleBr = br,
                    teleTo = (IPP to), teleLine = maybeLine, teleHop = maybeHop,
-                   teleSigEnd = maybeEnd, teleTap = maybeTap, 
+                   teleSigEnd = maybeEnd, teleTap = maybeTap,
                    teleSigPop = maybePop,
                    teleRest = Map.fromList $ map (\(name,val) -> (name, encode val)) (fromJSObject cc), -- horrible, but will do for now
                    teleMsgLength = Just msgLength }
        _ -> Nothing
-     
+
 -- ---------------------------------------------------------------------
 -- Pretty sure these two exist in JSON somewhere, do not know how to find them
 
@@ -254,46 +255,46 @@ getStringMaybe :: JSObject JSValue -> String -> Maybe String
 getStringMaybe cc field =
   case (get_field cc field) of
       Just (JSString jsStrVal)  -> Just (fromJSString jsStrVal)
-      _                         -> Nothing  
-    
+      _                         -> Nothing
+
 getHashMaybe :: JSObject JSValue -> String -> Maybe Hash
-getHashMaybe cc field = 
+getHashMaybe cc field =
   case (get_field cc field) of
       Just (JSString jsStrVal)  -> Just (Hash $ fromJSString jsStrVal)
-      _                         -> Nothing  
+      _                         -> Nothing
 
 getStringArrayMaybe :: JSObject JSValue -> String -> Maybe [String]
 getStringArrayMaybe cc field =
   case (get_field cc field) of
       Just (JSArray jsStrArrVal)-> Just (map getStr jsStrArrVal)
-      _                         -> Nothing  
+      _                         -> Nothing
   where
     getStr (JSString jsStrVal) = fromJSString jsStrVal
     getStr x                   = "getStringArrayMaybe:oops:getstr :" ++ (show x)
-      
+
 getIntMaybe :: JSObject JSValue -> String -> Maybe Int
 getIntMaybe cc field =
   case (get_field cc field) of
       Just (JSRational _ jsVal)  -> Just $ round (jsVal)
       Just (JSString jsStrVal)  -> Just $ read (fromJSString jsStrVal)
-      _                         -> Nothing  
+      _                         -> Nothing
 
 {-
-(".tap",JSArray 
-  [JSObject (JSONObject 
+(".tap",JSArray
+  [JSObject (JSONObject
      {fromJSObject = [
-        ("is",JSObject (JSONObject 
+        ("is",JSObject (JSONObject
            {fromJSObject = [("+end",JSString (JSONString {fromJSString = "9fa23aa9f9ac828ced5a151fedd24af0d9fa8495"}))]})),
         ("has",JSArray [JSString (JSONString {fromJSString = "+pop"})])
         ]
      })])
 -}
--- ".tap":[{"is":{"+end":"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495"},"has":["+pop"]}]      
+-- ".tap":[{"is":{"+end":"9fa23aa9f9ac828ced5a151fedd24af0d9fa8495"},"has":["+pop"]}]
 getTapMaybe :: JSObject JSValue -> String -> Maybe [Tap]
 getTapMaybe cc field =
   case (get_field cc field) of
       Just (JSArray jsArrVal)-> Just (map getTap jsArrVal)
-      _                         -> Nothing  
+      _                         -> Nothing
   where
     getTap (JSObject jsobj) = foldl' dTap (Tap ("","") []) $ fromJSObject jsobj
     getTap _                = error "Should never happen"
@@ -301,20 +302,20 @@ getTapMaybe cc field =
     dTap tap ("is",  JSObject o) = tap {tapIs = (k, fromJSString str)}
       where
         (k,JSString str) = head $ fromJSObject o
-        
+
     --dTap tap ("has", o) = tap {tapHas= [show o]}
     dTap tap ("has", JSArray arr) = tap {tapHas= map (\(JSString s) -> fromJSString s) arr}
     dTap _   _                    = error "Should never happen"
-    
+
 -- ---------------------------------------------------------------------
-    
+
 _test_parseTelex :: Maybe Telex
 _test_parseTelex = parseTelex _inp
 
 _inp :: [Char]
 _inp = ("{\"_ring\":17904," ++
-       "\".see\":[ \"208.68.163.247:42424\", \"208.68.160.25:55137\"]," ++ 
-       "\"_br\":52," ++ 
+       "\".see\":[ \"208.68.163.247:42424\", \"208.68.160.25:55137\"]," ++
+       "\"_br\":52," ++
        "\"_to\":\"173.19.99.143:63681\" }")
 
 _inp2 :: [Char]
@@ -333,18 +334,18 @@ _tx3 = parseTelex _inp3
 -- ---------------------------------------------------------------------
 
 encodeTelex :: Telex -> String
-encodeTelex t = 
+encodeTelex t =
   let
     to   = [("_to",   JSString $ toJSString $ unIPP $ teleTo t)]
-    
+
     ring = case (teleRing t) of
       Just r -> [("_ring", JSString $ toJSString $ show r)]
       Nothing -> []
-      
+
     see = case (teleSee t) of
       Just r -> [(".see", showJSON $ JSArray (map (\s -> JSString (toJSString (unIPP s))) r))]
       Nothing -> []
-    
+
     -- br = [("_br", JSString $ toJSString $ show (teleBr t))]
     br = [("_br", JSRational False (fromIntegral (teleBr t)))]
 
@@ -356,7 +357,7 @@ encodeTelex t =
       -- Just r -> [("_hop", JSString $ toJSString $ show r)]
       Just r -> [("_hop", JSRational False (fromIntegral r))]
       Nothing -> []
-      
+
     end = case (teleSigEnd t) of
       Just (Hash r) -> [("+end", JSString $ toJSString r)]
       Nothing -> []
@@ -368,7 +369,7 @@ encodeTelex t =
     tap = case (teleTap t) of
       Just r -> [(".tap", JSArray $ map toJSTap r)]
       Nothing -> []
-      
+
     toJSTap atap = JSObject $ toJSObject [
       ("is", JSObject $ toJSObject [
           (k, JSString $ toJSString v),
@@ -377,17 +378,17 @@ encodeTelex t =
       where
       (k,v) = tapIs atap
 
-      
+
   in
    -- encode $ toJSObject (to++ring++see++br++line++hop++end++tap++pop)
    encode $    toJSObject (to++end++ring++see++tap++line++br++hop++pop)
-   
+
 -- ---------------------------------------------------------------------
 {-
 getRandom :: Int -> Int
-getRandom seed = 
+getRandom seed =
   let
-    (res,_) = R.randomR (0,32767) (R.mkStdGen seed) 
+    (res,_) = R.randomR (0,32767) (R.mkStdGen seed)
   in
    res
 -}
@@ -410,12 +411,12 @@ data Reply = ReplyGetSwitch Switch
            deriving (Typeable, Show)
 
 onesec :: Int
-onesec = 1000000       
-                       
+onesec = 1000000
+
 timer :: Int -> a -> Chan a -> IO ()
-timer timeoutVal signalValue channel  = forever $ 
-  threadDelay timeoutVal >> writeChan channel signalValue 
-  
+timer timeoutVal signalValue channel  = forever $
+  threadDelay timeoutVal >> writeChan channel signalValue
+
 -- ---------------------------------------------------------------------
 -- Routines to interact with the running switch, via the comms channel
 querySwitch :: Chan Signal -> Chan b -> IO b
@@ -438,7 +439,7 @@ runSwitch :: IO ((),Switch)
 runSwitch = bracket initialize disconnect loop
   where
     disconnect (_,_,ss) = sClose (slSocket (fromJust $ swH ss))
-    
+
     loop (ch1,ch2,st) = catch (runStateT (run ch1 ch2) st) (exc)
 
     exc :: SomeException -> IO ((),Switch)
@@ -449,28 +450,28 @@ runSwitch = bracket initialize disconnect loop
 -- Set up actions to run on start and end, and run the main loop in
 -- its own thread
 --
-    
+
 startSwitchThread :: IO (Chan Signal,Chan Reply,ThreadId)
 startSwitchThread = do
-  (ch1,ch2,st) <- initialize 
+  (ch1,ch2,st) <- initialize
   -- thread <- forkIO (io (runStateT run st))
   thread <- forkIO (doit ch1 ch2 st)
   return (ch1,ch2,thread)
-  
+
   where
     doit :: Chan Signal -> Chan Reply -> Switch -> IO ()
     doit ch1 ch2 st = do
       _ <- runStateT (run ch1 ch2) st
       return ()
 
-    
+
 -- ---------------------------------------------------------------------
--- Hardcoded params for now    
+-- Hardcoded params for now
 initialSeed :: String
 initialSeed = "telehash.org:42424"
 
 initialize :: IO (Chan a,Chan b,Switch)
-initialize = do 
+initialize = do
   -- Look up the hostname and port.  Either raises an exception
   -- or returns a nonempty list.  First element in that list
   -- is supposed to be the best option.
@@ -483,27 +484,27 @@ initialize = do
   -- We want to listen on all interfaces (0.0.0.0)
   bindAddr <- inet_addr "0.0.0.0"
   bindSocket sock (SockAddrInet 0 bindAddr)
-    
+
   socketName <- getSocketName sock
   warningM "Controller" ("server listening " ++ (show socketName))
-         
+
   ch1 <- newChan
   ch2 <- newChan
 
   -- Save off the socket, and server address in a handle
-  return $ (ch1, ch2, (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed] 
+  return $ (ch1, ch2, (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed]
                        (Set.fromList [seedIPP])
                        False Map.empty Nothing Nothing [] 0 0 0 doSendDgram))
 
 -- ---------------------------------------------------------------------
-       
+
 resolveToSeedIPP :: String -> IO (AddrInfo,String,String)
 resolveToSeedIPP addr = do
   let [hostname,port] = split ":" addr
   resolve hostname port
-  
+
 -- ---------------------------------------------------------------------
-       
+
 resolve :: String -> String -> IO (AddrInfo,String,String)
 resolve hostname port = do
   -- Look up the hostname and port.  Either raises an exception
@@ -511,13 +512,13 @@ resolve hostname port = do
   -- is supposed to be the best option.
   addrinfos <- getAddrInfo Nothing (Just hostname) (Just port)
   let serveraddr = head addrinfos
-      
+
   (Just resolvedhost,Just servicename) <- (getNameInfo [NI_NUMERICHOST] True True (addrAddress serveraddr))
   --putStrLn $ "resolve:" ++ (show hostname) ++ " " ++ (show servicename)
-                           
-  --return (serveraddr,port)         
-  return (serveraddr,resolvedhost,servicename)         
-  
+
+  --return (serveraddr,port)
+  return (serveraddr,resolvedhost,servicename)
+
 -- ---------------------------------------------------------------------
 
 addrFromHostPort :: String -> String -> IO SockAddr
@@ -532,11 +533,11 @@ run ch1 ch2 = do
   -- ch1 <- io (newChan)
   _ <- io (forkIO (timer (10 * onesec) SignalPingSeeds ch1))
   _ <- io (forkIO (timer (10 * onesec) SignalScanLines ch1))
-  _ <- io (forkIO (timer (30 * onesec) SignalTapTap ch1)) 
+  _ <- io (forkIO (timer (30 * onesec) SignalTapTap ch1))
 
-  h <- gets swH 
+  h <- gets swH
   _ <- io (forkIO (dolisten h ch1))
-  
+
   -- Get the ball rolling immediately
   pingSeeds
 
@@ -556,57 +557,57 @@ run ch1 ch2 = do
         sw <- getSwitch
         io (writeChan ch2 (ReplyGetSwitch sw))
     -- io (putStrLn $ "done signal:at " ++ (show timeNow))
-      
+
 -- ---------------------------------------------------------------------
 
-getSwitch :: TeleHash Switch      
+getSwitch :: TeleHash Switch
 getSwitch = do
   switch <- get
   return switch
-  
+
 -- ---------------------------------------------------------------------
-  
+
 pingSeeds :: TeleHash ()
 pingSeeds = do
   seeds <- gets swSeeds
   connected <- gets swConnected
-  
+
   -- logT $ "pingSeeds:" ++ (show connected) ++ " " ++ (show seeds)
-  
+
   -- TODO: rotate the seeds, so the we use a fresh one each time through
   case (not connected) && (seeds /= []) of
     True -> pingSeed $ head seeds
     False -> return ()
 
 -- ---------------------------------------------------------------------
-      
+
 pingSeed :: String -> TeleHash ()
-pingSeed seed = 
+pingSeed seed =
   do
     -- logT ( "pingSeed " ++ (show seed))
-    
+
     (_serveraddr,ip,port) <- io (resolveToSeedIPP seed)
-    
+
     --logT ( "pingSeed serveraddr=" ++ (show serveraddr))
-    
+
     let seedIPP = IPP (ip ++ ":" ++ port)
     -- console.log(["SEEDING[", seedIPP, "]"].join(""));
     logT ( "SEEDING[" ++ (show seedIPP))
 
     switch <- get
     put switch {swSeedsIndex = Set.insert seedIPP (swSeedsIndex switch) }
-    
+
     timeNow <- io getClockTime
-    
+
     line <- getOrCreateLine seedIPP timeNow
     let bootTelex = mkTelex seedIPP
     -- // any end will do, might as well ask for their neighborhood
     let bootTelex' = bootTelex { teleSigEnd = Just $ (lineEnd line) }
-  
+
     sendTelex bootTelex'
-    
+
     return ()
-   
+
 -- ---------------------------------------------------------------------
 
 getOrCreateLine :: IPP -> ClockTime -> TeleHash Line
@@ -617,44 +618,45 @@ getOrCreateLine seedIPP timeNow = do
     Nothing -> do
       -- console.log(["\tNEWLINE[", endpoint, "]"].join(""));
       logT $ "\tNEWLINE[" ++ (show seedIPP) ++ "]"
-      let line = mkLine seedIPP timeNow
-      updateTelehashLine line       
+      ringOutVal <- io (R.randomRIO (1,32768) )
+      let line = mkLine seedIPP timeNow ringOutVal
+      updateTelehashLine line
       return line
-  
-  
+
+
 -- ---------------------------------------------------------------------
-  
+
 getLineMaybeM :: Hash -> TeleHash (Maybe Line)
 getLineMaybeM hashIpp = do
   switch <- get
   let master = (swMaster switch)
   return $ getLineMaybe master hashIpp
-  
+
 getLineMaybe :: Map.Map Hash Line  -> Hash -> Maybe Line
 getLineMaybe master hashIpp  = lineMaybe
   where
     ismember = Map.member hashIpp master
     member = master Map.! hashIpp
-  
+
     lineMaybe = case (ismember) of
       True -> Just member
       False -> Nothing
-  
-removeLineM :: Hash -> TeleHash ()    
+
+removeLineM :: Hash -> TeleHash ()
 removeLineM hash = do
   switch <- get
   master <- gets swMaster
-  
+
   -- put $ switch {swMaster = Map.delete hash master}
   -- TODO: what about neighbours?
-  let 
-    master' = Map.fromList $ 
-              map (\(h,line) -> (h,line {lineNeighbors = Set.delete hash (lineNeighbors line)})) $ 
+  let
+    master' = Map.fromList $
+              map (\(h,line) -> (h,line {lineNeighbors = Set.delete hash (lineNeighbors line)})) $
               Map.toList $ Map.delete hash master
-                            
+
   put $ switch {swMaster = master'}
 
-  
+
 -- ---------------------------------------------------------------------
 
 addNeighbour :: Hash -> Hash -> IPP -> TeleHash ()
@@ -668,7 +670,7 @@ addNeighbour hash end ipp = do
       logT ( ("\t\tSEED " ++ (show ipp) ++ " into " ++ (show $ lineIpp line) ))
       return ()
     Nothing -> return ()
-  
+
 -- ---------------------------------------------------------------------
 
 
@@ -678,22 +680,22 @@ myNop = do return ()
 updateTelehashLine :: Line -> TeleHash ()
 updateTelehashLine line = do
   switch <- get
-  
-  let 
+
+  let
     master = (swMaster switch)
-    
+
     endpointHash = lineEnd line
-    
+
     master' = Map.insert endpointHash line master
-    
+
     switch' = switch {swMaster = master'}
-    
+
   put switch'
 
 -- ---------------------------------------------------------------------
-  
+
 safeGetHop :: Telex -> Int
-safeGetHop rxTelex = hop 
+safeGetHop rxTelex = hop
   where
     hop =
       case (teleHop rxTelex) of
@@ -703,7 +705,7 @@ safeGetHop rxTelex = hop
 -- ---------------------------------------------------------------------
 
 hashToIpp :: Map.Map Hash Line -> Hash -> IPP
-hashToIpp master h = 
+hashToIpp master h =
   let
     Just line = getLineMaybe master h
   in
@@ -713,34 +715,34 @@ hashToIpp master h =
 
 cTIMEOUT :: Integer
 cTIMEOUT = 90
---cTIMEOUT = 70        
+--cTIMEOUT = 70
 
 -- TODO: What return type makes sense? The Bool will always be true.
 isLineOk :: Line -> Integer -> Telex -> Either String Bool
 isLineOk line secsNow msg = result
   where
-    -- // first, if it's been more than 10 seconds after a line opened, 
+    -- // first, if it's been more than 10 seconds after a line opened,
     -- // be super strict, no more ringing allowed, _line absolutely required
     ringTimedOut =
       case (lineLineat line) of
         Just (TOD secs _picos) -> case (secsNow - secs > 10) of
           True -> (teleLine msg) /= (lineLine line)
           False -> False
-        Nothing -> False  
-  
+        Nothing -> False
+
     -- // second, process incoming _line
     msgLineOk = case (teleLine msg) of
-      Just msgLineNum -> 
+      Just msgLineNum ->
         case (lineLine line) of
           Just lineNum -> lineNum == msgLineNum && (lineNum `mod` (lineRingout line) == 0)
           Nothing -> True -- only test if we have a value
-      Nothing -> True  
-      
+      Nothing -> True
+
     lineOk = msgLineOk && not ringTimedOut
-    
+
     result = case (lineOk) of
       True -> Right True
-      False -> Left $ "msgLineOk=" ++ (show msgLineOk) ++ ",ringTimedOut=" ++ (show ringTimedOut) 
+      False -> Left $ "msgLineOk=" ++ (show msgLineOk) ++ ",ringTimedOut=" ++ (show ringTimedOut)
 
 -- ---------------------------------------------------------------------
 
@@ -753,19 +755,19 @@ isRingOk line msg = ringOk
             -- Check that line.ringin matches if it exists
             -- Check the incoming ring > 0 and <= 32768
             msgRingOk = (msgRing > 0) && (msgRing <= 32768)
-            lineOk = case (lineRingin line) of 
+            lineOk = case (lineRingin line) of
                       Just ri -> (ri == msgRing)
                       Nothing -> True
 
       Nothing -> True
-    
+
 -- ---------------------------------------------------------------------
-    
+
 checkLine :: Line -> Telex -> ClockTime -> Either String Line
-checkLine line msg timeNow@(TOD secsNow _picosecsNow) = 
+checkLine line msg timeNow@(TOD secsNow _picosecsNow) =
   let
     lineOk = isLineOk line secsNow msg
-  
+
     line' = case lineOk of
               Right _ -> case (lineLineat line) of
                 Just _ -> line
@@ -776,51 +778,51 @@ checkLine line msg timeNow@(TOD secsNow _picosecsNow) =
                           lineLineat = Just timeNow
                          }
                   Nothing -> line
-              Left _ -> line 
+              Left _ -> line
 
     ringOk = isRingOk line' msg
-    
+
     line'' = case (teleRing msg) of
                Just msgRing ->
-                 if (not ringOk) 
+                 if (not ringOk)
                    then line'
-                   else (if ((lineLineat line) /= Nothing) 
+                   else (if ((lineLineat line) /= Nothing)
                       then line'
-                      else line' { 
+                      else line' {
                                  lineRingin = Just msgRing,
                                  lineLine   = Just (msgRing * (lineRingout line)),
                                  lineLineat = Just timeNow
                                  })
                Nothing -> line'
-                   
+
     valid = case lineOk of
               Left err -> Left err
               Right _  -> if ringOk then (Right True) else (Left "ringOk=False")
-    
+
     msgLength = fromJust (teleMsgLength msg)
-    
+
     line''' = case valid of
                  Right _ -> line'' { lineBr   = (lineBr line'') + msgLength,
                                      lineBrin = teleBr msg }
                  Left _  ->  line''
-                    
+
     brOk = (lineBr line''') - (lineBrout line''') <= 12000
   in
    case valid of
      Left err -> Left err
      Right _ -> case brOk of
        True -> Right $ line''' { lineSeenat = Just timeNow }
-       False -> Left $ "lineOk=" ++ (show lineOk) ++ ",ringOk=" ++ (show ringOk) ++ ",brOk=" ++ (show brOk) 
-       
+       False -> Left $ "lineOk=" ++ (show lineOk) ++ ",ringOk=" ++ (show ringOk) ++ ",brOk=" ++ (show brOk)
+
 -- ---------------------------------------------------------------------
 
 mkTelex :: IPP -> Telex
-mkTelex seedIPP = 
+mkTelex seedIPP =
     -- set _to = seedIPP
   -- Telex Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
-  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing Map.empty Nothing 
-                  
--- ---------------------------------------------------------------------  
+  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing Map.empty Nothing
+
+-- ---------------------------------------------------------------------
 --
 -- Listen for incoming messages and drop them in the FIFO
 --
@@ -832,10 +834,10 @@ dolisten (Just h) channel = forever $ do
     -- (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
     (writeChan channel (SignalMsgRx (BC.unpack msg) rinfo))
 
--- ---------------------------------------------------------------------  
+-- ---------------------------------------------------------------------
 
 sendTelex :: Telex -> TeleHash ()
-sendTelex msg = do 
+sendTelex msg = do
   timeNow <- io getClockTime
   res <- prepareTelex msg timeNow
   case (res) of
@@ -843,36 +845,36 @@ sendTelex msg = do
     Just (line,msgJson) -> do
       -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
       logT ( "SEND[:" ++ (show $ teleTo msg) ++ "]\t" ++ (msgJson))
-                
+
       switch <- get
       put switch {swCountTx = (swCountTx switch) + 1 }
-        
+
       addr <- io (addrFromHostPort (lineHost line) (linePort line))
       --Just socketh <- gets swH
       --io (sendDgram socketh msgJson addr)
       sender <- gets swSender
       sender msgJson addr
-      
+
       updateTelehashLine(line)
-      
--- ---------------------------------------------------------------------  
+
+-- ---------------------------------------------------------------------
 
 doNullSendDgram :: String -> SockAddr -> TeleHash ()
-doNullSendDgram msgJson addr = do 
-  logT ("doNullSendDgram[" ++ msgJson ++ "] to " ++ (show addr))                                  
+doNullSendDgram msgJson addr = do
+  logT ("doNullSendDgram[" ++ msgJson ++ "] to " ++ (show addr))
 
 doSendDgram :: String -> SockAddr -> TeleHash ()
 doSendDgram msgJson addr = do
   Just socketh <- gets swH
   io (sendDgram socketh msgJson addr)
-  
 
--- ---------------------------------------------------------------------  
+
+-- ---------------------------------------------------------------------
 
 prepareTelex :: Telex -> ClockTime -> TeleHash (Maybe (Line,String))
-prepareTelex msg timeNow = do 
+prepareTelex msg timeNow = do
   line <- getOrCreateLine (teleTo msg) timeNow
-  
+
   -- check br and drop if too much
   --  if (line.bsent - line.brin > 10000) {
   --      console.log("\tMAX SEND DROP\n");
@@ -887,45 +889,45 @@ prepareTelex msg timeNow = do
     False -> do
       -- if a line is open use that, else send a ring
       let
-        msg' = if (lineLine line == Nothing) 
+        msg' = if (lineLine line == Nothing)
                then (msg {teleRing = Just (lineRingout line)})
                else (msg {teleLine = Just (fromJust (lineLine line))})
-                    
+
         -- update our bytes tracking and send current state
         -- telex._br = line.brout = line.br;
         msg'' = msg' { teleBr = lineBr line }
-        
+
         msgJson = encodeTelex msg''
-    
-        line' = line { 
-            lineBrout = lineBr line 
+
+        line' = line {
+            lineBrout = lineBr line
           , lineBsent = (lineBsent line) + (length msgJson)
-          , lineSentat = Just timeNow            
-          }       
-        
+          , lineSentat = Just timeNow
+          }
+
       return (Just (line',msgJson))
 
--- ---------------------------------------------------------------------  
+-- ---------------------------------------------------------------------
 
 sendDgram :: SocketHandle -> String -> SockAddr -> IO ()
 sendDgram socketh msgJson addr =
   sendstr msgJson
-    where 
+    where
       -- Send until everything is done
       sendstr :: String -> IO ()
       sendstr [] = return ()
       sendstr omsg = do sent <- sendTo (slSocket socketh) omsg addr
                         sendstr (genericDrop sent omsg)
-                        
+
 -- ---------------------------------------------------------------------
 
 -- (telex._line ? "OPEN":"RINGING")
 getLineStatus :: Telex -> [Char]
-getLineStatus msg = 
+getLineStatus msg =
   case (teleLine msg) of
     Just _ -> "OPEN"
     Nothing -> "RINGING"
-  
+
 -- ---------------------------------------------------------------------
 
 -- Dispatch incoming raw messages
@@ -933,7 +935,7 @@ getLineStatus msg =
 recvTelex :: String -> SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
     -- logT ( ("recvTelex:" ++  (show (parseTelex msg))))
-    
+
     switch' <- get
     put switch' { swCountRx = (swCountRx switch') + 1 }
     -- switch <- get
@@ -942,22 +944,22 @@ recvTelex msg rinfo = do
     (Just hostIP,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
     let
       remoteipp = IPP (hostIP ++ ":" ++ port)
-    
+
     timeNow <- io getClockTime
     --console.log(["RECV from ", remoteipp, ": ", JSON.stringify(telex)].join(""));
     logT ("RECV from " ++ (show remoteipp) ++ ":"++ msg
                   ++ " at " ++ (show timeNow))
     let
       maybeRxTelex = parseTelex msg
-    
+
     case maybeRxTelex of
-      Just rxTelex -> handleRxTelex rxTelex remoteipp timeNow 
+      Just rxTelex -> handleRxTelex rxTelex remoteipp timeNow
       Nothing -> return ()
-    
+
 handleRxTelex :: Telex -> IPP -> ClockTime -> TeleHash ()
-handleRxTelex rxTelex remoteipp timeNow = do    
+handleRxTelex rxTelex remoteipp timeNow = do
     isOnline <- checkOnline rxTelex remoteipp timeNow
-    case isOnline of                
+    case isOnline of
       False -> return ()
       True -> do
         -- // if this is a switch we know, check a few things
@@ -971,7 +973,7 @@ handleRxTelex rxTelex remoteipp timeNow = do
             -- // we're valid at this point, line or otherwise, track bytes
             let diff = (lineBsent line') - (teleBr rxTelex)
             -- console.log(["\tBR ", line.ipp, " [", line.br, " += ",br, "] DIFF ", (line.bsent - t._br)].join(""));
-            logT ("\tBR " ++ (show $ lineIpp line') ++ " [" ++ (show $ lineBr line') ++ " += " ++ (show $ teleMsgLength rxTelex) ++ "] DIFF " ++ 
+            logT ("\tBR " ++ (show $ lineIpp line') ++ " [" ++ (show $ lineBr line') ++ " += " ++ (show $ teleMsgLength rxTelex) ++ "] DIFF " ++
                   (show (diff, (lineBsent line') , (teleBr rxTelex))))
                    -- (show $ ((lineBsent line') , (teleBr rxTelex)) ))
 
@@ -981,11 +983,11 @@ handleRxTelex rxTelex remoteipp timeNow = do
             processSignals  rxTelex remoteipp line'
 
         tapSignals (hasSignals rxTelex) rxTelex
-    
+
         return ()
 
 -- ---------------------------------------------------------------------
-        
+
 checkOnline :: Telex -> IPP -> ClockTime -> TeleHash Bool
 checkOnline rxTelex remoteipp timeNow = do
   switch <- get
@@ -993,7 +995,7 @@ checkOnline rxTelex remoteipp timeNow = do
 
   case (swConnected switch) of
       False -> do
-        -- TODO : test that _to field is set. Requires different setup for the JSON leg. 
+        -- TODO : test that _to field is set. Requires different setup for the JSON leg.
         --        Why would it not be set? Also test that the _to value is us.
         -- // must have come from a trusted seed and have our to IPP info
         case (Set.member remoteipp seedsIndex ) of
@@ -1010,7 +1012,7 @@ checkOnline rxTelex remoteipp timeNow = do
         return True
 
 -- ---------------------------------------------------------------------
-    
+
 tapSignals :: Bool -> Telex -> TeleHash ()
 tapSignals False _       = do return ()
 tapSignals True  rxTelex = do
@@ -1019,13 +1021,13 @@ tapSignals True  rxTelex = do
     False -> return ()
     True -> do
       master <- gets swMaster
-      mapM_ (\line -> tapLine rxTelex line) $ Map.elems master    
+      mapM_ (\line -> tapLine rxTelex line) $ Map.elems master
       return ()
-  
+
 -- ---------------------------------------------------------------------
 
 tapLine :: Telex -> Line -> TeleHash ()
-tapLine telex line = do 
+tapLine telex line = do
   mapM_ (\rule -> processRule rule) $ lineRules line
   where
     processRule rule = do
@@ -1034,8 +1036,8 @@ tapLine telex line = do
       hasMatch <- foldM (\acc k -> matchHas acc k) True (tapHas rule)
       forward (isMatch && hasMatch)
       return ()
-      
-    matchIs :: Bool -> (String,String) -> TeleHash Bool  
+
+    matchIs :: Bool -> (String,String) -> TeleHash Bool
     matchIs acc (isKey,isVal) = do
       let
         telexIsVal = case (isKey) of
@@ -1045,8 +1047,8 @@ tapLine telex line = do
       case (isKey) of
         ".end" -> return (acc && ((teleSigEnd telex) == Just (Hash isVal)))
         _      -> return False
-    
-    
+
+
     matchHas acc hasKey = do
       -- console.log("HAS match: " + hasKey + " -> " + (hasKey in telex));
       hasKeyInTelex <- case (hasKey) of
@@ -1054,15 +1056,15 @@ tapLine telex line = do
         x      -> do
           logT ( "\t\tHAS match: no code for " ++ (show x))
           return False
-            
+
       logT ( "\t\tHAS match: " ++ hasKey ++ " -> " ++ (show hasKeyInTelex))
       return (acc && hasKeyInTelex)
 
     -- // forward this switch a copy
-    forward False = do 
+    forward False = do
       logT ( "\tCHECK MISS")
       return ()
-    forward True  = do                  
+    forward True  = do
       let
         swipp = lineIpp line
       Just selfipp <- gets swSelfIpp
@@ -1079,20 +1081,20 @@ tapLine telex line = do
             signals = getSignals telex
             tx' = foldl' addSignal tx signals
           sendTelex tx'
-          
-    addSignal tel (sigName, _sigVal) = 
+
+    addSignal tel (sigName, _sigVal) =
       case sigName of
         ".end" -> tel {teleSigEnd = (teleSigEnd telex)}
         ".pop" -> tel {teleSigPop = (teleSigPop telex)}
         _ -> undefined -- Should never happen, but catch extensions when they come
                        -- TODO: make this recover gracefully and log something, instead
-                        
+
 -- ---------------------------------------------------------------------
 
 processCommands :: Telex -> IPP -> Line -> TeleHash ()
 processCommands rxTelex remoteipp line = do
-  mapM_ (\k -> processCommand k remoteipp rxTelex line) (getCommands rxTelex)      
-  return () 
+  mapM_ (\k -> processCommand k remoteipp rxTelex line) (getCommands rxTelex)
+  return ()
 
 getCommands :: Telex -> [String]
 getCommands telex = filter isCommand $ Map.keys (teleRest telex)
@@ -1100,23 +1102,23 @@ getCommands telex = filter isCommand $ Map.keys (teleRest telex)
     isCommand k = (head k) == '.'
 
 -- ---------------------------------------------------------------------
-    
+
 processCommand
   :: String -> IPP -> Telex -> Line -> TeleHash ()
-processCommand ".see" remoteipp telex line = do 
+processCommand ".see" remoteipp telex line = do
   -- logT ( "processCommand .see")
   --switch <- get
   Just selfipp <- gets swSelfIpp
-  case (teleSee telex) of 
+  case (teleSee telex) of
     -- // loop through and establish lines to them (just being dumb for now and trying everyone)
-    Just seeipps -> mapM_ (\ipp -> processSee line remoteipp ipp) 
+    Just seeipps -> mapM_ (\ipp -> processSee line remoteipp ipp)
                     $ filter (\i -> i /= selfipp) -- // skip ourselves :)
                     $ seeipps
     Nothing      -> return ()
-  
+
 -- ---------------------------------------------------------------------
 -- Handle the .tap TeleHash command.
-processCommand ".tap" _remoteipp telex line = do 
+processCommand ".tap" _remoteipp telex line = do
   -- logT ( "processCommand .tap:" ++ (show (teleTap telex)) )
   {-
   -- // handle a tap command, add/replace rules
@@ -1130,11 +1132,11 @@ processCommand ".tap" _remoteipp telex line = do
   return ()
 
 -- ---------------------------------------------------------------------
-  
-processCommand cmd _remoteipp _telex _line = do 
+
+processCommand cmd _remoteipp _telex _line = do
   logT ( "processCommand : ***ignoring*** " ++ (show cmd))
   return ()
-  
+
 -- ---------------------------------------------------------------------
 
 -- We are processing a single .see entry here, which is not ourselves
@@ -1148,10 +1150,10 @@ processSee line remoteipp seeipp = do
   Just selfhash <- gets swSelfHash
 
   seeVisible (seeipp == remoteipp && not (lineVisible line)) line selfipp remoteipp
-  
-  -- let 
+
+  -- let
   --   lineSee = getLineMaybe (swMaster switch) (mkHash seeipp)
-    
+
   case (getLineMaybe (swMaster switch) (mkHash seeipp)) of
     Just _lineSee -> return () -- // skip if we know them already
     Nothing -> do
@@ -1162,16 +1164,16 @@ processSee line remoteipp seeipp = do
           True -> do
             -- // send direct (should open our outgoing to them)
             sendTelex ((mkTelex seeipp) { teleSigEnd = Just selfhash })
-            
+
             -- // send pop signal back to the switch who .see'd us in case the new one is behind a nat
             sendTelex ((mkTelex remoteipp) { teleSigEnd = Just (mkHash seeipp)
-                                           , teleSigPop = Just ("th:" ++ (unIPP selfipp)) 
+                                           , teleSigPop = Just ("th:" ++ (unIPP selfipp))
                                            , teleHop    = Just 1})
             return ()
 
           False -> return ()
   return ()
-  
+
 
 -- ---------------------------------------------------------------------
 
@@ -1181,10 +1183,10 @@ seeVisible True  line  selfipp  remoteipp = do
   -- // they're making themselves visible now, awesome
   logT ( "\t\tVISIBLE " ++ (show remoteipp))
   let line' = line {lineVisible = True}
-  
+
   Right newNeighbourList <- near_to (lineEnd line') selfipp
-  updateTelehashLine (line' { lineNeighbors = Set.union (Set.fromList newNeighbourList) (lineNeighbors line') }) 
-  
+  updateTelehashLine (line' { lineNeighbors = Set.union (Set.fromList newNeighbourList) (lineNeighbors line') })
+
   _ <- near_to (lineEnd line) remoteipp -- // injects this switch as hints into it's neighbors, fully seeded now
   return ()
 
@@ -1202,42 +1204,42 @@ near_to endHash ipp = do
     master = (swMaster switch)
 
   case (getLineMaybe master (mkHash ipp)) of
-    Nothing -> return $ Left "no line for ipp" 
+    Nothing -> return $ Left "no line for ipp"
     Just line -> do
-      let 
+      let
         -- of the existing and visible cached neighbors, sort by distance to this end
         see = sortBy hashDistanceOrder $ Set.toList $ Set.filter isLineVisible (lineNeighbors line)
-        
+
         isLineVisible x = case (getLineMaybe master x) of
           Just l -> lineVisible l
           Nothing -> False
-          
+
         hashDistanceOrder a b
           | dist < 0 = LT
           | dist > 0 = GT
           | otherwise = EQ
-          where 
+          where
             dist = (distanceTo endHash a) - (distanceTo endHash b)
-            
+
       near_to_see line endHash ipp see
-      
+
 near_to_see :: Line -> Hash -> IPP -> [Hash] -> TeleHash (Either String [Hash])
-near_to_see _line _endHash _ipp []  = do return $ Left "empty see list"      
-near_to_see line  endHash  ipp  see = do                    
+near_to_see _line _endHash _ipp []  = do return $ Left "empty see list"
+near_to_see line  endHash  ipp  see = do
       let
-        firstSee     = head see      
+        firstSee     = head see
         firstSeeHash = firstSee
         lineNeighborKeys = (lineNeighbors line)
         lineEndHash  = lineEnd line
-      logT ( ("\tNEARTO " ++ (show endHash) ++ "\t" ++ (show ipp) ++ "\t" ++ (show $ Set.size lineNeighborKeys) 
+      logT ( ("\tNEARTO " ++ (show endHash) ++ "\t" ++ (show ipp) ++ "\t" ++ (show $ Set.size lineNeighborKeys)
           ++ ">" ++ (show $ length see)
           ++ "\t" ++ (show $ distanceTo firstSeeHash endHash) ++ "=" ++ (show $ distanceTo lineEndHash endHash)))
-        
+
       -- it's either us or we're the same distance away so return these results
-      case (firstSee == (lineEnd line) 
+      case (firstSee == (lineEnd line)
             || ((distanceTo firstSeeHash endHash) == (distanceTo lineEndHash endHash))) of
-        True -> 
-          -- this +end == this line then replace the neighbors cache with this result 
+        True ->
+          -- this +end == this line then replace the neighbors cache with this result
           -- and each in the result walk and insert self into their neighbors
           case (lineEndHash == endHash) of
             True -> do
@@ -1249,7 +1251,7 @@ near_to_see line  endHash  ipp  see = do
               mapM_ (\hash -> addNeighbour hash endHash ipp) $ Set.toList neigh
               logT ( ("\t\tSEE distance=" ++ (show $ distanceTo endHash firstSeeHash) ++ " count=" ++ (show $ length see) ))
               return $ Right see
-            False -> do 
+            False -> do
               logT ( ("\t\tSEE distance=" ++ (show $ distanceTo endHash firstSeeHash) ++ " count=" ++ (show $ length see) ))
               return $ Right see -- TODO:plug in bit below
         False -> do
@@ -1279,7 +1281,7 @@ bucket_want selfhash ipp = do
   logT ( "\tBUCKET WANT[" ++ (show pos) ++ " " ++ (show ipp) ++ "]")
 
   return ((pos >= 0) && (pos <= nBuckets))
-   
+
 
 -- ---------------------------------------------------------------------
 {-
@@ -1288,16 +1290,16 @@ bucket_want selfhash ipp = do
  */
 Hash.prototype.distanceTo = function(h) {
     if (isString(h)) { h = new Hash(h); }
-    
+
     var nibbles = this.nibbles();
     var hNibbles = h.nibbles()
-    
+
     var sbtab = [-1,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3];
     var ret = 156;
     for (var i = 0; i < nibbles.length; i++) {
         var diff = nibbles[i] ^ hNibbles[i];
         if (diff) {
-            return ret + sbtab[diff]; 
+            return ret + sbtab[diff];
         }
         ret -= 4;
     }
@@ -1313,17 +1315,17 @@ distanceTo (Hash this) (Hash h) = go 156 (reverse diffs)
     go acc [] = acc
     go _acc (-1:[]) = -1
     go acc (-1:xs) = go (acc - 4) xs
-    go acc (x:_xs) = acc + x 
-    
+    go acc (x:_xs) = acc + x
+
     diffs = map (\(a,b) -> sbtab !! (xor (digitToInt a) (digitToInt b))) $ zip this h
     sbtab = [-1,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3]
-                               
+
 -- ---------------------------------------------------------------------
 
 processSignals :: Telex -> IPP -> Line -> TeleHash ()
 processSignals rxTelex remoteipp line = do
-  mapM_ (\(k,_v) -> processSignal k remoteipp rxTelex line) (getSignals rxTelex)      
-  return () 
+  mapM_ (\(k,_v) -> processSignal k remoteipp rxTelex line) (getSignals rxTelex)
+  return ()
 
 getSignals :: Telex -> [(String, String)]
 getSignals telex = filter isSignal $ Map.assocs (teleRest telex)
@@ -1336,15 +1338,15 @@ hasSignals telex = (getSignals telex) /= []
 -- ---------------------------------------------------------------------
 
 processSignal :: String -> IPP -> Telex -> Line -> TeleHash ()
-processSignal "+end" remoteipp telex line = do 
+processSignal "+end" remoteipp telex line = do
   logT ( "processSignal :  +end")
-  
+
   -- switch <- get
   master        <- gets swMaster
   Just selfipp  <- gets swSelfIpp
   Just selfhash <- gets swSelfHash
-  
-  let 
+
+  let
     hop = safeGetHop telex
     Just end = teleSigEnd telex
   case (hop) of
@@ -1354,7 +1356,7 @@ processSignal "+end" remoteipp telex line = do
         vis = if (lineVisible line) then (remoteipp) else (selfipp)
       Right hashes <- near_to end vis -- // get closest hashes (of other switches)
       logT ( "+end hashes: " ++ (show hashes))
-      
+
         -- // convert back to IPPs
         {-
         var ipps = {};
@@ -1371,10 +1373,10 @@ processSignal "+end" remoteipp telex line = do
             ipps[self.selfipp] = line.visibled = 1; // mark ourselves visible at least once
         }
         -}
-      let   
+      let
         ipps' = if (lineVisibled line) then (ipps) else (selfipp:ipps)
       updateTelehashLine (line { lineVisibled = True })
-      
+
         {-
         var ippKeys = keys(ipps);
         if (ippKeys.length) {
@@ -1383,7 +1385,7 @@ processSignal "+end" remoteipp telex line = do
             telexOut[".see"] = seeipps;
             self.send(telexOut);
         }
-       -}    
+       -}
       case (ipps') of
         [] -> do return ()
         seeipps -> do
@@ -1391,13 +1393,13 @@ processSignal "+end" remoteipp telex line = do
           return ()
       return ()
     _ -> do return ()
-    
-    
+
+
   -- // this is our .tap, requests to +pop for NATs
   case (end == selfhash && (teleSigPop telex) /= Nothing) of
     True -> do
       let
-        Just str = teleSigPop telex           
+        Just str = teleSigPop telex
         [_,ip,port] = split ":" str -- TODO: more robust parsing here
 
       logT ( "POP? " ++ (show $ teleSigPop telex))
@@ -1423,17 +1425,17 @@ processSignal "+end" remoteipp telex line = do
 
 -- ---------------------------------------------------------------------
 
-processSignal cmd _remoteipp _telex _line = do 
+processSignal cmd _remoteipp _telex _line = do
   logT ( "processSignal : ***ignoring*** " ++ (show cmd))
   return ()
 
 -- ---------------------------------------------------------------------
 
 online :: Telex -> ClockTime -> TeleHash ()
-online rxTelex timeNow = do 
-                    
+online rxTelex timeNow = do
+
   logT "\tONLINE"
-  
+
   let
     selfIpp  = (teleTo rxTelex)
     selfhash = mkHash $ teleTo rxTelex
@@ -1441,11 +1443,11 @@ online rxTelex timeNow = do
   put $ switch {swConnected = True
               , swSelfIpp   = Just selfIpp
               , swSelfHash  = Just selfhash
-              , swCountOnline = (swCountOnline switch) + 1                
+              , swCountOnline = (swCountOnline switch) + 1
               }
-  
+
   logT ( ("\tSELF[" ++ (show selfIpp) ++ " = " ++ (show selfhash) ++ "]"))
-    
+
   line <- getOrCreateLine selfIpp timeNow
 
   -- ++AZ++
@@ -1456,15 +1458,15 @@ online rxTelex timeNow = do
   -- ++AZ++
 
   taps <- gets swTaps
-  
+
   updateTelehashLine (line {lineVisible = True, lineRules = taps })
-    
+
   -- // trigger immediate tapping to move things along
   taptap timeNow
-  
+
   return ()
-                    
-                    
+
+
 -- ---------------------------------------------------------------------
 
 offline :: TeleHash ()
@@ -1476,11 +1478,11 @@ offline = do
                 swConnected = False,
                 swMaster = Map.empty
               }
-    
+
 -- ---------------------------------------------------------------------
-  
+
 taptap :: ClockTime -> TeleHash ()
-taptap timeNow@(TOD secs _picos) = do 
+taptap timeNow@(TOD secs _picos) = do
   -- logT ( "taptap: " ++ (show timeNow))
   {-
     var self = this;
@@ -1493,7 +1495,7 @@ taptap timeNow@(TOD secs _picos) = do
       taps <- gets swTaps
       mapM_ doTap taps
       return ()
-      
+
   where
     doTap tap = do
       case (tapIs tap) of
@@ -1505,15 +1507,15 @@ taptap timeNow@(TOD secs _picos) = do
           let hashes = take 3 $ filter (\hash -> hash /= selfhash) candidateHashes
           mapM_ (\hash -> doTapLine tap tapEnd hash) hashes
           return ()
-        _          -> return ()  
-        
+        _          -> return ()
+
     doTapLine tap tapEnd hash = do
       Just line <- getLineMaybeM hash
       let (TOD tapLastSecs _) = fromMaybe (TOD 0 0) (lineTapLast line)
-      case (tapLastSecs + 50 > secs) of -- Assuming wall clock secs > 50 
+      case (tapLastSecs + 50 > secs) of -- Assuming wall clock secs > 50
         True -> return ()
         False -> do
-          updateTelehashLine (line { lineTapLast = Just timeNow }) 
+          updateTelehashLine (line { lineTapLast = Just timeNow })
           let telexOut = (mkTelex (lineIpp line)) {teleTap = Just [tap] }
           -- console.log(["\tTAPTAP to ", line.ipp, " end ", tapEnd, " tap ", JSON.stringify(tap)].join(""));
           logT (  "\tTAPTAP to " ++ (show $ lineIpp line) ++ " end " ++ (show tapEnd) ++ " tap " ++ (show tap))
@@ -1521,7 +1523,7 @@ taptap timeNow@(TOD secs _picos) = do
           return ()
       return ()
 
--- ---------------------------------------------------------------------  
+-- ---------------------------------------------------------------------
 {-**
  * Update status of all lines, removing stale ones.
  *-}
@@ -1535,7 +1537,7 @@ scanlines now@(TOD _secs _picos) = do
       let switches = Map.keys master
       logT ( "SCAN\t" ++ (show $ length switches))
       valid <- foldM (\acc hash -> fscanline acc hash) False switches
-      
+
       seedsIndex <- gets swSeedsIndex
       Just selfipp  <- gets swSelfIpp
       case (valid == False && Set.notMember selfipp seedsIndex) of
@@ -1545,13 +1547,13 @@ scanlines now@(TOD _secs _picos) = do
           return ()
         False -> return ()
       return ()
-  
+
   where
     fscanline :: Bool -> Hash -> TeleHash Bool
-    fscanline acc hash = do 
+    fscanline acc hash = do
       res  <- scanline hash
       return (acc || res) -- Any one must be valid.
-                            
+
     -- Return whether line is still Ok or not.
     scanline :: Hash -> TeleHash Bool
     scanline hash = do
@@ -1570,7 +1572,7 @@ scanlines now@(TOD _secs _picos) = do
                   -- // remove line if they never responded or haven't in a while
                   -- console.log(["\tPURGE[", hash, " ", line.ipp, "] last seen ", now - line.seenat, "s ago"].join(""));
                   logT ( "\tPURGE[" ++ (show hash) ++ " " ++ (show $ lineIpp line) ++ "] last seen " ++ (show $ lineSeenat line))
-                  removeLineM hash 
+                  removeLineM hash
                   return False
                 False -> do
                   -- We have a valid line, return true from here on out
@@ -1578,11 +1580,11 @@ scanlines now@(TOD _secs _picos) = do
                   case connected of
                     True -> do
                       -- // +end ourselves to see if they know anyone closer as a ping
-                      let 
+                      let
                         telexOut = (mkTelex $ lineIpp line) { teleSigEnd = Just selfHash }
                       -- // also .see ourselves if we haven't yet, default for now is to participate in the DHT
-                      let 
-                        telexOut' = if (lineVisibled line) 
+                      let
+                        telexOut' = if (lineVisibled line)
                                       then (telexOut)
                                       else (telexOut { teleSee = Just [selfipp] })
                       -- // also .tap our hash for +pop requests for NATs
@@ -1591,17 +1593,17 @@ scanlines now@(TOD _secs _picos) = do
                                                                    tapHas = ["+pop"] }]
                                              }
                       sendTelex telexOut''
-                                                                                   
+
                       return True
                     False ->
                       return True
-                      
+
     isTimedOut (TOD secs _picos) line = do
       case (lineSeenat line) of
         Nothing -> do
           let (TOD initSecs _) = (lineInit line)
           return (secs - initSecs > cTIMEOUT)
-        Just (TOD seenatSecs _) -> 
+        Just (TOD seenatSecs _) ->
           return (secs - seenatSecs > cTIMEOUT)
 
 -- ---------------------------------------------------------------------
@@ -1616,7 +1618,7 @@ mkHash :: IPP -> Hash
 mkHash (IPP str) =
   let
     digest = SHA.sha1 $ BL.fromChunks [BC.pack str]
-  in  
+  in
    -- B64.encode $ BL.unpack $ SHA.bytestringDigest digest
    Hash (show digest)
 
@@ -1629,7 +1631,7 @@ io = liftIO
 
 -- ---------------------------------------------------------------------
 -- Testing, see http://hackage.haskell.org/package/test-framework-th
-    
+
 --main = $(defaultMainGenerator)
 
 

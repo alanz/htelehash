@@ -13,7 +13,7 @@ import Data.List
 import Data.Maybe
 import Network.Socket
 import System.IO
-import System.Log.Handler.Simple  
+import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 import TeleHash.Controller
@@ -21,6 +21,7 @@ import TeleHash.Controller
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified System.Random as R
 
 -- Testing, see http://hackage.haskell.org/package/test-framework-th
 main = $(defaultMainGenerator)
@@ -29,7 +30,8 @@ main = $(defaultMainGenerator)
 
 case_seeVisible1 :: Assertion
 case_seeVisible1 = do
-  (res,state) <- runStateT (seeVisible False (mkLine ipp2 (TOD 1000 999)) ipp1 ipp2 ) st1
+  let line2 = mkLine ipp2 (TOD 1000 999) 4567
+  (res,state) <- runStateT (seeVisible False line2 ipp1 ipp2 ) st1
 
   case (state == st1) of
     True  -> return ()
@@ -39,19 +41,18 @@ case_seeVisible1 = do
 
 case_seeVisible2 :: Assertion
 case_seeVisible2 = do
-  let
-    line = mkLine ipp2 (TOD 1000 999)
-  (res,state) <- runStateT (seeVisible True line ipp1 ipp2 ) st2
+  let line = mkLine ipp2 (TOD 1000 999) 4567
+  (res,state) <- (runStateT (seeVisible True line ipp1 ipp2 ) st2)
 
-  let 
+  let
     Just lineNew = getLineMaybe (swMaster state) hash2
-  
+
   case (lineVisible line == lineVisible lineNew) of
     True  -> assertFailure ("Line is the same:" ++ (show line))
     False -> return ()
 
 -- ---------------------------------------------------------------------
-          
+
 -- Note: near_to :: IPP -> IPP -> TeleHash [Hash]
 --       near_to end ipp
 case_near_to1 :: Assertion
@@ -59,17 +60,17 @@ case_near_to1 = do
   -- Check that a line exists for the given ipp. If not, should get an undefined result
   let
     st = (Switch {swH = Nothing
-                 , swSeeds = [] 
+                 , swSeeds = []
                  , swSeedsIndex = (Set.fromList [])
                  , swConnected = False
-                 , swMaster = Map.empty 
-                 , swSelfIpp = Nothing 
-                 , swSelfHash = Nothing 
+                 , swMaster = Map.empty
+                 , swSelfIpp = Nothing
+                 , swSelfHash = Nothing
                  , swTaps = []
-                 , swCountOnline = 0           
-                 , swCountTx = 0           
-                 , swCountRx = 0              
-                 , swSender = doNullSendDgram              
+                 , swCountOnline = 0
+                 , swCountTx = 0
+                 , swCountRx = 0
+                 , swSender = doNullSendDgram
                  })
 
   (res,state) <- runStateT (near_to hash1 ipp2 ) st
@@ -78,25 +79,26 @@ case_near_to1 = do
     Left errStr -> return ()
     Right _     -> assertFailure "found non-existent line"
 
-  
--- ---------------------------------------------------------------------          
+
+-- ---------------------------------------------------------------------
 
 case_near_to2 :: Assertion
 case_near_to2 = do
   -- Check that a line exists for the given ipp. If not, should get an undefined result
   let
+    line2 = mkLine ipp2 (TOD 1000 999) 2345
     st = (Switch {swH = Nothing
-                 , swSeeds = [] 
+                 , swSeeds = []
                  , swSeedsIndex = (Set.fromList [])
                  , swConnected = False
-                 , swMaster = Map.fromList [(mkHash ipp2, mkLine ipp2 (TOD 1000 999) )]
-                 , swSelfIpp = Nothing 
-                 , swSelfHash = Nothing 
+                 , swMaster = Map.fromList [(mkHash ipp2, line2)]
+                 , swSelfIpp = Nothing
+                 , swSelfHash = Nothing
                  , swTaps = []
-                 , swCountOnline = 0           
-                 , swCountTx = 0           
+                 , swCountOnline = 0
+                 , swCountTx = 0
                  , swCountRx = 0
-                 , swSender = doNullSendDgram              
+                 , swSender = doNullSendDgram
                  })
 
   (res,state) <- runStateT (near_to hash1 ipp2) st
@@ -104,49 +106,54 @@ case_near_to2 = do
   case res of
     Left "empty see list" -> return ()
     Right _     -> assertFailure "oops"
-  
+
 -- ---------------------------------------------------------------------
-    
+
 st1 = (Switch {swH = Nothing
-              , swSeeds = [] 
+              , swSeeds = []
               , swSeedsIndex = (Set.fromList [])
               , swConnected = False
-              , swMaster = Map.empty 
-              , swSelfIpp = Nothing 
-              , swSelfHash = Nothing 
+              , swMaster = Map.empty
+              , swSelfIpp = Nothing
+              , swSelfHash = Nothing
               , swTaps = []
-              , swCountOnline = 0           
-              , swCountTx = 0           
-              , swCountRx = 0              
-              , swSender = doNullSendDgram              
+              , swCountOnline = 0
+              , swCountTx = 0
+              , swCountRx = 0
+              , swSender = doNullSendDgram
               })
 
-st2 = (Switch {swH = Nothing
-              , swSeeds = [] 
-              , swSeedsIndex = (Set.fromList [])
-              , swConnected = False
-              , swMaster = Map.fromList 
-                           [
-                             (hash1,
-                              (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1,hash2]}) -- ipp under test
-                           , (hash2,(mkLine ipp2 (TOD 1002 999) ) {lineVisible = True })-- first neighbour
-                           , (hash3,(mkLine ipp3 (TOD 1003 999) ) {lineVisible = True })-- second neighbour
-                           ]
-              , swSelfIpp = Nothing 
-              , swSelfHash = Nothing 
-              , swTaps = []
-              , swCountOnline = 0           
-              , swCountTx = 0           
-              , swCountRx = 0              
-              , swSender = doNullSendDgram              
-              })
-      
+st2 =
+  let
+    line1 = (mkLine ipp1 (TOD 1000 999)) 1234
+    line2 = (mkLine ipp2 (TOD 1002 999)) 2345
+    line3 = (mkLine ipp3 (TOD 1003 999)) 3456
+  in
+   (Switch {swH = Nothing
+           , swSeeds = []
+           , swSeedsIndex = (Set.fromList [])
+           , swConnected = False
+           , swMaster = Map.fromList
+                        [
+                          (hash1,line1 {lineNeighbors = Set.fromList [hash1,hash2]}) -- ipp under test
+                        , (hash2,line2 {lineVisible = True })-- first neighbour
+                        , (hash3,line3 {lineVisible = True })-- second neighbour
+                        ]
+           , swSelfIpp = Nothing
+           , swSelfHash = Nothing
+           , swTaps = []
+           , swCountOnline = 0
+           , swCountTx = 0
+           , swCountRx = 0
+           , swSender = doNullSendDgram
+           })
+
 ipp1 = IPP "1.2.3.4:1234"
 ipp2 = IPP "2.3.4.5:2345"
 ipp3 = IPP "3.4.5.6:3456"
 ipp4 = IPP "4.5.6.7:4567"
-hash1 = mkHash ipp1          
-hash2 = mkHash ipp2          
+hash1 = mkHash ipp1
+hash2 = mkHash ipp2
 hash3 = mkHash ipp3
 hash4 = mkHash ipp4
 
@@ -158,31 +165,31 @@ case_near_to3 = do
   case res of
     Left msgStr -> assertFailure msgStr
     Right [Hash "0ec331643f4a7a74068ea47dda062b48b419c832"] -> return ()
-  
--- ---------------------------------------------------------------------          
+
+-- ---------------------------------------------------------------------
 
 {-
-_case_recvTelex1 = 
+_case_recvTelex1 =
   recvTelex msg rinfo @?= "foo"
   where
     msg = undefined
-    rinfo = undefined      
+    rinfo = undefined
 -}
 
-case_parseMsg1Js = 
+case_parseMsg1Js =
   parseTelex msg1Js @?= (
     Just Telex {teleRing = Nothing, teleSee = Just [IPP "208.68.163.247:42424"],
            teleBr = 74, teleTo = IPP "196.209.236.12:34963",
-           teleLine = Just 412367436, 
+           teleLine = Just 412367436,
            teleHop = Nothing,
            teleSigEnd = Just $ Hash "38666817e1b38470644e004b9356c1622368fa57",
            teleSigPop = Nothing,
-           teleTap = Just [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"), 
+           teleTap = Just [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
                                 tapHas = ["+pop"]}],
            teleRest = Map.fromList [(".tap","[{\"has\":[\"+pop\"],\"is\":{\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\"}}]"),("_line","412367436"),(".see","[\"208.68.163.247:42424\"]"),("_br","74"),("+end","\"38666817e1b38470644e004b9356c1622368fa57\""),("_to","\"196.209.236.12:34963\"")],
            teleMsgLength = Just (length msg1Js)
           })
-  
+
 msg1Js = "{\".tap\":[{\"has\":[\"+pop\"],\"is\":{\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\"}}],"++
        "\"_line\":412367436,"++
        "\".see\":[\"208.68.163.247:42424\"],"++
@@ -204,13 +211,13 @@ _case_encodeMsg1Js =
 -- 2b. line.line == msg.line
 -- 2c. msg.line is a multiple of our ring
 -- 3a. msg.ring is > 0 and <= 32768
--- 3b. msg.ring == line.ringin, if there is a line.ringin 
+-- 3b. msg.ring == line.ringin, if there is a line.ringin
 
 case_lineOk_msgRingMatchesLine =
-  True @=? isRingOk (line1{ lineRingin = Just 15}) (msg1 { teleRing = Just 15})
+  True @=? isRingOk (line1 { lineRingin = Just 15}) (msg1 { teleRing = Just 15})
 
 case_lineOk_msgRingMisMatchesLine =
-  False @=? isRingOk (line1{ lineRingin = Just 14}) (msg1 { teleRing = Just 15})
+  False @=? isRingOk (line1 { lineRingin = Just 14}) (msg1 { teleRing = Just 15})
 
 -- ---------------------------------------------------------------------
 
@@ -243,12 +250,11 @@ case_lineOk_lineMatch2 =
 case_lineOk_lineMisMatch =
   Left "msgLineOk=False,ringTimedOut=False" @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 1 })
 
-
 -- ---------------------------------------------------------------------
 
 case_lineOk_timeoutOk =
   Right True @=? isLineOk line1 1010 msg1
-  
+
 case_lineOk_timeoutFail =
   -- Left "False" @=? isLineOk line1 1011 msg1
   -- Left "msgLineOk=True,timedOut=True" @=? isLineOk line1 1041 msg1
@@ -256,7 +262,7 @@ case_lineOk_timeoutFail =
 
 
 --line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
-line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineRingout = 5, lineBr = 10 }
+line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999) 1234) { lineRingout = 5, lineBr = 10 }
 -- msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
 msg1 = (mkTelex ipp1) { teleMsgLength = Just 100, teleBr = 97 }
 
@@ -267,42 +273,42 @@ msg1 = (mkTelex ipp1) { teleMsgLength = Just 100, teleBr = 97 }
 -- set line br, brin
 -- drop line if brin/brout delta > 12k
 
-case_checkLineBrDrop =
+case_checkLineBrDrop = do
   (Left "lineOk=Right True,ringOk=True,brOk=False")
-  @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11904, lineBrout = 3}) 
-                (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
-                (TOD 1000 999)
+  @=? (checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11904, lineBrout = 3})
+                  (msg1 {teleLine = Just 12345, teleRing = Nothing})
+                  (TOD 1000 999))
 
 case_checkLineBrNoDrop =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999), 
-                  lineBr = 12003, lineBrin = 97, lineBrout = 3,
-                  lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15}) 
-  @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11903, lineBrout = 3}) 
-                (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
-                (TOD 1000 999)
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999),
+              lineBr = 12003, lineBrin = 97, lineBrout = 3,
+              lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15})
+  @=? (checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11903, lineBrout = 3})
+            (msg1 {teleLine = Just 12345, teleRing = Nothing})
+            (TOD 1000 999))
 
 
 case_checkLineRing1 =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999), 
-                  lineBr = 110, lineBrin = 97, lineRingin = Just 823, 
-                  lineLine = Just 12345, lineRingout = 15}) 
-  @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
-                (msg1 {teleLine = Just 12345, teleRing = Nothing}) 
-                (TOD 1000 999)
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999),
+              lineBr = 110, lineBrin = 97, lineRingin = Just 823,
+              lineLine = Just 12345, lineRingout = 15})
+  @=? (checkLine (line1 {lineLineat = Nothing, lineRingout=15})
+                (msg1 {teleLine = Just 12345, teleRing = Nothing})
+                (TOD 1000 999))
 
 case_checkLineRing2 =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999), 
-                  lineBr = 110, lineBrin = 97, lineRingin = Just 823, 
-                  lineLine = Just 12345, lineRingout = 15}) 
-  @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
-                (msg1 {teleLine = Nothing, teleRing = Just 823}) 
-                (TOD 1000 999)
+  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999),
+              lineBr = 110, lineBrin = 97, lineRingin = Just 823,
+              lineLine = Just 12345, lineRingout = 15})
+  @=? (checkLine (line1 {lineLineat = Nothing, lineRingout=15})
+            (msg1 {teleLine = Nothing, teleRing = Just 823})
+            (TOD 1000 999))
 
 case_checkLineRingInvalid =
-  (Left "ringOk=False") 
-  @=? checkLine (line1 {lineLineat = Nothing, lineRingout=15}) 
-                (msg1 {teleLine = Nothing, teleRing = Just 32769}) 
-                (TOD 1000 999)
+  (Left "ringOk=False")
+  @=? (checkLine (line1 {lineLineat = Nothing, lineRingout=15})
+            (msg1 {teleLine = Nothing, teleRing = Just 32769})
+            (TOD 1000 999))
 
 -- -----------------------------------------------
 
@@ -317,11 +323,11 @@ case_checkLine2 =
   @=? checkLine (line1 {lineLineat = Just (TOD 1000 999), lineLine=Just 30}) msg1 (TOD 1011 999)
 
 -- ---------------------------------------------------------------------
-          
+
 case_getCommands1 =
   [".see",".tap"]
   @=? (getCommands $ fromJust $ parseTelex "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\",\".see\":[\"196.215.40.28:59056\"],\".tap\":[{\"is\":{\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"},\"has\":[\"+pop\"]}],\"_line\":252817576,\"_br\":89}")
-  
+
 case_getSignals1 =
   [("+end","\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"")]
   @=? (getSignals $ fromJust $ parseTelex "{\"_to\":\"208.68.163.247:42424\",\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\",\".see\":[\"196.215.40.28:59056\"],\".tap\":[{\"is\":{\"+end\":\"f507a91f7277fb46e34eebf17a76f0e0351f6269\"},\"has\":[\"+pop\"]}],\"_line\":252817576,\"_br\":89}")
@@ -339,26 +345,26 @@ case_DistanceTo2 =
 
 case_EncodeTelex1 =
   "{\"_to\":\"1.2.3.4:1234\",\"_br\":97}" @=? encodeTelex msg1
-  
+
 case_EncodeTelex2 =
-  "{\"_to\":\"1.2.3.4:1234\"," ++ 
+  "{\"_to\":\"1.2.3.4:1234\"," ++
   "\"+end\":\"255b5a502b0a348883ffa757e0c1ea812a128088\"," ++
-  "\"_ring\":\"13\"," ++ 
-  "\".see\":[\"2.3.4.5:2345\",\"3.4.5.6:3456\"]," ++ 
+  "\"_ring\":\"13\"," ++
+  "\".see\":[\"2.3.4.5:2345\",\"3.4.5.6:3456\"]," ++
   "\".tap\":[{\"is\":{\".end\":\"foo\",\"has\":[\"+pop\"]}}]," ++
-  "\"_line\":\"4567\"," ++ 
+  "\"_line\":\"4567\"," ++
   "\"_br\":234," ++
-  "\"_hop\":3," ++ 
+  "\"_hop\":3," ++
   "\"+pop\":\"pop_val\"}"
-  @=? 
-  (encodeTelex $ ((mkTelex ipp1) { teleRing = Just 13 
+  @=?
+  (encodeTelex $ ((mkTelex ipp1) { teleRing = Just 13
                                , teleSee = Just [ipp2,ipp3]
                                , teleBr = 234
                                , teleLine = Just 4567
                                , teleHop = Just 3
                                , teleSigEnd = Just hash1
                                , teleSigPop = Just "pop_val"
-                               , teleTap = Just [Tap {tapIs = (".end","foo"), tapHas = ["+pop"]}] 
+                               , teleTap = Just [Tap {tapIs = (".end","foo"), tapHas = ["+pop"]}]
                                }))
 -- ---------------------------------------------------------------------
 
@@ -379,7 +385,7 @@ case_addrFromHostPort = do
   case addr of
     (SockAddrInet 42424 0x04030201) -> return ()
     (SockAddrInet p h) -> assertFailure ("case_addrFromHostPort:" ++ (show (p,h)))
-    
+
 -- ---------------------------------------------------------------------
 
 -- If the line is not already known, insert it, making it a neighbour to itself. Else return it.
@@ -387,21 +393,21 @@ case_getOrCreateLine_firstTime = do
   (line,state) <- runStateT (getOrCreateLine ipp1 (TOD 1000 9999)) st1
 
   let t1 = TOD 1000 9999
-  
-  if (lineIpp line /= ipp1) 
+
+  if (lineIpp line /= ipp1)
     then (assertFailure $ "ipp wrong, got " ++ (show (lineIpp line)))
     else return ()
 
-  if (lineEnd line /= hash1) 
+  if (lineEnd line /= hash1)
     then (assertFailure $ "end wrong, got " ++ (show (lineEnd line)))
     else return ()
-         
+
   let (TOD s1 ps1) = (lineInit line)
-  if (lineInit line /= (TOD 1000 9999)) 
+  if (lineInit line /= (TOD 1000 9999))
     then (assertFailure $ "lineInit wrong, got " ++ (show (s1,ps1)))
     else return ()
-  
-  if ((Set.toList (lineNeighbors line)) /= [hash1]) 
+
+  if ((Set.toList (lineNeighbors line)) /= [hash1])
     then (assertFailure $ "neighbours wrong, got " ++ (show (lineNeighbors line)))
     else return ()
 
@@ -412,41 +418,41 @@ case_getOrCreateLine_firstTime = do
   if (Map.notMember hash1 (swMaster state))
     then (assertFailure $ "line notMember state swMaster")
     else return ()
-     
+
   if ((swMaster state) Map.! hash1 /= line)
     then (assertFailure $ "returned line /= swMaster line")
     else return ()
 
--- ---------------------------------------------------------------------         
-  
+-- ---------------------------------------------------------------------
+
 case_getOrCreateLine_alreadyThere = do
-  let st = st1 {swMaster = Map.fromList 
+  let st = st1 {swMaster = Map.fromList
                            [
                              (hash1,
-                              (mkLine ipp1 (TOD 1000 1234) ) {lineNeighbors = Set.fromList [hash1]})
+                              (mkLine ipp1 (TOD 1000 1234) 1234) {lineNeighbors = Set.fromList [hash1]})
                              ]}
-           
+
   let t1 = TOD 1000 9999
-           
+
   (line,state) <- runStateT (getOrCreateLine ipp1 t1) st
 
-  if (lineIpp line /= ipp1) 
+  if (lineIpp line /= ipp1)
     then (assertFailure $ "ipp wrong, got " ++ (show (lineIpp line)))
     else return ()
 
   let (TOD s1 ps1) = (lineInit line)
-  if (lineInit line /= (TOD 1000 1234)) 
+  if (lineInit line /= (TOD 1000 1234))
     then (assertFailure $ "lineInit wrong, got " ++ (show (s1,ps1)))
     else return ()
 
-  if ((Set.toList (lineNeighbors line)) /= [hash1]) 
+  if ((Set.toList (lineNeighbors line)) /= [hash1])
     then (assertFailure $ "neighbours wrong, got " ++ (show (lineNeighbors line)))
     else return ()
 
-  if (lineEnd line /= hash1) 
+  if (lineEnd line /= hash1)
     then (assertFailure $ "end wrong, got " ++ (show (lineEnd line)))
     else return ()
-         
+
   if (Map.size (swMaster state) /= 1)
     then (assertFailure $ "state swMaster size wrong, got " ++ (show (Map.size (swMaster state))))
     else return ()
@@ -455,11 +461,11 @@ case_getOrCreateLine_alreadyThere = do
     then (assertFailure $ "line notMember state swMaster")
     else return ()
 
--- ---------------------------------------------------------------------         
-  
+-- ---------------------------------------------------------------------
+
 case_online = do
   (line,state) <- runStateT (online msg1 (TOD 1000 9999)) st1
-  
+
   if (swConnected state == True)
     then return ()
     else (assertFailure $ "online:swConnected fail" ++ (show $ (line,state)))
@@ -476,47 +482,47 @@ case_online = do
     then return ()
     else (assertFailure $ "online:swMaster size fail" ++ (show $ (line,state)))
 
--- ---------------------------------------------------------------------         
+-- ---------------------------------------------------------------------
 
 case_prepareTelex_bSentOk = do
   let
-    st = st1 { swMaster = 
+    st = st1 { swMaster =
                   Map.fromList [
                     (hash1,
-                     (mkLine ipp1 (TOD 1000 999) ) {lineBsent = 10000, lineBrin = 100 }) 
+                     (mkLine ipp1 (TOD 1000 999) 1234) {lineBsent = 10000, lineBrin = 100 })
                     ]}
-       
+
   (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st
-  
+
   if (res /= Nothing)
     then return ()
     else (assertFailure $ "prepareTelex:" ++ (show $ res))
 
--- ---------------------------------------------------------------------         
+-- ---------------------------------------------------------------------
 
 case_prepareTelex_bSentFail = do
   let
-    st = st1 { swMaster = 
+    st = st1 { swMaster =
                   Map.fromList [
                     (hash1,
-                     (mkLine ipp1 (TOD 1000 999) ) {lineBsent = 10101, lineBrin = 100 }) 
+                     (mkLine ipp1 (TOD 1000 999) 1234) {lineBsent = 10101, lineBrin = 100 })
                     ]}
-       
+
   (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st
-  
+
   if (res == Nothing)
     then return ()
     else (assertFailure $ "prepareTelex:" ++ (show $ (res,state)))
 
--- ---------------------------------------------------------------------         
+-- ---------------------------------------------------------------------
 
 case_prepareTelex_ringout = do
   (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st1
-  
+
   let
     Just (line,msgJson) = res
     Just msg = parseTelex msgJson
-                                 
+
   if (teleLine msg == Nothing)
     then return ()
     else (assertFailure $ "prepareTelex:line set " ++ (show $ msg))
@@ -524,23 +530,23 @@ case_prepareTelex_ringout = do
   if (teleRing msg /= Nothing)
     then return ()
     else (assertFailure $ "prepareTelex:ring not set " ++ (show $ (msgJson,msg)))
- 
--- ---------------------------------------------------------------------         
+
+-- ---------------------------------------------------------------------
 
 case_prepareTelex_line = do
   let
-    st = st1 { swMaster = 
+    st = st1 { swMaster =
                   Map.fromList [
                     (hash1,
-                     (mkLine ipp1 (TOD 1000 999) ) {lineLine = Just 123456}) 
+                     (mkLine ipp1 (TOD 1000 999) 1234 ) {lineLine = Just 123456})
                     ]}
-       
+
   (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st
-  
+
   let
     Just (line,msgJson) = res
     Just msg = parseTelex msgJson
-                                 
+
   if (teleLine msg /= Nothing)
     then return ()
     else (assertFailure $ "prepareTelex:line set " ++ (show $ msg))
@@ -549,22 +555,22 @@ case_prepareTelex_line = do
     then return ()
     else (assertFailure $ "prepareTelex:ring not set " ++ (show $ (msgJson,msg)))
 
--- ---------------------------------------------------------------------         
+-- ---------------------------------------------------------------------
 
 case_prepareTelex_counters = do
   let
-    st = st1 { swMaster = 
+    st = st1 { swMaster =
                   Map.fromList [
                     (hash1,
-                     (mkLine ipp1 (TOD 1000 999) ) {lineBr = 100, lineBrout = 10, lineBsent = 120}) 
+                     (mkLine ipp1 (TOD 1000 999) 1234) {lineBr = 100, lineBrout = 10, lineBsent = 120})
                     ]}
-       
+
   (res,state) <- runStateT (prepareTelex msg1 (TOD 10003 9999)) st
-  
+
   let
     Just (line,msgJson) = res
     msg = parseTelex msgJson
-                                 
+
   if (lineBr line == 100)
     then return ()
     else (assertFailure $ "prepareTelex:lineBr " ++ (show $ line))
@@ -581,18 +587,18 @@ case_prepareTelex_counters = do
     then return ()
     else (assertFailure $ "prepareTelex:lineSentat " ++ (show $ line))
 
--- ---------------------------------------------------------------------         
+-- ---------------------------------------------------------------------
 
 prop_idempotent :: [Int] -> Bool
 prop_idempotent xs = sort (sort xs) == sort xs
 
--- ---------------------------------------------------------------------         
+-- ---------------------------------------------------------------------
 
 prop_parseTelexJson =
   forAll telehashJson $ \msgJson ->
   Nothing /= parseTelex msgJson
-       
--- ---------------------------------------------------------------------         
+
+-- ---------------------------------------------------------------------
 
 -- Trying to write an arbitrary generator of valid Telehash javascript
 -- strings.
@@ -608,14 +614,14 @@ telehashJson = do
   let toClause = ("\"_to\":\"" ++ (unIPP i) ++ "\"")
   let brClause = ("\"_br\":" ++ (show br))
   return ("{" ++ toClause ++ "," ++ brClause ++ "}")
-  
+
 ipp :: Gen IPP
 ipp = do
   port <- choose (1024,65535) :: Gen Int
   quads <- vectorOf 4 (choose (1,255) :: Gen Int)
   let ip = intercalate "." $ map show quads
   return (IPP (ip ++ ":" ++ (show port)))
-  
+
 -- Library functions
 iden0 :: Gen Char
 iden0 = oneof [ elements ['a'..'z'], elements ['A'..'Z'], elements ['0'..'9'] ]
@@ -627,10 +633,10 @@ opt :: Gen String -> Gen String
 opt g = oneof [ g, return "" ]
 
 identifier :: Gen String
---identifier = iden0 >>= \i0 -> idenN >>= return . (i0:)  
+--identifier = iden0 >>= \i0 -> idenN >>= return . (i0:)
 identifier = do
   -- note: could use listOf1, instead.
-  firstChar <- iden0 
+  firstChar <- iden0
   rest <- idenN
   return (firstChar:rest)
 
@@ -641,7 +647,7 @@ newtype GenJsonTelex = GJT String deriving Show
 unGJT (GJT str) = str
 
 instance Arbitrary GenJsonTelex where
-  arbitrary = do 
+  arbitrary = do
     str <- elements (['A'..'Z'] ++ ['a' .. 'z'] ++ " ~!@#$%^&*()")
     return (GJT [str])
 
@@ -652,15 +658,15 @@ samples' = do
   s <- samples
   return (mapM unGJT s)
 
--- ---------------------------------------------------------------------         
+-- ---------------------------------------------------------------------
 
 case_removeLineM = do
   if (Map.size (swMaster st2) == 3)
     then return ()
     else (assertFailure $ "removeLineM:starting with 3 lines " ++ (show $ (swMaster st2)))
-         
+
   (line,state) <- runStateT (removeLineM hash2) st2
-  
+
   if (Map.size (swMaster state) == 2)
     then return ()
     else (assertFailure $ "removeLineM:expected 2 lines left" ++ (show $ (swMaster state)))
@@ -681,7 +687,7 @@ can be seen from the remote ipp
 2. Only process a see once, tracked in the lineVisible flag
 
 3. For the self-see, ie. line making iteslf visible
-   TODO:*** still to test*** set the line neighbours to be the near_to list of the see list. 
+   TODO:*** still to test*** set the line neighbours to be the near_to list of the see list.
    [Why near_to, why not just the list?]
 
 4. If we already have a record of the line, do not process it
@@ -690,144 +696,153 @@ can be seen from the remote ipp
    +pop to the originator to open it up in both directions
 
 -}
-  
+
 case_processSee_Self = do
   let
     remoteipp = ipp2
     seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
-  
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
                swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
-         
+
     telex = (mkTelex ipp1) { teleSee = Just [ipp1] }
-       
+
   (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
 
   if (state == st)
      then return ()
      else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
-  
--- ---------------------------------------------------------------------         
+
+-- ---------------------------------------------------------------------
 
 case_processSee_AlreadyVisible = do
   let
     remoteipp = ipp1
     seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = True}
-  
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = True}
+
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
                swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
-         
+
     telex = (mkTelex ipp1) { teleSee = Just [ipp1] }
-       
+
   (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
 
   if (state == st)
      then return ()
      else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
-  
--- ---------------------------------------------------------------------         
+
+-- ---------------------------------------------------------------------
 
 case_processSee_NotVisible = do
   let
     remoteipp = ipp2
     seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
-  
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
                swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
-         
+
     telex = (mkTelex ipp1) { teleSee = Just [ipp2] }
-       
+
   (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
 
   let line2' = (swMaster state) Map.! hash2
   if (lineVisible line2')
      then return ()
      else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
-  
--- ---------------------------------------------------------------------         
+
+-- ---------------------------------------------------------------------
 
 case_processSee_LineKnown = do
   let
     remoteipp = ipp2
     seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
-    line3 = (mkLine ipp3 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash3], lineVisible = False}
-  
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+    line3 = (mkLine ipp3 (TOD 1000 999) 3456) {lineNeighbors = Set.fromList [hash3], lineVisible = False}
+
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
                swMaster   = Map.fromList [(hash1,line1),(hash2,line2),(hash3,line3)] }
-         
+
     telex = (mkTelex ipp1) { teleSee = Just [ipp3] }
-       
+
   (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
 
   if (state == st)
      then return ()
      else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
-  
--- ---------------------------------------------------------------------         
+
+-- ---------------------------------------------------------------------
 
 case_processSee_LineUnKnown = do
   let
     remoteipp = ipp2
     seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
-  
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
                swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
-         
+
     telex = (mkTelex ipp1) { teleSee = Just [ipp3] }
-       
+
   (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
 
   if (Map.member hash3 (swMaster state))
      then return ()
      else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
-  
--- ---------------------------------------------------------------------         
+
+-- ---------------------------------------------------------------------
 
 case_processSee_sendTelexes = do
   let
     remoteipp = ipp2
-    seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) ) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
-  
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
                swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
-         
+
     telex = (mkTelex ipp1) { teleSee = Just [ipp3] }
-       
+
   knob <- setupLogger
-  
+
+  R.setStdGen (R.mkStdGen 1)
   (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
 
   l <- retrieveLog knob
-  --let
-  --   [_,m1,m2] = lines l
-  
-  -- if (m1 == "foo" && m2 == "bar")
-  if (False)
+  let
+    [m1,m2] = filter (\s -> "SEND" == take 4 s) $ lines l
+
+    em1 = ("SEND[:IPP \"3.4.5.6:3456\"]\t{\"_to\":\"3.4.5.6:3456\"," ++
+          "\"+end\":\"255b5a502b0a348883ffa757e0c1ea812a128088\"," ++
+          "\"_ring\":\"6482\",\"_br\":0}")
+
+    em2 = ("SEND[:IPP \"2.3.4.5:2345\"]\t{\"_to\":\"2.3.4.5:2345\"," ++
+          "\"+end\":\"0097bc897d6c2d5b5a06c94d40528c66859941c8\"," ++
+          "\"_ring\":\"2345\",\"_br\":0," ++
+          "\"_hop\":1,\"+pop\":\"th:1.2.3.4:1234\"}")
+
+  if (m1 == em1 && m2 == em2)
+  --if (False)
      then return ()
-     else (assertFailure $ "processSee:" ++ (show $ lines l))
-  
--- ---------------------------------------------------------------------         
+     else (assertFailure $ "processSee:" ++ (show $ [m1,m2]))
+
+-- ---------------------------------------------------------------------
 
 setupLogger :: IO Knob
-setupLogger = do  
+setupLogger = do
   knob <- newKnob (BC.pack [])
   h <- newFileHandle knob "testlog.txt" WriteMode
   s <- streamHandler h DEBUG
@@ -839,6 +854,6 @@ retrieveLog knob = do
   bytes <- Data.Knob.getContents knob
   return (BC.unpack bytes)
 
--- ---------------------------------------------------------------------         
+-- ---------------------------------------------------------------------
 
 -- EOF
