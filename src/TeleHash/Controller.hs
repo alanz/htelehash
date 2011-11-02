@@ -52,6 +52,7 @@ module TeleHash.Controller
        , processSee
        , processCommand
        , doNullSendDgram
+       , scanlines
        ) where
 
 import Control.Concurrent
@@ -714,8 +715,8 @@ hashToIpp master h =
 -- ---------------------------------------------------------------------
 
 cTIMEOUT :: Integer
-cTIMEOUT = 90
---cTIMEOUT = 70
+--cTIMEOUT = 90
+cTIMEOUT = 70
 
 -- TODO: What return type makes sense? The Bool will always be true.
 isLineOk :: Line -> Integer -> Telex -> Either String Bool
@@ -1561,10 +1562,10 @@ scanlines now@(TOD _secs _picos) = do
       Just selfHash <- gets swSelfHash
       Just selfipp  <- gets swSelfIpp
       case (selfHash == hash) of
-        True -> return True -- False -- // skip our own endpoint and what is this (continue)
+        True -> return True -- This line is valid // skip our own endpoint and what is this (continue)
         False -> do
           case (lineEnd line /= hash) of
-            True -> return False -- // empty/dead line (continue)
+            True -> return False -- Pretty sure this can never happen // empty/dead line (continue)
             False -> do
               timedOut <- isTimedOut now line
               case (timedOut) of

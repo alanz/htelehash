@@ -840,6 +840,166 @@ case_processSee_sendTelexes = do
      else (assertFailure $ "processSee:" ++ (show $ [m1,m2]))
 
 -- ---------------------------------------------------------------------
+{-
+Tests
+
+0. Only scan if we are online
+1. Do not process the line if it is us
+2. Purge if more than 70 secs have passed since ring, and no line yet
+3. Purge if line init, but no activity for more than 70 secs
+
+The next three are all in a single message
+4. If 1,2, & 3 pass, send our "+end" to the line
+5. If 1,2, & 3 pass, send a ".see" to the line, but only the first
+   time (isVisibled is controlling var)
+6. If 1,2, & 3 pass, send a .tap request to +pop our end
+
+7. If no line passes 1,2, & 3, and we are not in the sed list, go offline
+
+-}
+
+case_ScanLines_LineGoodWithSee = do
+  let
+    line2 = (mkLine ipp2 (TOD 1000 999) 4567) {lineSeenat = Just (TOD 2000 999),
+                                               lineVisibled = False}
+
+    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
+              swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
+              }
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (scanlines (TOD 2070 999)) st
+
+  l <- retrieveLog knob
+
+  if ((take 2 $ (lines l)) ==
+      ["SCAN\t2",
+       "SEND[:IPP \"2.3.4.5:2345\"]\t{\"_to\":\"2.3.4.5:2345\"," ++
+       "\"+end\":\"255b5a502b0a348883ffa757e0c1ea812a128088\",\"_ring\":\"4567\"," ++
+       "\".see\":[\"1.2.3.4:1234\"]," ++
+       "\".tap\":[{\"is\":{\"+end\":\"255b5a502b0a348883ffa757e0c1ea812a128088\",\"has\":[\"+pop\"]}}]," ++
+       "\"_br\":0}"])
+     then return ()
+     else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
+
+-- ---------------------------------------------------------------------
+
+case_ScanLines_LineGoodNoSee = do
+  let
+    line2 = (mkLine ipp2 (TOD 1000 999) 4567) {lineSeenat = Just (TOD 2000 999),
+                                               lineVisibled = True}
+
+    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
+              swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
+              }
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (scanlines (TOD 2070 999)) st
+
+  l <- retrieveLog knob
+
+  if ((take 2 $ (lines l)) ==
+      ["SCAN\t2",
+       "SEND[:IPP \"2.3.4.5:2345\"]\t{\"_to\":\"2.3.4.5:2345\"," ++
+       "\"+end\":\"255b5a502b0a348883ffa757e0c1ea812a128088\",\"_ring\":\"4567\"," ++
+       "\".tap\":[{\"is\":{\"+end\":\"255b5a502b0a348883ffa757e0c1ea812a128088\",\"has\":[\"+pop\"]}}]," ++
+       "\"_br\":0}"])
+     then return ()
+     else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
+
+-- ---------------------------------------------------------------------
+
+case_ScanLines_PurgeStaleRing = do
+  let
+    line2 = (mkLine ipp2 (TOD 1000 999) 4567)
+
+    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
+              swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
+              }
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (scanlines (TOD 1071 999)) st
+
+  l <- retrieveLog knob
+
+  if ((lines l) == ["SCAN\t2",
+                    "\tPURGE[Hash \"0ec331643f4a7a74068ea47dda062b48b419c832\" IPP \"2.3.4.5:2345\"] last seen Nothing"])
+     then return ()
+     else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
+
+case_ScanLines_PurgeStaleLine = do
+  let
+    line2 = (mkLine ipp2 (TOD 1000 999) 4567) {lineSeenat = Just (TOD 2000 999)}
+
+    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
+              swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
+              }
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (scanlines (TOD 2071 999)) st
+
+  l <- retrieveLog knob
+
+  if ((lines l) == ["SCAN\t2",
+                    "\tPURGE[Hash \"0ec331643f4a7a74068ea47dda062b48b419c832\" IPP \"2.3.4.5:2345\"]" ++
+                    " last seen Just Thu Jan  1 02:33:20 SAST 1970"])
+     then return ()
+     else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
+
+-- ---------------------------------------------------------------------
+
+case_ScanLines_Us = do
+  let
+
+    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
+              swMaster = Map.fromList [(hash1,line1)]
+              }
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (scanlines (TOD 1000 999)) st
+
+  l <- retrieveLog knob
+
+  if (lines l == ["SCAN\t1"])
+     then return ()
+     else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
+
+-- ---------------------------------------------------------------------
+
+case_ScanLines_Offline = do
+  let
+    st = st1 {swConnected = False}
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (scanlines (TOD 1000 999)) st
+
+  l <- retrieveLog knob
+
+  if (l == "")
+     then return ()
+     else (assertFailure $ "scanlines:" ++ (show (l,state)))
+
+case_ScanLines_Online = do
+  let
+    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1}
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (scanlines (TOD 1000 999)) st
+
+  l <- retrieveLog knob
+
+  if ((head $ lines l) == "SCAN\t0")
+     then return ()
+     else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
+
+-- ---------------------------------------------------------------------
 
 setupLogger :: IO Knob
 setupLogger = do
