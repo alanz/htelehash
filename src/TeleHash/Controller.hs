@@ -1470,9 +1470,9 @@ online rxTelex timeNow = do
 
 -- ---------------------------------------------------------------------
 
-offline :: TeleHash ()
-offline = do
-  logT ( "OFFLINE")
+offline :: ClockTime -> TeleHash ()
+offline now = do
+  logT ( "OFFLINE at " ++ (show now))
   switch <- get
   put $ switch { swSelfIpp = Nothing,
                 swSelfHash = Nothing,
@@ -1543,8 +1543,7 @@ scanlines now@(TOD _secs _picos) = do
       Just selfipp  <- gets swSelfIpp
       case (valid == False && Set.notMember selfipp seedsIndex) of
         True -> do
-          logT ( "scanlines:" ++ (show now))
-          offline
+          offline now
           return ()
         False -> return ()
       return ()
