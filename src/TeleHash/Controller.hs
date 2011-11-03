@@ -133,7 +133,7 @@ nBuckets = 160
 
 data SocketHandle =
     SocketHandle {slSocket :: Socket
-                 , slAddress :: SockAddr
+                 --, slAddress :: SockAddr
                  } deriving (Eq,Show)
 
 data Line = Line {
@@ -468,19 +468,24 @@ startSwitchThread = do
 
 -- ---------------------------------------------------------------------
 -- Hardcoded params for now
-initialSeed :: String
-initialSeed = "telehash.org:42424"
+--initialSeed :: String
+--initialSeed = "telehash.org:42424"
+initialSeeds = ["telehash.org:42424","6.singly.com:42424","208.68.160.25:42424"]
+-- s.setSeeds(["telehash.org:42424","6.singly.com:42424","208.68.160.25:42424"]);
+
 
 initialize :: IO (Chan a,Chan b,Switch)
 initialize = do
   -- Look up the hostname and port.  Either raises an exception
   -- or returns a nonempty list.  First element in that list
   -- is supposed to be the best option.
-  (serveraddr,ip,port) <- resolveToSeedIPP initialSeed
-  let seedIPP = IPP (ip ++ ":" ++ port)
+
+  -- (serveraddr,ip,port) <- resolveToSeedIPP initialSeed
+  -- let seedIPP = IPP (ip ++ ":" ++ port)
 
   -- Establish a socket for communication
-  sock <- socket (addrFamily serveraddr) Datagram defaultProtocol
+  --sock <- socket (addrFamily serveraddr) Datagram defaultProtocol
+  sock <- socket AF_INET Datagram defaultProtocol
 
   -- We want to listen on all interfaces (0.0.0.0)
   bindAddr <- inet_addr "0.0.0.0"
@@ -493,8 +498,9 @@ initialize = do
   ch2 <- newChan
 
   -- Save off the socket, and server address in a handle
-  return $ (ch1, ch2, (Switch (Just (SocketHandle sock (addrAddress serveraddr))) [initialSeed]
-                       (Set.fromList [seedIPP])
+  return $ (ch1, ch2, (Switch (Just (SocketHandle sock)) initialSeeds
+                       -- (Set.fromList [seedIPP])
+                       Set.empty
                        False Map.empty Nothing Nothing [] 0 0 0 doSendDgram))
 
 -- ---------------------------------------------------------------------
@@ -568,6 +574,18 @@ getSwitch = do
 
 -- ---------------------------------------------------------------------
 
+rotateToNextSeed :: TeleHash String
+rotateToNextSeed = do
+  seeds <- gets swSeeds
+  s <- get
+  case seeds of
+    [] -> return ""
+    _  -> do
+      put (s { swSeeds = ((tail seeds) ++ [head seeds]) })
+      return (head seeds)
+
+-- ---------------------------------------------------------------------
+
 pingSeeds :: TeleHash ()
 pingSeeds = do
   seeds <- gets swSeeds
@@ -577,7 +595,9 @@ pingSeeds = do
 
   -- TODO: rotate the seeds, so the we use a fresh one each time through
   case (not connected) && (seeds /= []) of
-    True -> pingSeed $ head seeds
+    True -> do
+      nextSeed <- rotateToNextSeed
+      pingSeed nextSeed
     False -> return ()
 
 -- ---------------------------------------------------------------------
