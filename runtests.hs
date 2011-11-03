@@ -373,10 +373,12 @@ case_EncodeTelex2 =
 
 case_resolveToSeedIpp :: Assertion
 case_resolveToSeedIpp = do
-  (a,b,c) <- (resolveToSeedIPP "telehash.org:42424")
+  -- (a,b,c) <- (resolveToSeedIPP "telehash.org:42424")
+  (a,b,c) <- (resolveToSeedIPP "localhost:42424")
 
   case (a,b,c) of
-    (_,"208.68.163.247","42424") -> return ()
+    -- (_,"208.68.163.247","42424") -> return ()
+    (_,"127.0.0.1","42424") -> return ()
     (x,y,z)        -> assertFailure ("case_resolveToSeedIpp:" ++ (show (x,y,z)))
 
 case_addrFromHostPort :: Assertion
@@ -926,7 +928,8 @@ case_ScanLines_PurgeStaleRing = do
   l <- retrieveLog knob
 
   if ((lines l) == ["SCAN\t2",
-                    "\tPURGE[Hash \"0ec331643f4a7a74068ea47dda062b48b419c832\" IPP \"2.3.4.5:2345\"] last seen Nothing"])
+                    "\tPURGE[Hash \"0ec331643f4a7a74068ea47dda062b48b419c832\" IPP \"2.3.4.5:2345\"] last seen Nothing",
+                    "OFFLINE at Thu Jan  1 02:17:51 SAST 1970"])
      then return ()
      else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
 
@@ -946,7 +949,8 @@ case_ScanLines_PurgeStaleLine = do
 
   if ((lines l) == ["SCAN\t2",
                     "\tPURGE[Hash \"0ec331643f4a7a74068ea47dda062b48b419c832\" IPP \"2.3.4.5:2345\"]" ++
-                    " last seen Just Thu Jan  1 02:33:20 SAST 1970"])
+                    " last seen Just Thu Jan  1 02:33:20 SAST 1970",
+                    "OFFLINE at Thu Jan  1 02:34:31 SAST 1970"])
      then return ()
      else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
 
@@ -965,7 +969,7 @@ case_ScanLines_Us = do
 
   l <- retrieveLog knob
 
-  if (lines l == ["SCAN\t1"])
+  if (lines l == ["SCAN\t1","OFFLINE at Thu Jan  1 02:16:40 SAST 1970"])
      then return ()
      else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
 
@@ -1013,6 +1017,33 @@ retrieveLog :: MonadIO m => Knob -> m [Char]
 retrieveLog knob = do
   bytes <- Data.Knob.getContents knob
   return (BC.unpack bytes)
+
+-- ---------------------------------------------------------------------
+
+case_rotateToNextSeed = do
+  let
+    st = st1 { swSeeds = ["a","b","c"] }
+
+  (s1,st1) <- runStateT (rotateToNextSeed) st
+  if (s1 == "a")
+     then return ()
+     else (assertFailure $ "rotateToNextSeed:s1" ++ (show (s1,st1)))
+
+  (s2,st2) <- runStateT (rotateToNextSeed) st1
+  if (s2 == "b")
+     then return ()
+     else (assertFailure $ "rotateToNextSeed:s2" ++ (show (s2,st2)))
+
+  (s3,st3) <- runStateT (rotateToNextSeed) st2
+  if (s3 == "c")
+     then return ()
+     else (assertFailure $ "rotateToNextSeed:s3" ++ (show (s3,st3)))
+
+  (s4,st4) <- runStateT (rotateToNextSeed) st3
+  if (s4 == "a")
+     then return ()
+     else (assertFailure $ "rotateToNextSeed:s4" ++ (show (s4,st4)))
+
 
 -- ---------------------------------------------------------------------
 

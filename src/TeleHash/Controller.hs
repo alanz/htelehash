@@ -53,6 +53,7 @@ module TeleHash.Controller
        , processCommand
        , doNullSendDgram
        , scanlines
+       , rotateToNextSeed
        ) where
 
 import Control.Concurrent
@@ -468,9 +469,8 @@ startSwitchThread = do
 
 -- ---------------------------------------------------------------------
 -- Hardcoded params for now
---initialSeed :: String
---initialSeed = "telehash.org:42424"
-initialSeeds = ["telehash.org:42424","6.singly.com:42424","208.68.160.25:42424"]
+--initialSeeds = ["telehash.org:42424","6.singly.com:42424","208.68.160.25:42424"]
+initialSeeds = ["208.68.160.25:42424","telehash.org:42424","6.singly.com:42424"]
 -- s.setSeeds(["telehash.org:42424","6.singly.com:42424","208.68.160.25:42424"]);
 
 
@@ -1581,7 +1581,7 @@ scanlines now@(TOD _secs _picos) = do
       Just selfHash <- gets swSelfHash
       Just selfipp  <- gets swSelfIpp
       case (selfHash == hash) of
-        True -> return True -- This line is valid // skip our own endpoint and what is this (continue)
+        True -> return False -- // skip our own endpoint and what is this (continue)
         False -> do
           case (lineEnd line /= hash) of
             True -> return False -- Pretty sure this can never happen // empty/dead line (continue)
