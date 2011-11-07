@@ -168,14 +168,6 @@ case_near_to3 = do
 
 -- ---------------------------------------------------------------------
 
-{-
-_case_recvTelex1 =
-  recvTelex msg rinfo @?= "foo"
-  where
-    msg = undefined
-    rinfo = undefined
--}
-
 case_parseMsg1Js =
   parseTelex msg1Js @?= (
     Just Telex {teleRing = Nothing, teleSee = Just [IPP "208.68.163.247:42424"],
@@ -262,9 +254,12 @@ case_lineOk_timeoutFail =
 
 
 --line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
-line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999) 1234) { lineRingout = 5, lineBr = 10 }
+--line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999) 1234) { lineRingout = 5, lineBr = 10 }
+line1 = (mkLine ipp1 (TOD 1000 999) 1234) { lineRingout = 5, lineBr = 10 }
 -- msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
 msg1 = (mkTelex ipp1) { teleMsgLength = Just 100, teleBr = 97 }
+
+line2 = (mkLine ipp2 (TOD 1002 999) 2345) { lineRingout = 2345, lineBr = 102 }
 
 -- ---------------------------------------------------------------------
 -- checkLine tests, in terms of modifying line state
@@ -1044,6 +1039,215 @@ case_rotateToNextSeed = do
      then return ()
      else (assertFailure $ "rotateToNextSeed:s4" ++ (show (s4,st4)))
 
+-- ---------------------------------------------------------------------
+{-
+Testing tapsignals on received messages
+
+1. Only process them if the message hop < 4
+2. Only process for lines with rules set
+3. A rule matchs if both
+   a. All the "is" keys are in this telex, and match exactly
+   b. All the "has" keys are present in the telex
+4. If at least one rule matches
+   a. If the line holding the rule is us, do nothing
+   b. Else send a telex to the ipp of the line, having all the signals
+      (start with +) from the original telex
+      and hop' = hop+1
+-}
+
+case_TapSignals_RulesMatches_b_us = do
+  let
+    --msg = msg1 { teleHop = Just 3, teleSigEnd = Just (Hash "38666817e1b38470644e004b9356c1622368fa57") }
+    Just msg = parseTelex ("{" ++
+                           "\"_line\":412367436,"++
+                           "\".see\":[\"208.68.163.247:42424\"],"++
+                           "\"_br\":74,"++
+                           "\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\","++
+                           "\"+pop\":\"th:196.215.128.240:51602\"," ++ -- New addition
+                           "\"_to\":\"196.209.236.12:34963\""++
+                           "}")
+
+    st = st1 { swSelfIpp = Just ipp1,
+               swMaster =
+                  Map.fromList
+                  [(hash2,line2),
+                   (hash1,line1 {lineRules =
+                                    [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
+                                          tapHas = ["+pop"]}]})
+                  ],
+               swSender = doNullSendDgram
+               }
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (tapSignals True msg) st
+
+  l <- retrieveLog knob
+
+  let e = ["\tTAP CHECK IS IPP \"1.2.3.4:1234\"\tTap {"++
+             "tapIs = (\"+end\",\"38666817e1b38470644e004b9356c1622368fa57\"), "++
+             "tapHas = [\"+pop\"]}",
+           "\t\tIS match: Just (\"+end\",\"\\\"38666817e1b38470644e004b9356c1622368fa57\\\"\")"++
+                                           "=\"38666817e1b38470644e004b9356c1622368fa57\"?",
+
+           "\t\tHAS match: +pop -> True",
+           "\tTAP CHECK:( (True,True)",
+
+           "STDOUT[Telex {teleRing = Nothing, teleSee = Just [IPP \"208.68.163.247:42424\"], "++
+             "teleBr = 74, teleTo = IPP \"196.209.236.12:34963\", "++
+             "teleLine = Just 412367436, teleHop = Nothing, "++
+             "teleSigEnd = Just (Hash \"38666817e1b38470644e004b9356c1622368fa57\"), "++
+             "teleSigPop = Just \"th:196.215.128.240:51602\", teleTap = Nothing, "++
+             "teleRest = fromList [(\"+end\",\"\\\"38666817e1b38470644e004b9356c1622368fa57\\\"\"),"++
+             "(\"+pop\",\"\\\"th:196.215.128.240:51602\\\"\"),"++
+             "(\".see\",\"[\\\"208.68.163.247:42424\\\"]\"),(\"_br\",\"74\"),"++
+             "(\"_line\",\"412367436\"),(\"_to\",\"\\\"196.209.236.12:34963\\\"\")], "++
+             "teleMsgLength = Just 173}]"]
+
+  if (lines l == e)
+     then return ()
+     --then (assertFailure $ ":" ++ (show (lines l,msg,state)))
+     else (assertFailure $ ":" ++ (show (lines l,msg,state)))
+
+-- ---------------------------------------------------------------------
+
+case_TapSignals_RulesMatches_b = do
+  let
+    --msg = msg1 { teleHop = Just 3, teleSigEnd = Just (Hash "38666817e1b38470644e004b9356c1622368fa57") }
+    Just msg = parseTelex ("{" ++
+                           "\"_line\":412367436,"++
+                           "\".see\":[\"208.68.163.247:42424\"],"++
+                           "\"_br\":74,"++
+                           "\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\","++
+                           "\"+pop\":\"th:196.215.128.240:51602\"," ++ -- New addition
+                           "\"_to\":\"196.209.236.12:34963\""++
+                           "}")
+
+    st = st1 { swSelfIpp = Just ipp1,
+               swMaster =
+                  Map.fromList
+                  [(hash1,line1),
+                   (hash2,line2 {lineRules =
+                                    [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
+                                          tapHas = ["+pop"]}]})
+                  ],
+               swSender = doNullSendDgram
+               }
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (tapSignals True msg) st
+
+  l <- retrieveLog knob
+
+  let e = ["\tTAP CHECK IS IPP \"2.3.4.5:2345\"\tTap {"++
+             "tapIs = (\"+end\",\"38666817e1b38470644e004b9356c1622368fa57\"), "++
+             "tapHas = [\"+pop\"]}",
+           "\t\tIS match: Just (\"+end\",\"\\\"38666817e1b38470644e004b9356c1622368fa57\\\"\")"++
+                                           "=\"38666817e1b38470644e004b9356c1622368fa57\"?",
+
+           "\t\tHAS match: +pop -> True",
+           "\tTAP CHECK:( (True,True)",
+           "SEND[:IPP \"2.3.4.5:2345\"]\t{\"_to\":\"2.3.4.5:2345\","++
+             "\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\","++
+             "\"_ring\":\"2345\",\"_br\":102,\"_hop\":1,"++
+             "\"+pop\":\"th:196.215.128.240:51602\"}",
+           "doNullSendDgram"]
+
+
+
+  if (lines l == e)
+     then return ()
+     --then (assertFailure $ ":" ++ (show (lines l,msg,state)))
+     else (assertFailure $ ":" ++ (show (lines l,msg,state)))
+
+-- ---------------------------------------------------------------------
+
+case_TapSignals_RulesMatches_a = do
+  let
+    --msg = msg1 { teleHop = Just 3, teleSigEnd = Just (Hash "38666817e1b38470644e004b9356c1622368fa57") }
+    Just msg = parseTelex ("{" ++
+                           "\"_line\":412367436,"++
+                           "\".see\":[\"208.68.163.247:42424\"],"++
+                           "\"_br\":74,"++
+                           "\"+end\":\"38666817e1b38470644e004b9356c1622368fa57\","++
+                           "\"_to\":\"196.209.236.12:34963\""++
+                           "}")
+
+    st = st1 { swMaster =
+                  Map.fromList
+                  [(hash1,line1),
+                   (hash2,line2 {lineRules =
+                                    [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
+                                          tapHas = ["+pop"]}]})
+                  ] }
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (tapSignals True msg) st
+
+  l <- retrieveLog knob
+
+  let e = ["\tTAP CHECK IS IPP \"2.3.4.5:2345\"\tTap {"++
+             "tapIs = (\"+end\",\"38666817e1b38470644e004b9356c1622368fa57\"), "++
+             "tapHas = [\"+pop\"]}",
+           "\t\tIS match: Just (\"+end\",\"\\\"38666817e1b38470644e004b9356c1622368fa57\\\"\")"++
+                                           "=\"38666817e1b38470644e004b9356c1622368fa57\"?",
+           "\t\tHAS match: +pop -> False",
+           "\tTAP CHECK:( (True,False)",
+           "\tCHECK MISS"]
+
+  if (lines l == e)
+     then return ()
+     --then (assertFailure $ ":" ++ (show (lines l,msg,state)))
+     else (assertFailure $ ":" ++ (show (lines l,msg,state)))
+
+-- ---------------------------------------------------------------------
+
+case_TapSignals_LineWithRulesOnly = do
+  let
+    msg = msg1 { teleHop = Just 3 }
+
+    st = st1 { swMaster =
+                  Map.fromList
+                  [(hash1,line1),
+                   (hash2,line2 {lineRules =
+                                    [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
+                                          tapHas = ["+pop"]}]})
+                  ] }
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (tapSignals True msg) st
+
+  l <- retrieveLog knob
+
+  let e = ["\tTAP CHECK IS IPP \"2.3.4.5:2345\"\tTap {"++
+           "tapIs = (\"+end\",\"38666817e1b38470644e004b9356c1622368fa57\"), "++
+           "tapHas = [\"+pop\"]}",
+           "\t\tIS match: Nothing=\"38666817e1b38470644e004b9356c1622368fa57\"?",
+           "\t\tHAS match: +pop -> False",
+           "\tTAP CHECK:( (False,False)",
+           "\tCHECK MISS"]
+
+  if (lines l == e)
+     then return ()
+     else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
+
+-- ---------------------------------------------------------------------
+
+case_TapSignals_BigHop = do
+  let
+    msg = msg1 { teleHop = Just 4 }
+  knob <- setupLogger
+
+  (_,state) <- runStateT (tapSignals True msg) st1
+
+  l <- retrieveLog knob
+
+  if (lines l == [])
+     then return ()
+     else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
 
 -- ---------------------------------------------------------------------
 

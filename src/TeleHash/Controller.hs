@@ -54,6 +54,7 @@ module TeleHash.Controller
        , doNullSendDgram
        , scanlines
        , rotateToNextSeed
+       , tapSignals
        ) where
 
 import Control.Concurrent
@@ -882,7 +883,8 @@ sendTelex msg = do
 
 doNullSendDgram :: String -> SockAddr -> TeleHash ()
 doNullSendDgram msgJson addr = do
-  logT ("doNullSendDgram[" ++ msgJson ++ "] to " ++ (show addr))
+  --logT ("doNullSendDgram[" ++ msgJson ++ "] to " ++ (show addr))
+  logT ("doNullSendDgram" )
 
 doSendDgram :: String -> SockAddr -> TeleHash ()
 doSendDgram msgJson addr = do
@@ -1042,42 +1044,43 @@ tapSignals True  rxTelex = do
     False -> return ()
     True -> do
       master <- gets swMaster
-      mapM_ (\line -> tapLine rxTelex line) $ Map.elems master
+      let
+        signals = getSignals rxTelex
+
+      -- logT ( "\tTAP CHECK:signals=" ++ (show $ signals)) -- ++debug
+
+      mapM_ (\line -> tapLine rxTelex signals line) $ Map.elems master
       return ()
 
 -- ---------------------------------------------------------------------
 
-tapLine :: Telex -> Line -> TeleHash ()
-tapLine telex line = do
+tapLine :: Telex -> [(String, String)] -> Line -> StateT Switch IO ()
+tapLine telex signals line = do
   mapM_ (\rule -> processRule rule) $ lineRules line
   where
     processRule rule = do
       logT ( "\tTAP CHECK IS " ++ (show $ lineIpp line) ++ "\t" ++ (show rule))
       isMatch <- foldM (\acc (k,v) -> matchIs acc (k,v)) True [(tapIs rule)]
       hasMatch <- foldM (\acc k -> matchHas acc k) True (tapHas rule)
+      logT ( "\tTAP CHECK:( " ++ (show (isMatch,hasMatch))) -- ++debug
       forward (isMatch && hasMatch)
       return ()
 
     matchIs :: Bool -> (String,String) -> TeleHash Bool
     matchIs acc (isKey,isVal) = do
       let
-        telexIsVal = case (isKey) of
-          ".end" -> teleSigEnd telex
-          _      -> Nothing
+        telexIsVal = find (\(k,v) -> k == isKey) signals
       logT ( "\t\tIS match: " ++ (show telexIsVal) ++ "=" ++ (show isVal)++ "?")
-      case (isKey) of
-        ".end" -> return (acc && ((teleSigEnd telex) == Just (Hash isVal)))
-        _      -> return False
+      return (acc && (telexIsVal == Just (isKey,quote isVal)))
 
+    quote str = "\"" ++ str ++ "\""
 
     matchHas acc hasKey = do
-      -- console.log("HAS match: " + hasKey + " -> " + (hasKey in telex));
-      hasKeyInTelex <- case (hasKey) of
-        "+pop" -> return $ (teleSigPop telex) /= Nothing
-        x      -> do
-          logT ( "\t\tHAS match: no code for " ++ (show x))
-          return False
+      let
+        telexHasVal = find (\(k,v) -> k == hasKey) signals
+        hasKeyInTelex = telexHasVal /= Nothing
 
+      -- console.log("HAS match: " + hasKey + " -> " + (hasKey in telex));
       logT ( "\t\tHAS match: " ++ hasKey ++ " -> " ++ (show hasKeyInTelex))
       return (acc && hasKeyInTelex)
 
@@ -1089,6 +1092,7 @@ tapLine telex line = do
       let
         swipp = lineIpp line
       Just selfipp <- gets swSelfIpp
+      -- logT ( "DEBUG:(swipp,selfipp)=" ++ (show (swipp,selfipp)))
       -- // it's us, it has to be our tap_js
       case (swipp == selfipp) of
         True -> do
@@ -1105,9 +1109,9 @@ tapLine telex line = do
 
     addSignal tel (sigName, _sigVal) =
       case sigName of
-        ".end" -> tel {teleSigEnd = (teleSigEnd telex)}
-        ".pop" -> tel {teleSigPop = (teleSigPop telex)}
-        _ -> undefined -- Should never happen, but catch extensions when they come
+        "+end" -> tel {teleSigEnd = (teleSigEnd telex)}
+        "+pop" -> tel {teleSigPop = (teleSigPop telex)}
+        x -> undefined -- Should never happen, but catch extensions when they come
                        -- TODO: make this recover gracefully and log something, instead
 
 -- ---------------------------------------------------------------------
