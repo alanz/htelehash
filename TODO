@@ -12,5 +12,16 @@
    new line
 
 5. MAX SEND DROP does not seem to actually drop the line
-  
+
 6. MAX SEND DROP seems to be doing the wrong calculation
+
+-------------
+
+Error in log:
+
+main: sendTo: unsupported operation (Address family not supported by
+   protocol)
+
+Then app hangs (main thread stops processing messages)
+
+

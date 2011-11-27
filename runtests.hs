@@ -123,6 +123,27 @@ st1 = (Switch {swH = Nothing
               , swSender = doNullSendDgram
               })
 
+st1_online =
+  let
+    line1 = (mkLine ipp1 (TOD 1000 999)) 1234
+  in
+   (Switch {swH = Nothing
+           , swSeeds = []
+           , swSeedsIndex = (Set.fromList [])
+           , swConnected = True
+           , swMaster = Map.fromList
+                        [
+                          (hash1,line1) -- us
+                        ]
+           , swSelfIpp = Just ipp1
+           , swSelfHash = Just hash1
+           , swTaps = []
+           , swCountOnline = 0
+           , swCountTx = 0
+           , swCountRx = 0
+           , swSender = doNullSendDgram
+           })
+
 st2 =
   let
     line1 = (mkLine ipp1 (TOD 1000 999)) 1234
@@ -165,6 +186,10 @@ case_near_to3 = do
   case res of
     Left msgStr -> assertFailure msgStr
     Right [Hash "0ec331643f4a7a74068ea47dda062b48b419c832"] -> return ()
+
+-- ---------------------------------------------------------------------
+
+case_near_to4 = assertFailure "Need to test near_to more thoroughly"
 
 -- ---------------------------------------------------------------------
 
@@ -258,6 +283,7 @@ case_lineOk_timeoutFail =
 line1 = (mkLine ipp1 (TOD 1000 999) 1234) { lineRingout = 5, lineBr = 10 }
 -- msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
 msg1 = (mkTelex ipp1) { teleMsgLength = Just 100, teleBr = 97 }
+msg2 = (mkTelex ipp2) { teleMsgLength = Just 200, teleBr = 297 }
 
 line2 = (mkLine ipp2 (TOD 1002 999) 2345) { lineRingout = 2345, lineBr = 102 }
 
@@ -1247,7 +1273,149 @@ case_TapSignals_BigHop = do
 
   if (lines l == [])
      then return ()
-     else (assertFailure $ "scanlines:" ++ (show (lines l,state)))
+     else (assertFailure $ "tapSignals:" ++ (show (lines l,state)))
+
+-- ---------------------------------------------------------------------
+{-
+Processing +END signal
+
+1. Only process (except for +pop) if the _hop is zero
+1.a. If the line the message was rx on is visible, start there, else with us
+1.b. Get the closest hashes of other switches to (2) above
+1.c. For max 5 results, look up the IPP of the associated hashes
+1.d. If the line has not been visibled, mark it as visibled and add our
+     own IPP to the list of IPPs
+1.e. If the list is not empty, send a telex with a .see in it comprising the list.
+     Note: longest will be 5 + 1 for ourselves
+2. If the end is us and there is a +pop request
+2.a. If the value of the pop is "th:" then an ipp,
+     Send an otherwise empty telex to the enclosed ipp
+-}
+
+-- ++TODO++ continue extending these tests
+
+case_ProcessSignalEnd_NoNearest = do
+  let
+    Just msg = parseTelex ("{" ++
+                           "\"_line\":412367436,"++
+                           "\"_br\":74,"++
+                           "\"+end\":\"" ++ (unHash hash2) ++ "\","++
+                           "\"_to\":\"" ++ (unIPP ipp1) ++ "\","++
+                           "\"_hop\":0"++
+                           "}")
+
+    st = st1_online { swMaster = Map.fromList
+                        [
+                          (hash1,line1) -- us
+                        , (hash2,line2) -- end under test
+                        ] }
+  knob <- setupLogger
+
+  (_,state) <- runStateT (processSignals msg ipp2 line1) st
+
+  l <- retrieveLog knob
+
+  let e =
+        [
+          "processSignal :  +end",
+          "+end hashes: Left \"empty see list\"","+end ipps: []",
+          "SEND[:IPP \"2.3.4.5:2345\"]\t{\"_to\":\"2.3.4.5:2345\",\"_ring\":\"2345\","++
+            "\".see\":[\"1.2.3.4:1234\"],\"_br\":102}",
+          "doNullSendDgram"
+        ]
+
+  if (lines l == e)
+     then return ()
+     else (assertFailure $ "processSignalEnd:" ++ (show (lines l,state)))
+
+-- ---------------------------------------------------------------------
+
+case_ProcessSignalEnd_BigHop_PopNotUs = do
+  let
+    Just msg = parseTelex ("{" ++
+                           "\"_line\":412367436,"++
+                           "\"_br\":74,"++
+                           "\"+end\":\"" ++ (unHash hash2) ++ "\","++
+                           "\"+pop\":\"th:196.215.128.240:51602\"," ++ -- New addition
+                           "\"_to\":\"" ++ (unIPP ipp1) ++ "\","++
+                           "\"_hop\":1"++
+                           "}")
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (processSignals msg ipp2 line1) st1_online
+
+  l <- retrieveLog knob
+
+  let e =
+        [
+          "processSignal :  +end",
+          "processSignal : ***ignoring*** \"+pop\""
+        ]
+
+  if (lines l == e)
+     then return ()
+     else (assertFailure $ "processSignalEnd:" ++ (show (lines l,state)))
+
+-- ---------------------------------------------------------------------
+
+case_ProcessSignalEnd_BigHop_Pop = do
+  let
+    Just msg = parseTelex ("{" ++
+                           "\"_line\":412367436,"++
+                           "\"_br\":74,"++
+                           "\"+end\":\"" ++ (unHash hash1) ++ "\","++
+                           "\"+pop\":\"th:196.215.128.240:51602\"," ++ -- New addition
+                           "\"_to\":\"" ++ (unIPP ipp1) ++ "\","++
+                           "\"_hop\":1"++
+                           "}")
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (processSignals msg ipp2 line1) st1_online
+
+  l <- retrieveLog knob
+
+  let e =
+        [
+          "processSignal :  +end",
+          "POP? Just \"th:196.215.128.240:51602\"",
+          "POP to 196.215.128.240:51602",
+          "\tNEWLINE[IPP \"196.215.128.240:51602\"]",
+          "SEND[:IPP \"196.215.128.240:51602\"]\t"++
+          "{\"_to\":\"196.215.128.240:51602\",\"_ring\":\"13985\",\"_br\":0}",
+          "doNullSendDgram",
+          "processSignal : ***ignoring*** \"+pop\""
+        ]
+
+  if (lines l == e)
+     then return ()
+     else (assertFailure $ "processSignalEnd:" ++ (show (lines l,state)))
+
+-- ---------------------------------------------------------------------
+
+case_ProcessSignalEnd_BigHop = do
+  let
+    Just msg = parseTelex ("{" ++
+                           "\"_line\":412367436,"++
+                           "\"_br\":74,"++
+                           "\"+end\":\"" ++ (unHash hash1) ++ "\","++
+                           -- "\"+pop\":\"th:196.215.128.240:51602\"," ++ -- New addition
+                           "\"_to\":\"" ++ (unIPP ipp1) ++ "\","++
+                           "\"_hop\":1"++
+                           "}")
+
+  knob <- setupLogger
+
+  (_,state) <- runStateT (processSignals msg ipp2 line1) st1_online
+
+  l <- retrieveLog knob
+
+  if (lines l == ["processSignal :  +end"])
+     then return ()
+     else (assertFailure $ "processSignalEnd:" ++ (show (lines l,state)))
+
+
 
 -- ---------------------------------------------------------------------
 

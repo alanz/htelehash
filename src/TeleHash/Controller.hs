@@ -24,6 +24,7 @@ module TeleHash.Controller
        , mkTelex
        , Telex(..)
        , Hash(..)
+       , unHash
        , Tap(..)
        , Line(..)
        , IPP(..)
@@ -55,6 +56,7 @@ module TeleHash.Controller
        , scanlines
        , rotateToNextSeed
        , tapSignals
+       , processSignals
        ) where
 
 import Control.Concurrent
@@ -1379,16 +1381,13 @@ processSignal "+end" remoteipp telex line = do
       let
         -- // start from a visible switch (should use cached result someday)
         vis = if (lineVisible line) then (remoteipp) else (selfipp)
-      Right hashes <- near_to end vis -- // get closest hashes (of other switches)
-      logT ( "+end hashes: " ++ (show hashes))
 
-        -- // convert back to IPPs
-        {-
-        var ipps = {};
-        hashes.slice(0,5).forEach(function(hash){
-            ipps[self.master[hash].ipp] = 1;
-        });
-        -}
+      h <- near_to end vis -- // get closest hashes (of other switches)
+      logT ( "+end hashes: " ++ (show h))
+      let hashes = case h of
+            Right hashes -> hashes
+            Left msg -> []
+
       let ipps = take 5 $ map (\h -> hashToIpp master h) hashes
       logT ( "+end ipps: " ++ (show ipps))
 
