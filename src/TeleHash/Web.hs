@@ -1,10 +1,10 @@
 {-# LANGUAGE QuasiQuotes, TypeFamilies, OverloadedStrings #-}
 {-# LANGUAGE MultiParamTypeClasses, TemplateHaskell #-}
 
-module TeleHash.Web 
-       ( 
+module TeleHash.Web
+       (
        runWeb
-       ) where 
+       ) where
 
 -- From http://www.yesodweb.com/book/rest
 import Control.Concurrent
@@ -21,11 +21,14 @@ mkYesod "R" [parseRoutes|
 /stats StatsR GET
 /fn/#String FnR GET
 |]
+
 instance Yesod R where
-    approot _ = ""
+    -- approot _ = ""
+    -- approot = undefined
+
 
 -- ---------------------------------------------------------------------
-    
+
 getRootR :: GHandler sub R RepHtml
 getRootR = defaultLayout $ do
     setTitle "Homepage"
@@ -44,7 +47,7 @@ getRootR = defaultLayout $ do
 getFnR :: [Char] -> Handler RepHtml
 getFnR fn = do
     -- let json = jsonMap [("fn", jsonScalar fn)]
-    (R ch1 ch2) <- getYesod      
+    (R ch1 ch2) <- getYesod
     sw <- liftIO (querySwitch ch1 ch2)
     -- let json = jsonMap [("fn", jsonScalar $ prettySwitch sw)]
     let json = case fn of
@@ -55,35 +58,35 @@ getFnR fn = do
     let widget = do
           setTitle $ toHtml fn
           addHamlet [hamlet|Fn: #{fn}<br/><pre>#{json}</pre>|]
-    defaultLayout widget 
+    defaultLayout widget
 
 -- ---------------------------------------------------------------------
 
 getStatsR :: Handler RepHtml
 getStatsR = do
-  (R ch1 ch2) <- getYesod      
+  (R ch1 ch2) <- getYesod
   sw <- liftIO (querySwitch ch1 ch2)
   let content = prettyCounts sw
 
   let widget = do
         setTitle $ "Stats"
         addHamlet [hamlet|Content = #{content}.|]
-      
+
   defaultLayout widget
 
 -- ---------------------------------------------------------------------
-    
+
 prettySwitch :: Reply -> String
-prettySwitch (ReplyGetSwitch sw) =    
-  ("Connected:" ++ (show $ swConnected sw) ++ ",Seeds:" ++ (show $ swSeeds sw) 
+prettySwitch (ReplyGetSwitch sw) =
+  ("Connected:" ++ (show $ swConnected sw) ++ ",Seeds:" ++ (show $ swSeeds sw)
    ++ ",IPP:" ++ (show $ swSelfIpp sw) ++ ",Hash:" ++ (show $ swSelfHash sw))
-  
+
 -- ---------------------------------------------------------------------
-    
+
 prettyCounts :: Reply -> String
-prettyCounts (ReplyGetSwitch sw) =    
+prettyCounts (ReplyGetSwitch sw) =
   ("Online:" ++ (show $ swCountOnline sw) ++ ",Tx:" ++ (show $ swCountTx sw) ++ ",Rx:" ++ (show $ swCountRx sw) )
-  
+
 -- ---------------------------------------------------------------------
 
 runWeb :: Chan Signal -> Chan Reply -> IO ()

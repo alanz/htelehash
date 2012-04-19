@@ -473,7 +473,9 @@ startSwitchThread = do
 -- ---------------------------------------------------------------------
 -- Hardcoded params for now
 --initialSeeds = ["telehash.org:42424","6.singly.com:42424","208.68.160.25:42424"]
-initialSeeds = ["208.68.160.25:42424","telehash.org:42424","6.singly.com:42424"]
+-- initialSeeds = ["208.68.160.25:42424","telehash.org:42424","6.singly.com:42424"]
+initialSeeds = ["208.68.164.253:42424", "208.68.163.247:42424"]
+
 -- s.setSeeds(["telehash.org:42424","6.singly.com:42424","208.68.160.25:42424"]);
 
 
