@@ -23,8 +23,6 @@ mkYesod "R" [parseRoutes|
 |]
 
 instance Yesod R where
-    -- approot _ = ""
-    -- approot = undefined
 
 
 -- ---------------------------------------------------------------------
