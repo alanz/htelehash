@@ -71,7 +71,7 @@ data Line = Line {
   lineRules     :: [Tap]
   } deriving (Eq,Show)
 
-
+{-
 newtype Hash = Hash String
 --             deriving (Data,Eq,Show,Typeable,Ord)
              deriving (Eq,Show,Ord)
@@ -86,7 +86,6 @@ unIPP :: IPP -> String
 unIPP (IPP str) = str
 
 -- ---------------------------------------------------------------------
-
 -- JSON stuff for a Telex
 
 data Tap = Tap { tapIs :: (String,String),
@@ -201,7 +200,7 @@ getTapMaybe cc field =
     --dTap tap ("has", o) = tap {tapHas= [show o]}
     dTap tap ("has", JSArray arr) = tap {tapHas= map (\(JSString s) -> fromJSString s) arr}
     dTap _   _                    = error "Should never happen"
-
+-}
 
 
 initialize = undefined
