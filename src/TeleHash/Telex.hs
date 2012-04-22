@@ -11,7 +11,9 @@ module TeleHash.Telex
 import Control.Applicative ((<$>), (<*>), empty, pure)
 import Data.Aeson
 import Data.Aeson.Types
+import Data.Text (Text, pack, unpack)
 import qualified Data.ByteString.Lazy.Char8 as BL
+import qualified Data.HashMap.Strict as H
 import qualified Data.Text as T
 
 data Tap = Tap { tapIs :: (String,String),
@@ -28,10 +30,17 @@ instance ToJSON Tap where
 
 instance FromJSON Tap where
   parseJSON (Object v) = Tap <$>
-                         v .: "is" <*>
+                         v .:* "is" <*>
                          v .: "has"
-
   parseJSON _          = empty
+
+(.:*) :: Object -> Text -> Parser (String,String)
+obj .:* key = case H.lookup key obj of
+               Nothing -> fail $ "key " ++ show key ++ " not present"
+               -- Just v  -> parseJSON v
+               -- Just (Object v)  -> pure ((show (head $ map (\(k,String vv) -> (k,T.unpack vv)) $ H.toList v)),"xxx")
+               Just (Object v)  -> pure (head $ map (\(k,String vv) -> (T.unpack k,T.unpack vv)) $ H.toList v)
+{-# INLINE (.:*) #-}
 
 
 newtype Hash = Hash String
@@ -70,7 +79,7 @@ data Telex = Telex
              , teleHop    :: Maybe Int
              , teleSigEnd :: Maybe Hash
              , teleSigPop :: Maybe String
-             -- , teleTap    :: Maybe [Tap]
+             , teleTap    :: Maybe [Tap]
              -- , teleRest   :: Map.Map String String
              -- , teleMsgLength :: Maybe Int -- length of received Telex
              } deriving (Show)
@@ -79,7 +88,7 @@ data Telex = Telex
 
 instance ToJSON Telex where
   -- toJSON (Telex tRing tSee tBr tTo tLine tHop tSigEnd tSigPop tTap)
-  toJSON (Telex tRing tSee tBr tTo tLine tHop tSigEnd tSigPop )
+  toJSON (Telex tRing tSee tBr tTo tLine tHop tSigEnd tSigPop tTap)
                        = object $ stripNulls
                          [
                            "_ring" .= tRing
@@ -90,7 +99,7 @@ instance ToJSON Telex where
                          , "_hop"  .= tHop
                          , "+end"  .= tSigEnd
                          , "+pop"  .= tSigPop
-                         -- , ".tap"  .= tTap
+                         , ".tap"  .= tTap
                          ]
 
 -- A FromJSON instance allows us to decode a value from JSON.  This
@@ -105,8 +114,8 @@ instance FromJSON Telex where
                          v .:? "_line" <*>
                          v .:? "_hop"  <*>
                          v .:? "+end"  <*>
-                         v .:? "+pop" -- <*>
-                         -- v .: ".tap"
+                         v .:? "+pop"  <*>
+                         v .:? ".tap"
 
   parseJSON _          = empty
 
@@ -124,9 +133,10 @@ main = do
 main :: IO ()
 main = do
   -- let req = decode "{\"_to\":\"196.209.236.208:38636\",\"+end\":\"9e307c287a8a870919019d8315809d44b1ff8801\",\".see\":[\"76.14.65.244:34004\"],\".tap\":[{\"is\":{\"+end\":\"9e307c287a8a870919019d8315809d44b1ff8801\"},\"has\":[\"+pop\"]}],\"_ring\":15099,\"_br\":0}" :: Maybe Telex
-  let req = decode "{\"_br\":1,\"_to\":\"ipp1-hooray\"}" :: Maybe Telex
+  let req = decode "{\"_to\":\"196.209.236.208:38636\",\"+end\":\"9e307c287a8a870919019d8315809d44b1ff8801\",\".see\":[\"76.14.65.244:34004\"],\".tap\":[{\"is\":{\"+end\":\"9e307c287a8a870919019d8315809d44b1ff8801\"},\"has\":[\"+pop\"]}],\"_ring\":15099,\"_br\":0}" :: Maybe Telex
+  -- let req = decode "{\"_br\":1,\"_to\":\"ipp1-hooray\"}" :: Maybe Telex
   print req
-  let reply = Telex Nothing Nothing 1 (IPP "ipp1") Nothing Nothing Nothing Nothing
+  let reply = Telex Nothing Nothing 1 (IPP "ipp1") Nothing Nothing Nothing Nothing Nothing
   BL.putStrLn (encode reply)
 
 
