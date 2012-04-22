@@ -40,8 +40,9 @@ unHash :: Hash -> String
 unHash (Hash str) = str
 
 instance FromJSON Hash where
-  parseJSON (Object v) = Hash <$>
-                         v .: ""
+  parseJSON (String x) = pure (Hash $ T.unpack x)
+  parseJSON x = pure (Hash $ show x)
+  -- parseJSON _          = empty
 
 instance ToJSON Hash where
   toJSON (Hash h) = String $ T.pack h
@@ -52,9 +53,8 @@ unIPP :: IPP -> String
 unIPP (IPP str) = str
 
 instance FromJSON IPP where
-  -- parseJSON (String t) = IPP $ pure (T.unpack t)
+  parseJSON (String x) = pure (IPP $ T.unpack x)
   parseJSON x = pure (IPP $ show x)
-  -- parseJSON (Object v) = String $ T.pack (show v)
   -- parseJSON _          = empty
 
 instance ToJSON IPP where
@@ -62,14 +62,14 @@ instance ToJSON IPP where
 
 data Telex = Telex
              {
-             --  teleRing   :: Maybe Int
-             -- , teleSee    :: Maybe [IPP]
-               teleBr     :: Int
+               teleRing   :: Maybe Int
+             , teleSee    :: Maybe [IPP]
+             , teleBr     :: Int
              , teleTo     :: IPP
-             -- , teleLine   :: Maybe Int
-             -- , teleHop    :: Maybe Int
-             -- , teleSigEnd :: Maybe Hash
-             -- , teleSigPop :: Maybe String
+             , teleLine   :: Maybe Int
+             , teleHop    :: Maybe Int
+             , teleSigEnd :: Maybe Hash
+             , teleSigPop :: Maybe String
              -- , teleTap    :: Maybe [Tap]
              -- , teleRest   :: Map.Map String String
              -- , teleMsgLength :: Maybe Int -- length of received Telex
@@ -79,17 +79,17 @@ data Telex = Telex
 
 instance ToJSON Telex where
   -- toJSON (Telex tRing tSee tBr tTo tLine tHop tSigEnd tSigPop tTap)
-  toJSON (Telex tBr tTo )
+  toJSON (Telex tRing tSee tBr tTo tLine tHop tSigEnd tSigPop )
                        = object $ stripNulls
                          [
-                         --  "_ring" .= tRing
-                         -- , ".see"  .= tSee
-                           "_br"   .= tBr
+                           "_ring" .= tRing
+                         , ".see"  .= tSee
+                         ,  "_br"  .= tBr
                          , "_to"   .= tTo
-                         -- , "_line" .= tLine
-                         -- , "_hop"  .= tHop
-                         -- , "+end"  .= tSigEnd
-                         -- , "+pop"  .= tSigPop
+                         , "_line" .= tLine
+                         , "_hop"  .= tHop
+                         , "+end"  .= tSigEnd
+                         , "+pop"  .= tSigPop
                          -- , ".tap"  .= tTap
                          ]
 
@@ -98,14 +98,14 @@ instance ToJSON Telex where
 
 instance FromJSON Telex where
   parseJSON (Object v) = Telex <$>
-                         -- v .: "_ring" <*>
-                         -- v .: ".see"  <*>
-                         v .: "_br"   <*>
-                         v .: "_to" --  <*>
-                         -- v .: "_line" <*>
-                         -- v .: "_hop"  <*>
-                         -- v .: "+end"  <*>
-                         -- v .: "+pop"  <*>
+                         v .:? "_ring" <*>
+                         v .:? ".see"  <*>
+                         v .:  "_br"   <*>
+                         v .:  "_to"   <*>
+                         v .:? "_line" <*>
+                         v .:? "_hop"  <*>
+                         v .:? "+end"  <*>
+                         v .:? "+pop" -- <*>
                          -- v .: ".tap"
 
   parseJSON _          = empty
@@ -126,8 +126,7 @@ main = do
   -- let req = decode "{\"_to\":\"196.209.236.208:38636\",\"+end\":\"9e307c287a8a870919019d8315809d44b1ff8801\",\".see\":[\"76.14.65.244:34004\"],\".tap\":[{\"is\":{\"+end\":\"9e307c287a8a870919019d8315809d44b1ff8801\"},\"has\":[\"+pop\"]}],\"_ring\":15099,\"_br\":0}" :: Maybe Telex
   let req = decode "{\"_br\":1,\"_to\":\"ipp1-hooray\"}" :: Maybe Telex
   print req
-  -- let reply = Telex Nothing Nothing 1 (IPP "ipp1") Nothing Nothing Nothing Nothing Nothing
-  let reply = Telex 1 (IPP "hello there all")
+  let reply = Telex Nothing Nothing 1 (IPP "ipp1") Nothing Nothing Nothing Nothing
   BL.putStrLn (encode reply)
 
 
