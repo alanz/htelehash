@@ -17,6 +17,7 @@ import Network.Socket
 import System.IO
 import System.Time
 import Text.JSON
+import TeleHash.Telex
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
@@ -223,6 +224,8 @@ ping = undefined
 
 shutdown = undefined
 
+-- ---------------------------------------------------------------------
+
 pingSeeds :: TeleHash ()
 pingSeeds = do
   seeds <- gets swSeeds
@@ -236,6 +239,59 @@ pingSeeds = do
       nextSeed <- rotateToNextSeed
       pingSeed nextSeed
     False -> return ()
+
+-- ---------------------------------------------------------------------
+
+purgeSeeds :: TeleHash ()
+purgeSeeds = do
+  {-
+    self.seeds.forEach(function (ipp) {
+        slib.getSwitch(ipp).drop();
+    });
+  -}
+
+-- ---------------------------------------------------------------------
+
+rotateToNextSeed :: TeleHash String
+rotateToNextSeed = do
+  seeds <- gets swSeeds
+  s <- get
+  case seeds of
+    [] -> return ""
+    _  -> do
+      put (s { swSeeds = ((tail seeds) ++ [head seeds]) })
+      return (head seeds)
+
+-- ---------------------------------------------------------------------
+
+pingSeed :: String -> TeleHash ()
+pingSeed seed =
+  do
+    -- logT ( "pingSeed " ++ (show seed))
+
+    (_serveraddr,ip,port) <- io (resolveToSeedIPP seed)
+
+    --logT ( "pingSeed serveraddr=" ++ (show serveraddr))
+
+    let seedIPP = IPP (ip ++ ":" ++ port)
+    -- console.log(["SEEDING[", seedIPP, "]"].join(""));
+    logT ( "SEEDING[" ++ (show seedIPP))
+
+    switch <- get
+    put switch {swSeedsIndex = Set.insert seedIPP (swSeedsIndex switch) }
+
+    timeNow <- io getClockTime
+
+    line <- getOrCreateLine seedIPP timeNow
+    let bootTelex = mkTelex seedIPP
+    -- // any end will do, might as well ask for their neighborhood
+    let bootTelex' = bootTelex { teleSigEnd = Just $ (lineEnd line) }
+
+    sendTelex bootTelex'
+
+    return ()
+
+-- ---------------------------------------------------------------------
 
 
 -- EOF

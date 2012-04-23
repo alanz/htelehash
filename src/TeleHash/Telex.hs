@@ -4,6 +4,8 @@ module TeleHash.Telex
        (
          IPP(..)
        , Hash(..)
+       , unHash
+       , mkHash
        , Tap(..)
        , Telex(..)
        ) where
@@ -12,7 +14,9 @@ import Control.Applicative ((<$>), (<*>), empty, pure)
 import Data.Aeson
 import Data.Aeson.Types
 import Data.Text (Text, pack, unpack)
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy.Char8 as BL
+import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.HashMap.Strict as H
 import qualified Data.Text as T
 
@@ -122,6 +126,25 @@ instance FromJSON Telex where
 stripNulls :: [Pair] -> [Pair]
 stripNulls xs = filter (\(_,v) -> v /= Null) xs
 
+-- ---------------------------------------------------------------------
+{-
+/**
+ * Hash objects represent a message digest of string content,
+ * with methods useful to DHT calculations.
+ */
+-}
+
+mkHash :: IPP -> Hash
+mkHash (IPP str) =
+  let
+    digest = SHA.sha1 $ BL.fromChunks [BC.pack str]
+  in
+   -- B64.encode $ BL.unpack $ SHA.bytestringDigest digest
+   Hash (show digest)
+
+
+
+-- ---------------------------------------------------------------------
 {-
 main :: IO ()
 main = do
