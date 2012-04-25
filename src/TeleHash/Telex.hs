@@ -8,6 +8,7 @@ module TeleHash.Telex
        , mkHash
        , Tap(..)
        , Telex(..)
+       , mkTelex
        ) where
 
 import Control.Applicative ((<$>), (<*>), empty, pure)
@@ -125,6 +126,15 @@ instance FromJSON Telex where
 
 stripNulls :: [Pair] -> [Pair]
 stripNulls xs = filter (\(_,v) -> v /= Null) xs
+
+-- ---------------------------------------------------------------------
+
+mkTelex :: IPP -> Telex
+mkTelex seedIPP =
+    -- set _to = seedIPP
+  -- Telex Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
+  -- Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing Map.empty Nothing
+  Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing
 
 -- ---------------------------------------------------------------------
 {-

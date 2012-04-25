@@ -6,6 +6,11 @@ module TeleHash.Switch
        , knownSwitch
        , getNear
        , ruleMatch
+       , Callbacks(..)
+       , Switch(..)
+
+       -- , io
+       -- , logT
        ) where
 
 import Control.Monad.State
@@ -22,15 +27,29 @@ import qualified Data.Set as Set
 --
 -- The 'Network' monad, a wrapper over IO, carrying the network's state.
 --
-type Network = StateT Master IO
+type Network = StateT Switch IO
 
-data Master = Master {
+
+data Switch = Switch {
   maNetwork :: Map.Map IPP RSwitch
   } deriving (Eq,Show)
 
+
+data Callbacks = Callbacks
+                 { cbSock :: String
+                 , cbNat  :: String
+                 , cbSnat :: String
+                 , cbNews :: String
+                 , cbData :: String
+                 , cbSignals :: String
+                 , cbMode :: String
+                 }
+               deriving (Show)
+
+
 -- ---------------------------------------------------------------------
 
-setCallbacks = undefined
+setCallbacks callbacks = undefined
 
 getSwitches = undefined
 
