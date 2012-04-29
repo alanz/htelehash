@@ -12,6 +12,7 @@ module TeleHash.Switch
        , sendTelex
        , doSendDgram
 
+       , healthy
        -- , io
        -- , logT
        ) where
@@ -209,14 +210,12 @@ sendTelex msg = do
     Nothing -> return ()
     Just (line,msgJson) -> do
       -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
-      logT ( "SEND[:" ++ (show $ teleTo msg) ++ "]\t" ++ (msgJson))
+      logT ( "-->[:" ++ (show $ teleTo msg) ++ "]\t" ++ (msgJson))
 
       master <- get
       put master {selfCountTx = (selfCountTx master) + 1 }
 
       addr <- io (addrFromHostPort (swiIp line) (swiPort line))
-      --Just socketh <- gets swH
-      --io (sendDgram socketh msgJson addr)
       sender <- gets selfSender
       sender msgJson addr
 
@@ -265,25 +264,38 @@ prepareTelex msg timeNow = do
     True -> do
       -- if (this.ATexpected < Date.now()) this.misses = this.misses + 1 || 1;
       -- delete this.ATexpected;
-      let misses = if ((swiATexpected switch /= Nothing) &&
-                       (fromMaybe (TOD 0 0) (swiATexpected switch)) < timeNow)
-                   then (safeAdd (swiMisses switch) 1)
-                   else (swiMisses switch)
+      let
+        -- if last time we sent there was an expected response and
+        -- never got it, count it as a miss for health check
+        misses = if ((swiATexpected switch /= Nothing) &&
+                     (fromMaybe (TOD 0 0) (swiATexpected switch)) < timeNow)
+                 then (safeAdd (swiMisses switch) 1)
+                 else (swiMisses switch)
 
-          expected = if ((teleSigEnd msg /= Nothing)
-                         &&
-                         ((teleHop msg == Nothing) || (teleHop msg == Just 0)))
-                     then (Just (addSeconds timeNow 10))
-                     else Nothing
+        -- if we expect a reponse, in 10sec we should count it as a miss if nothing
+        -- if we are forwarding an +end signal (_hop > 0) dont expect a .see response.
+        expected = if ((teleSigEnd msg /= Nothing)
+                       &&
+                       ((teleHop msg == Nothing) || (teleHop msg == Just 0)))
+                   then (Just (addSeconds timeNow 10))
+                   else Nothing
 
-          switch' = switch {swiMisses = misses, swiATexpected = expected}
+        switch' = switch {swiMisses = misses, swiATexpected = expected}
 
-          brBad = (swiBsent switch) - (swiBrin switch) > 10000
+        -- check bytes sent vs received and drop if too much so we don't flood
+        brBad = (swiBsent switch) - (swiBrin switch) > 10000
       case brBad of
         True -> do
-          logT ( "MAX SEND DROP ")
+          -- console.error("FLOODING " + this.ipp + ", dropping " + JSON.stringify(telex));
+          logT ( "FLOODING " ++ (show $ swiIpp switch) ++ ", dropping " ++ (show msg))
+          -- logT ( "MAX SEND DROP ")
           return Nothing
         False -> do
+
+          -- if(master.mode() != MODE.ANNOUNCER ){
+          --     if (!this.ring) this.ring = Math.floor((Math.random() * 32768) + 1);
+          -- }
+
           -- if a line is open use that, else send a ring
           let
             msg' = if (swiLine switch == Nothing)
@@ -334,5 +346,45 @@ doSendDgram msgJson addr = do
   Just socket <- gets selfServer
   io (sendDgram socket msgJson addr)
 
+-- ---------------------------------------------------------------------
+{-
+// necessary utility to see if the switch is in a known healthy state
+Switch.prototype.healthy = function () {
+    if (this.self) return true; // we're always healthy haha
+    //if(!this.popped) return true; //give a chance for switch to atleast get popped
+    if (this.ATdropped) return false;
+    if (this.ATinit > (Date.now() - 10000)) return true; // new switches are healthy for 10 seconds!
+    if (!this.ATrecv) return false; // no packet, no love
+    if (Date.now() > (this.ATrecv + 60000)) return false; //haven't recieved anything in last minute
+    if (this.misses > 2) return false; // three strikes
+    if (this.Bsent - this.BRin > 10000) return false; // more than 10k hasn't been acked
+    return true; // <3 everyone else
+}
+
+-}
+healthy :: Switch -> ClockTime -> Bool
+healthy switch timeNow =
+  let
+    selfOk = swiIsSelf switch
+
+    atDroppedOk = case (swiATdropped switch) of
+      Nothing -> True
+      Just _time -> False
+
+    atInitOk = (swiATinit switch) > (addSeconds timeNow (-10))
+
+    atRecvOk = case (swiATrecv switch) of
+      Nothing -> False
+      Just rxTime -> not (timeNow > (addSeconds rxTime 60))
+
+    missesOk = case (swiMisses switch) of
+      Nothing -> True
+      Just misses -> misses <= 2
+
+    brOk = not ((swiBsent switch) - (swiBrin switch) > 10000)
+
+  in
+   -- Relying on short circuit evaluation
+   selfOk && atDroppedOk && atInitOk && atRecvOk && missesOk && brOk
 
 -- EOF

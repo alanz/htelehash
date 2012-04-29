@@ -401,6 +401,56 @@ pingSeed seed =
 
     return ()
 
+-- ---------------------------------------------------------------------
+{-
+function resetIdentity() {
+    if (self.me) {
+        self.me.drop();
+    }
+    delete self.me;
+    listeners = [];
+    connectors = {};
+    delete self.nat;
+    delete self.snat;
+}
+-}
+resetIdentity :: ClockTime -> TeleHash ()
+resetIdentity timeNow = do
+  master <- get
+  case (selfMe master) of
+    Nothing -> return ()
+    Just switch -> dropSwitch switch timeNow
+
+  let
+    master' = master { selfMe = Nothing
+                     , selfListeners = []
+                     , selfConnectors = Set.empty
+                     , selfNat = Nothing
+                     , selfSNat = Nothing
+                     }
+
+  put master'
+
+-- ---------------------------------------------------------------------
+{-
+Switch.prototype.drop = function () {
+    //PURGE!:  delete main reference to self, should auto-GC if no others
+    console.error('purging.. ' + this.ipp);
+    if (this.healthy()) this.send({
+        _br: -10000
+    });
+    delete network[this.ipp];
+}
+-}
+dropSwitch :: Switch -> ClockTime -> TeleHash ()
+dropSwitch switch timeNow = do
+  logT ("purging..." ++ (show $ swiIpp switch))
+  case (healthy switch timeNow) of
+    False -> return ()
+    True -> do
+      sendTelex $ (mkTelex (swiIpp switch)) { teleBr = -10000 }
+  master <- get
+  put $ master {selfNetwork = Map.delete (swiIpp switch) (selfNetwork master) }
 
 -- EOF
 

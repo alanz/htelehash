@@ -31,22 +31,6 @@ import qualified Data.Set as Set
 --
 type TeleHash = StateT Master IO
 
---
--- | state variables
-data StateVar = StateVar
-                { svSelf :: Master
-                , svListeners :: [Tap] -- ^maintain an array of .tap rules we are interested in
-                , svConnectors :: Set.Set IPP -- ^maintains a hashtable of ends we are interested in contacting indexed by a end name.
-                , svResponseHandlers :: Map.Map Hash String -- ^maintains a hashtable of response handlers indexed by connection 'guid'
-                }
-
-{-
-var self;
-var listeners = [];         //maintain an array of .tap rules we are interested in
-var connectors = {};        //maintains a hashtable of ends we are interested in contacting indexed by a end name.
-var responseHandlers = {};  //maintains a hashtable of response handlers indexed by connection 'guid'
--}
-
 
 data Mode = ModeAnnouncer
           | ModeListener
@@ -68,20 +52,29 @@ data SwitchState = StateOffline
     online: 2
 -}
 
-
 data Master = Master
-            { selfMode :: Mode
-            , selfState :: SwitchState
-            , selfSeeds :: [IPP]
-            , selfNat :: Bool
-            , selfServer :: Maybe Socket
+            { selfMode      :: Mode
+            , selfState     :: SwitchState
+            , selfSeeds     :: [IPP]
+            , selfNat       :: Maybe Bool
+            , selfSNat      :: Maybe Bool
+            , selfServer    :: Maybe Socket
             , selfCallbacks :: Callbacks
-            , selfNetwork :: Map.Map IPP Switch
+            , selfMe        :: Maybe Switch
+            , selfNetwork   :: Map.Map IPP Switch
+
+            , selfListeners :: [Tap]
+                               -- ^maintain an array of .tap rules we are interested in
+            , selfConnectors :: Set.Set IPP
+                                -- ^maintains a hashtable of ends we are interested in contacting indexed by a end name.
+            , selfResponseHandlers :: Map.Map Hash String
+                                      -- ^maintains a hashtable of response handlers indexed by connection 'guid'
+
 
             -- Stats stuff
             , selfCountOnline :: Int
-            , selfCountTx :: Int
-            , selfCountRx :: Int
+            , selfCountTx     :: Int
+            , selfCountRx     :: Int
 
             , selfSender :: (String -> SockAddr -> TeleHash ())
 
@@ -90,13 +83,20 @@ data Master = Master
 
 mkMaster = Master
                   {
-                    selfMode = ModeListener
+                    selfMode  = ModeListener
                   , selfState = StateOffline
                   , selfSeeds = [IPP "208.68.164.253:42424", IPP "208.68.163.247:42424"]
-                  , selfNat = False
-                  , selfServer = Nothing
+                  , selfNat       = Nothing
+                  , selfSNat      = Nothing
+                  , selfServer    = Nothing
                   , selfCallbacks = mkCallbacks ModeListener
-                  , selfNetwork = Map.empty
+                  , selfMe        = Nothing
+                  , selfNetwork   = Map.empty
+
+                  , selfListeners  = []
+                  , selfConnectors = Set.empty
+                  , selfResponseHandlers = Map.empty
+
                   , selfCountOnline = 0
                   , selfCountTx = 0
                   , selfCountRx = 0
