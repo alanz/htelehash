@@ -82,6 +82,7 @@ prettySwitch (ReplyGetSwitch sw) =
   ("Connected:" ++ (show $ swConnected sw) ++ ",Seeds:" ++ (show $ swSeeds sw)
    ++ ",IPP:" ++ (show $ swSelfIpp sw) ++ ",Hash:" ++ (show $ swSelfHash sw))
   -}
+prettySwitch _ = "or else"
 
 -- ---------------------------------------------------------------------
 

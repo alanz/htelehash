@@ -6,46 +6,26 @@ module TeleHash.Switch
        , knownSwitch
        , getNear
        , ruleMatch
-       , Callbacks(..)
        , Switch(..)
+       , getOrCreateSwitch
 
        -- , io
        -- , logT
        ) where
 
 import Control.Monad.State
+import Data.List
+import Data.Maybe
 import Data.String.Utils
+import Network.BSD
+import Network.Socket
 import System.IO
-import System.Log.Handler.Simple
-import System.Log.Logger
 import System.Time
 import TeleHash.Telex
+import TeleHash.Types
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-
--- ---------------------------------------------------------------------
---
--- The 'Network' monad, a wrapper over IO, carrying the network's state.
---
-type Network = StateT Switch IO
-
-
-data Switch = Switch {
-  maNetwork :: Map.Map IPP RSwitch
-  } deriving (Eq,Show)
-
-
-data Callbacks = Callbacks
-                 { cbSock :: String
-                 , cbNat  :: String
-                 , cbSnat :: String
-                 , cbNews :: String
-                 , cbData :: String
-                 , cbSignals :: String
-                 , cbMode :: String
-                 }
-               deriving (Show)
-
+import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 
@@ -55,7 +35,7 @@ getSwitches = undefined
 
 -- ---------------------------------------------------------------------
 
-getSwitch :: IPP -> Network RSwitch
+getSwitch :: IPP -> TeleHash Switch
 getSwitch ipp = do
   timeNow <- io getClockTime
   getOrCreateSwitch ipp timeNow
@@ -68,7 +48,7 @@ function getSwitch(ipp) {
 
 -- ---------------------------------------------------------------------
 
-getOrCreateSwitch :: IPP -> ClockTime -> Network RSwitch
+getOrCreateSwitch :: IPP -> ClockTime -> TeleHash Switch
 getOrCreateSwitch seedIPP timeNow = do
   switchMaybe <- getSwitchMaybeM seedIPP
   case switchMaybe of
@@ -77,17 +57,17 @@ getOrCreateSwitch seedIPP timeNow = do
       -- console.log(["\tNEWLINE[", endpoint, "]"].join(""));
       logT $ "\tNEWLINE[" ++ (show seedIPP) ++ "]"
       -- ringOutVal <- io (R.randomRIO (1,32768) )
-      let switch = mkRSwitch seedIPP timeNow Nothing
+      let switch = mkSwitch seedIPP timeNow Nothing
       updateMasterSwitch switch
       return switch
 
-getSwitchMaybeM :: IPP -> Network (Maybe RSwitch)
+getSwitchMaybeM :: IPP -> TeleHash (Maybe Switch)
 getSwitchMaybeM ipp = do
   master <- get
-  let network = (maNetwork master)
+  let network = (selfNetwork master)
   return $ getSwitchMaybe network ipp
 
-getSwitchMaybe :: Map.Map IPP RSwitch  -> IPP -> Maybe RSwitch
+getSwitchMaybe :: Map.Map IPP Switch  -> IPP -> Maybe Switch
 getSwitchMaybe network ipp = lineMaybe
   where
     ismember = Map.member ipp network
@@ -97,18 +77,18 @@ getSwitchMaybe network ipp = lineMaybe
       True -> Just member
       False -> Nothing
 
-updateMasterSwitch :: RSwitch -> Network ()
+updateMasterSwitch :: Switch -> TeleHash ()
 updateMasterSwitch switch = do
   master <- get
 
   let
-    network = (maNetwork master)
+    network = (selfNetwork master)
 
     ipp = swiIpp switch
 
     network' = Map.insert ipp switch network
 
-    master' = master {maNetwork = network'}
+    master' = master {selfNetwork = network'}
 
   put master'
 
@@ -147,49 +127,205 @@ function Switch(ipp, arg) {
     return this;
 }
 -}
-data RSwitch = RSwitch {
-  swiIpp       :: IPP,    -- IP and port of the destination
-  swiHash      :: Hash,   -- Hash of the ipp (endpoint)
-  swiNetwork   :: Set.Set Hash, -- lineNeighbors,
-  swiEnd       :: String, -- this.hash.toString()
-  swiVia       :: Maybe IPP,
-  swiATinit    :: ClockTime,
-  swiMisses    :: Int,
-  swiSeed      :: Bool,
-  swiIp        :: String, -- Split out host IP
-  swiPort      :: String  -- Split out port
-  } deriving (Eq,Show)
 
-mkRSwitch :: IPP -> ClockTime -> Maybe IPP -> RSwitch
-mkRSwitch endPoint@(IPP endPointStr) timeNow via =
+-- ---------------------------------------------------------------------
+{-
+getOrCreateSwitch :: IPP -> ClockTime -> TeleHash Switch
+getOrCreateSwitch seedIPP timeNow = do
+  switchMaybe <- getSwitchMaybeM (mkHash seedIPP)
+  case switchMaybe of
+    Just switch -> return switch
+    Nothing -> do
+      -- console.log(["\tNEWLINE[", endpoint, "]"].join(""));
+      logT $ "\tNEWLINE[" ++ (show seedIPP) ++ "]"
+      ringOutVal <- io (R.randomRIO (1,32768) )
+      let switch = mkSwitch seedIPP timeNow ringOutVal
+      updateTelehashSwitch switch
+      return switch
+-}
+
+-- ---------------------------------------------------------------------
+
+{-
+getSwitchMaybeM :: Hash -> TeleHash (Maybe Switch)
+getSwitchMaybeM hashIpp = do
+  switch <- get
+  let master = (swMaster switch)
+  return $ getSwitchMaybe master hashIpp
+-}
+{-
+getSwitchMaybe :: Map.Map Hash Line  -> Hash -> Maybe Line
+getSwitchMaybe master hashIpp  = lineMaybe
+  where
+    ismember = Map.member hashIpp master
+    member = master Map.! hashIpp
+
+    lineMaybe = case (ismember) of
+      True -> Just member
+      False -> Nothing
+-}
+{-
+removeLineM :: Hash -> TeleHash ()
+removeLineM hash = do
+  switch <- get
+  master <- gets swMaster
+
+  -- put $ switch {swMaster = Map.delete hash master}
+  -- TODO: what about neighbours?
   let
-    [hostIp,port] = split ":" endPointStr
-    endPointHash = mkHash endPoint
-  in
-   RSwitch {
-       swiIpp       = endPoint,
-       swiHash      = endPointHash,
-       swiNetwork   = Set.fromList [endPointHash],
-       swiEnd       = unHash endPointHash,
-       swiVia       = via,
-       swiATinit    = timeNow,
-       swiMisses    = 0,
-       swiSeed      = False,
-       swiIp        = hostIp,
-       swiPort      = port
-       }
+    master' = Map.fromList $
+              map (\(h,line) -> (h,line {lineNeighbors = Set.delete hash (lineNeighbors line)})) $
+              Map.toList $ Map.delete hash master
+
+  put $ switch {swMaster = master'}
+-}
+updateTelehashSwitch :: Switch -> TeleHash ()
+updateTelehashSwitch switch = do
+  master <- get
+
+  let
+    network = selfNetwork master
+
+    endpointHash = swiHash switch
+    endpointIpp  = swiIpp switch
+
+    network' = Map.insert endpointIpp switch network
+
+    master' = master {selfNetwork = network'}
+
+  put master'
+
 
 -- ---------------------------------------------------------------------
--- Convenience.
---
-io :: IO a -> Network a
-io = liftIO
+
+sendTelex :: Telex -> TeleHash ()
+sendTelex msg = do
+  timeNow <- io getClockTime
+  res <- prepareTelex msg timeNow
+  case (res) of
+    Nothing -> return ()
+    Just (line,msgJson) -> do
+      -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
+      logT ( "SEND[:" ++ (show $ teleTo msg) ++ "]\t" ++ (msgJson))
+
+      master <- get
+      put master {selfCountTx = (selfCountTx master) + 1 }
+
+      addr <- io (addrFromHostPort (swiIp line) (swiPort line))
+      --Just socketh <- gets swH
+      --io (sendDgram socketh msgJson addr)
+      sender <- gets selfSender
+      sender msgJson addr
+
+      updateTelehashSwitch(line)
 
 -- ---------------------------------------------------------------------
--- Logging
 
-logT :: String -> Network ()
-logT str = io (warningM "Switch" str)
+resolveToSeedIPP :: String -> IO (AddrInfo,String,String)
+resolveToSeedIPP addr = do
+  let [hostname,port] = split ":" addr
+  resolve hostname port
+
+-- ---------------------------------------------------------------------
+
+resolve :: String -> String -> IO (AddrInfo,String,String)
+resolve hostname port = do
+  -- Look up the hostname and port.  Either raises an exception
+  -- or returns a nonempty list.  First element in that list
+  -- is supposed to be the best option.
+  addrinfos <- getAddrInfo Nothing (Just hostname) (Just port)
+  let serveraddr = head addrinfos
+
+  (Just resolvedhost,Just servicename) <- (getNameInfo [NI_NUMERICHOST] True True (addrAddress serveraddr))
+  --putStrLn $ "resolve:" ++ (show hostname) ++ " " ++ (show servicename)
+
+  --return (serveraddr,port)
+  return (serveraddr,resolvedhost,servicename)
+
+-- ---------------------------------------------------------------------
+
+addrFromHostPort :: String -> String -> IO SockAddr
+addrFromHostPort hostname port = do
+  (serveraddr,_,_) <- resolve hostname port
+  return (addrAddress serveraddr)
+
+-- ---------------------------------------------------------------------
+
+prepareTelex :: Telex -> ClockTime -> TeleHash (Maybe (Switch,String))
+prepareTelex msg timeNow = do
+  switch <- getOrCreateSwitch (teleTo msg) timeNow
+
+  let ok  = not (swiIsSelf switch) and (swiATdropped == Nothing)
+
+  case ok of
+    False -> return Nothing
+    True -> do
+      -- if (this.ATexpected < Date.now()) this.misses = this.misses + 1 || 1;
+      -- delete this.ATexpected;
+      let misses = if ((swiATexpected switch) < timeNow)
+                   then (safeAdd (swiMisses switch) 1)
+                   else (swiMisses switch)
+
+          expected = if (teleEnd telex /= Nothing and (teleHop telex == Nothing or (teleHop telex == Just 0)))
+                     then (Just (addSeconds timeNow 10))
+                     else Nothing
+
+          switch' = switch {swiMisses = misses, swiATexpected = expected}
+
+          brBad = (swiBsent switch) - (swiBrin line) > 10000
+          case brBad of
+            True -> do
+              logT ( "MAX SEND DROP ")
+              return Nothing
+            False -> do
+              -- if a line is open use that, else send a ring
+              let
+                msg' = if (lineLine line == Nothing)
+                       then (msg {teleRing = Just (lineRingout line)})
+                       else (msg {teleLine = Just (fromJust (lineLine line))})
+
+                -- update our bytes tracking and send current state
+                -- telex._br = line.brout = line.br;
+                msg'' = msg' { teleBr = lineBr line }
+
+                msgJson = encodeTelex msg''
+
+                line' = line {
+                  lineBrout = lineBr line
+                  , lineBsent = (lineBsent line) + (length msgJson)
+                  , lineSentat = Just timeNow
+                  }
+
+              return (Just (line',msgJson))
+
+-- ---------------------------------------------------------------------
+
+safeAdd :: Maybe Int -> Int -> Maybe In
+safeAdd Nothing v = Just v
+safeAdd (Just v1) v = Just (v1+v)
+
+-- ---------------------------------------------------------------------
+
+addSeconds (TOD secs picosecs) secsToAdd = TOD (secs + secsToAdd picosecs)
+
+-- ---------------------------------------------------------------------
+
+sendDgram :: Socket -> String -> SockAddr -> IO ()
+sendDgram socket msgJson addr =
+  sendstr msgJson
+    where
+      -- Send until everything is done
+      sendstr :: String -> IO ()
+      sendstr [] = return ()
+      sendstr omsg = do sent <- sendTo socket omsg addr
+                        sendstr (genericDrop sent omsg)
+
+-- ---------------------------------------------------------------------
+
+doSendDgram :: String -> SockAddr -> TeleHash ()
+doSendDgram msgJson addr = do
+  Just socket <- gets selfServer
+  io (sendDgram socket msgJson addr)
 
 
 -- EOF

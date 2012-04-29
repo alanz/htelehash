@@ -18,8 +18,10 @@ module TeleHash.TeleHash
        , querySwitch
        ) where
 
+-- import Text.JSON
 import Control.Concurrent
 import Control.Monad.State
+import Data.String.Utils
 import Network.Socket
 import System.IO
 import System.Log.Handler.Simple
@@ -27,145 +29,14 @@ import System.Log.Logger
 import System.Time
 import TeleHash.Switch
 import TeleHash.Telex
-import Text.JSON
+import TeleHash.Types
+import qualified Data.ByteString.Char8 as BC
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
-import qualified Data.ByteString.Char8 as BC
 
 
 -- ---------------------------------------------------------------------
-
---
--- | state variables
-data StateVar = StateVar
-                { svSelf :: Master
-                , svListeners :: [Tap] -- ^maintain an array of .tap rules we are interested in
-                , svConnectors :: Set.Set IPP -- ^maintains a hashtable of ends we are interested in contacting indexed by a end name.
-                , svResponseHandlers :: Map.Map Hash String -- ^maintains a hashtable of response handlers indexed by connection 'guid'
-                }
-
-{-
-var self;
-var listeners = [];         //maintain an array of .tap rules we are interested in
-var connectors = {};        //maintains a hashtable of ends we are interested in contacting indexed by a end name.
-var responseHandlers = {};  //maintains a hashtable of response handlers indexed by connection 'guid'
--}
-
-
-data Mode = ModeAnnouncer
-          | ModeListener
-          | ModeFull
-          deriving (Eq,Show)
-{-
-    FULL:3,
-    LISTENER: 2,
-    ANNOUNCER:1
--}
-
-data SwitchState = StateOffline
-                 | StateSeeding
-                 | StateOnline
-                 deriving (Eq,Show)
-{-
-    offline: 0,
-    seeding: 1,
-    online: 2
--}
-
-
-data Master = Master
-            { selfMode :: Mode
-            , selfState :: SwitchState
-            , selfSeeds :: [IPP]
-            , selfNat :: Bool
-            , selfServer :: Maybe Socket
-            , selfCallbacks :: Callbacks
-            }
-            deriving (Show)
-
-mkMaster = Master
-                  {
-                    selfMode = ModeListener
-                  , selfState = StateOffline
-                  , selfSeeds = [IPP "208.68.164.253:42424", IPP "208.68.163.247:42424"]
-                  , selfNat = False
-                  , selfServer = Nothing
-                  , selfCallbacks = mkCallbacks ModeListener
-                  }
-
-mkCallbacks _ =
-  Callbacks
-           { cbSock    = "Socket"
-           , cbNat     = "Nat"
-           , cbSnat    = "Snat"
-           , cbNews    = "News"
-           , cbData    = "Data"
-           , cbSignals = "Signals"
-           , cbMode    = "Mode"
-           }
--- OLD
--- ---------------------------------------------------------------------
---
--- | The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
---
--- type TeleHash = StateT OSwitch IO
-type TeleHash = StateT Master IO
-
---
--- | The state variable for a given TeleHash Switch
-data OSwitch = OSwitch { swH :: Maybe SocketHandle
-                     , swSeeds :: [String] -- IPP?
-                     , swSeedsIndex :: Set.Set IPP
-                     , swConnected :: Bool
-                     , swMaster :: Map.Map Hash Line
-                     , swSelfIpp :: Maybe IPP
-                     , swSelfHash :: Maybe Hash
-                     , swTaps :: [Tap]
-                     , swCountOnline :: Int
-                     , swCountTx :: Int
-                     , swCountRx :: Int
-                     , swSender :: (String -> SockAddr -> TeleHash ())
-                       } deriving (Eq,Show)
-
-instance (Show (String -> SockAddr -> TeleHash ())) where
-  --show doNullSendDgram = "doNullSendDgram"
-  --show doSendDgram     = "doSendDgram"
-  show _               = "send func"
-
-instance (Eq (String -> SockAddr -> TeleHash ())) where
-  (==) _ _ = True
-  (/=) _ _ = False
-
-
-
-data SocketHandle =
-    SocketHandle {slSocket :: Socket
-                 --, slAddress :: SockAddr
-                 } deriving (Eq,Show)
-
-data Line = Line {
-  lineIpp       :: IPP,    -- IP and port of the destination
-  lineEnd       :: Hash,   -- Hash of the ipp (endpoint)
-  lineHost      :: String, -- Split out host IP
-  linePort      :: String, -- Split out port
-  lineRingout   :: Int,    --  rand(32768),
-  lineRingin    :: Maybe Int,
-  lineLine      :: Maybe Int, -- When line is live, product of our ringout and their ringin
-  lineInit      :: ClockTime,
-  lineSeenat    :: Maybe ClockTime,
-  lineSentat    :: Maybe ClockTime,
-  lineLineat    :: Maybe ClockTime,
-  lineTapLast   :: Maybe ClockTime,
-  lineBr        :: Int,
-  lineBrout     :: Int,
-  lineBrin      :: Int,
-  lineBsent     :: Int,
-  lineNeighbors :: Set.Set Hash, -- lineNeighbors,
-  lineVisible   :: Bool,
-  lineVisibled  :: Bool,
-  lineRules     :: [Tap]
-  } deriving (Eq,Show)
 
 {-
 newtype Hash = Hash String
@@ -462,14 +333,12 @@ setup arg =
 -}
 
 -- ---------------------------------------------------------------------
-pingSeeds :: TeleHash ()
-pingSeeds = do return ()
 
-{-
 pingSeeds :: TeleHash ()
 pingSeeds = do
-  seeds <- gets swSeeds
-  connected <- gets swConnected
+  seeds <- gets selfSeeds
+  switchState <- gets selfState
+  let connected = (switchState == StateOnline)
 
   -- logT $ "pingSeeds:" ++ (show connected) ++ " " ++ (show seeds)
 
@@ -479,7 +348,7 @@ pingSeeds = do
       nextSeed <- rotateToNextSeed
       pingSeed nextSeed
     False -> return ()
--}
+
 -- ---------------------------------------------------------------------
 
 purgeSeeds :: TeleHash ()
@@ -504,7 +373,7 @@ rotateToNextSeed = do
 
 -- ---------------------------------------------------------------------
 
-{-
+
 pingSeed :: String -> TeleHash ()
 pingSeed seed =
   do
@@ -518,20 +387,20 @@ pingSeed seed =
     -- console.log(["SEEDING[", seedIPP, "]"].join(""));
     logT ( "SEEDING[" ++ (show seedIPP))
 
-    switch <- get
-    put switch {swSeedsIndex = Set.insert seedIPP (swSeedsIndex switch) }
+    --switch <- get
+    --put switch {swSeedsIndex = Set.insert seedIPP (swSeedsIndex switch) }
 
     timeNow <- io getClockTime
 
-    line <- getOrCreateLine seedIPP timeNow
+    switch <- getOrCreateSwitch seedIPP timeNow
     let bootTelex = mkTelex seedIPP
     -- // any end will do, might as well ask for their neighborhood
-    let bootTelex' = bootTelex { teleSigEnd = Just $ (lineEnd line) }
+    let bootTelex' = bootTelex { teleSigEnd = Just $ (swiEnd switch) }
 
     sendTelex bootTelex'
 
     return ()
--}
+
 
 -- ---------------------------------------------------------------------
 -- Convenience.

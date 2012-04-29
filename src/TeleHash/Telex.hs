@@ -9,6 +9,7 @@ module TeleHash.Telex
        , Tap(..)
        , Telex(..)
        , mkTelex
+       , encodeTelex
        ) where
 
 import Control.Applicative ((<$>), (<*>), empty, pure)
@@ -135,6 +136,12 @@ mkTelex seedIPP =
   -- Telex Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
   -- Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing Map.empty Nothing
   Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing
+
+-- ---------------------------------------------------------------------
+
+-- Note: should maybe keep it as a ByteString
+encodeTelex :: Telex -> String
+encodeTelex telex = BL.unpack $ encode telex
 
 -- ---------------------------------------------------------------------
 {-

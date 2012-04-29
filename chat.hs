@@ -5,6 +5,7 @@ import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import TeleHash.WebNew
+import TeleHash.Types
 import qualified TeleHash.TeleHash as T
 
 main :: IO ()
