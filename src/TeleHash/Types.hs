@@ -132,6 +132,11 @@ data Switch = Switch {
   swiNetwork    :: Set.Set Hash, -- lineNeighbors,
   swiEnd        :: String, -- this.hash.toString()
   swiVia        :: Maybe IPP,
+
+  swiRingout    :: Int,    --  rand(32768),
+  swiRingin     :: Maybe Int,
+  swiLine       :: Maybe Int, -- When line is live, product of our ringout and their ringin
+
   swiATinit     :: ClockTime,
   swiATrecv     :: Maybe ClockTime,
   swiATsent     :: Maybe ClockTime,
@@ -152,8 +157,8 @@ data Switch = Switch {
   swiPort       :: String  -- Split out port
   } deriving (Eq,Show)
 
-mkSwitch :: IPP -> ClockTime -> Maybe IPP -> Switch
-mkSwitch endPoint@(IPP endPointStr) timeNow via =
+mkSwitch :: IPP -> ClockTime -> Int -> Maybe IPP -> Switch
+mkSwitch endPoint@(IPP endPointStr) timeNow ringOutVal via =
   let
     [hostIp,port] = split ":" endPointStr
     endPointHash = mkHash endPoint
@@ -164,6 +169,11 @@ mkSwitch endPoint@(IPP endPointStr) timeNow via =
        swiNetwork    = Set.fromList [endPointHash],
        swiEnd        = unHash endPointHash,
        swiVia        = via,
+
+       swiRingout   = ringOutVal,
+       swiRingin    = Nothing,
+       swiLine      = Nothing,
+
        swiATinit     = timeNow,
        swiATrecv     = Nothing,
        swiATsent     = Nothing,

@@ -8,6 +8,9 @@ module TeleHash.Switch
        , ruleMatch
        , Switch(..)
        , getOrCreateSwitch
+       , resolveToSeedIPP
+       , sendTelex
+       , doSendDgram
 
        -- , io
        -- , logT
@@ -56,8 +59,8 @@ getOrCreateSwitch seedIPP timeNow = do
     Nothing -> do
       -- console.log(["\tNEWLINE[", endpoint, "]"].join(""));
       logT $ "\tNEWLINE[" ++ (show seedIPP) ++ "]"
-      -- ringOutVal <- io (R.randomRIO (1,32768) )
-      let switch = mkSwitch seedIPP timeNow Nothing
+      ringOutVal <- io (R.randomRIO (1,32768) )
+      let switch = mkSwitch seedIPP timeNow ringOutVal Nothing
       updateMasterSwitch switch
       return switch
 
@@ -221,8 +224,8 @@ sendTelex msg = do
 
 -- ---------------------------------------------------------------------
 
-resolveToSeedIPP :: String -> IO (AddrInfo,String,String)
-resolveToSeedIPP addr = do
+resolveToSeedIPP :: IPP -> IO (AddrInfo,String,String)
+resolveToSeedIPP (IPP addr) = do
   let [hostname,port] = split ":" addr
   resolve hostname port
 
@@ -255,58 +258,62 @@ prepareTelex :: Telex -> ClockTime -> TeleHash (Maybe (Switch,String))
 prepareTelex msg timeNow = do
   switch <- getOrCreateSwitch (teleTo msg) timeNow
 
-  let ok  = not (swiIsSelf switch) and (swiATdropped == Nothing)
+  let ok  = not ((swiIsSelf switch) || (swiATdropped switch /= Nothing))
 
   case ok of
     False -> return Nothing
     True -> do
       -- if (this.ATexpected < Date.now()) this.misses = this.misses + 1 || 1;
       -- delete this.ATexpected;
-      let misses = if ((swiATexpected switch) < timeNow)
+      let misses = if ((swiATexpected switch /= Nothing) &&
+                       (fromMaybe (TOD 0 0) (swiATexpected switch)) < timeNow)
                    then (safeAdd (swiMisses switch) 1)
                    else (swiMisses switch)
 
-          expected = if (teleEnd telex /= Nothing and (teleHop telex == Nothing or (teleHop telex == Just 0)))
+          expected = if ((teleSigEnd msg /= Nothing)
+                         &&
+                         ((teleHop msg == Nothing) || (teleHop msg == Just 0)))
                      then (Just (addSeconds timeNow 10))
                      else Nothing
 
           switch' = switch {swiMisses = misses, swiATexpected = expected}
 
-          brBad = (swiBsent switch) - (swiBrin line) > 10000
-          case brBad of
-            True -> do
-              logT ( "MAX SEND DROP ")
-              return Nothing
-            False -> do
-              -- if a line is open use that, else send a ring
-              let
-                msg' = if (lineLine line == Nothing)
-                       then (msg {teleRing = Just (lineRingout line)})
-                       else (msg {teleLine = Just (fromJust (lineLine line))})
+          brBad = (swiBsent switch) - (swiBrin switch) > 10000
+      case brBad of
+        True -> do
+          logT ( "MAX SEND DROP ")
+          return Nothing
+        False -> do
+          -- if a line is open use that, else send a ring
+          let
+            msg' = if (swiLine switch == Nothing)
+                   then (msg {teleRing = Just (swiRingout switch)})
+                   else (msg {teleLine = Just (fromJust (swiLine switch))})
 
-                -- update our bytes tracking and send current state
-                -- telex._br = line.brout = line.br;
-                msg'' = msg' { teleBr = lineBr line }
+            -- update our bytes tracking and send current state
+            -- telex._br = line.brout = line.br;
+            msg'' = msg' { teleBr = swiBr switch }
 
-                msgJson = encodeTelex msg''
+            msgJson = encodeTelex msg''
 
-                line' = line {
-                  lineBrout = lineBr line
-                  , lineBsent = (lineBsent line) + (length msgJson)
-                  , lineSentat = Just timeNow
-                  }
+            switch' = switch {
+              swiBrout  = swiBr switch
+              , swiBsent  = (swiBsent switch) + (length msgJson)
+              , swiATsent = Just timeNow
+              }
 
-              return (Just (line',msgJson))
+          return (Just (switch',msgJson))
 
 -- ---------------------------------------------------------------------
 
-safeAdd :: Maybe Int -> Int -> Maybe In
+safeAdd :: Maybe Int -> Int -> Maybe Int
 safeAdd Nothing v = Just v
 safeAdd (Just v1) v = Just (v1+v)
 
 -- ---------------------------------------------------------------------
 
-addSeconds (TOD secs picosecs) secsToAdd = TOD (secs + secsToAdd picosecs)
+addSeconds :: ClockTime -> Integer -> ClockTime
+addSeconds (TOD secs picosecs) secsToAdd = TOD (secs + secsToAdd) picosecs
 
 -- ---------------------------------------------------------------------
 

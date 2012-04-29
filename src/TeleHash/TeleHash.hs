@@ -214,7 +214,7 @@ getSelf arg = do
 
   ch1 <- newChan
   ch2 <- newChan
-  let st  = mkMaster { selfServer = Just sock }
+  let st  = mkMaster { selfServer = Just sock, selfSender = doSendDgram }
 
   thread <- forkIO (doit ch1 ch2 st)
   return (ch1,ch2,thread)
@@ -374,7 +374,7 @@ rotateToNextSeed = do
 -- ---------------------------------------------------------------------
 
 
-pingSeed :: String -> TeleHash ()
+pingSeed :: IPP -> TeleHash ()
 pingSeed seed =
   do
     -- logT ( "pingSeed " ++ (show seed))
@@ -395,26 +395,11 @@ pingSeed seed =
     switch <- getOrCreateSwitch seedIPP timeNow
     let bootTelex = mkTelex seedIPP
     -- // any end will do, might as well ask for their neighborhood
-    let bootTelex' = bootTelex { teleSigEnd = Just $ (swiEnd switch) }
+    let bootTelex' = bootTelex { teleSigEnd = Just $ (swiHash switch) }
 
     sendTelex bootTelex'
 
     return ()
-
-
--- ---------------------------------------------------------------------
--- Convenience.
---
-io :: IO a -> TeleHash a
-io = liftIO
-
--- ---------------------------------------------------------------------
--- Logging
-
-logT :: String -> TeleHash ()
-logT str = io (warningM "Switch" str)
-
--- ---------------------------------------------------------------------
 
 
 -- EOF
