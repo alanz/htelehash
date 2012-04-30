@@ -6,7 +6,8 @@ module TeleHash.Types
        , Master(..)
        , mkMaster
        , SwitchState(..)
-       , Line(..)
+       , Mode(..)
+       -- , Line(..)
        , Switch(..)
        , mkSwitch
 
@@ -60,7 +61,7 @@ data Master = Master
             , selfSNat      :: Maybe Bool
             , selfServer    :: Maybe Socket
             , selfCallbacks :: Callbacks
-            , selfMe        :: Maybe Switch
+            , selfMe        :: Maybe IPP -- ^Index into selfNetwork
             , selfNetwork   :: Map.Map IPP Switch
 
             , selfListeners :: [Tap]
@@ -147,6 +148,8 @@ data Switch = Switch {
   swiMisses     :: Maybe Int,
   swiSeed       :: Bool,
   swiIsSelf     :: Bool, -- If this switch represents us
+  swiVisible    :: Bool,
+
 
   swiBr         :: Int,
   swiBrout      :: Int,
@@ -183,6 +186,7 @@ mkSwitch endPoint@(IPP endPointStr) timeNow ringOutVal via =
        swiMisses     = Just 0,
        swiSeed       = False,
        swiIsSelf     = False,
+       swiVisible    = False,
 
        swiBr         = 0,
        swiBrout      = 0,

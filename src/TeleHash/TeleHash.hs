@@ -21,7 +21,9 @@ module TeleHash.TeleHash
 -- import Text.JSON
 import Control.Concurrent
 import Control.Monad.State
+import Data.Maybe
 import Data.String.Utils
+import Network.Info
 import Network.Socket
 import System.IO
 import System.Log.Handler.Simple
@@ -34,7 +36,7 @@ import qualified Data.ByteString.Char8 as BC
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
-
+import qualified Data.ByteString.Lazy as BL
 
 -- ---------------------------------------------------------------------
 
@@ -229,6 +231,23 @@ getSelf arg = do
 
 -- ---------------------------------------------------------------------
 
+getMeMaybe :: TeleHash (Maybe Switch)
+getMeMaybe = do
+  master <- get
+  case (selfMe master) of
+    Nothing -> return Nothing
+    Just ipp -> do
+      switch <- getOrCreateSwitch ipp (TOD 0 0)
+      return (Just switch)
+
+getMe :: TeleHash Switch
+getMe = do
+  maybeMe <- getMeMaybe
+  let Just me = maybeMe
+  return me
+
+-- ---------------------------------------------------------------------
+
 run :: Chan Signal -> Chan Reply -> TeleHash ()
 run ch1 ch2 = do
   -- ch1 <- io (newChan)
@@ -252,7 +271,7 @@ run ch1 ch2 = do
       SignalPingSeeds      -> pingSeeds
       SignalScanLines      -> scanlines timeNow
       SignalTapTap         -> taptap timeNow
-      SignalMsgRx msg addr -> recvTelex msg addr
+      SignalMsgRx msg addr -> incomingDgram msg addr
       -- External commands
       SignalGetSwitch      -> do
         master <- getMaster
@@ -277,6 +296,7 @@ dolisten (Just h) channel = forever $ do
 
     -- (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
     (writeChan channel (SignalMsgRx (BC.unpack msg) rinfo))
+    -- (writeChan channel (SignalMsgRx msg rinfo))
 
 -- ---------------------------------------------------------------------
 
@@ -319,10 +339,224 @@ taptap timeNow@(TOD secs _picos) = do return ()
 
 -- Dispatch incoming raw messages
 
-recvTelex :: String -> SockAddr -> TeleHash ()
-recvTelex msg rinfo = do return ()
+-- was recvTelex
+incomingDgram :: String -> SockAddr -> TeleHash ()
+incomingDgram msg rinfo = do
 
-  -- ---------------------------------------------------------------------
+  {-
+    if (self.state == STATE.offline) {
+        //drop all packets
+        return;
+    }
+  -}
+  master <- get
+  case (selfState master) of
+    StateOffline -> do
+      logT ("incomingDgram:offline, so dropping packet")
+      return ()
+    _ -> do
+
+    -- logT ( ("incomingDgram:" ++  (show (parseTelex msg))))
+
+      (Just hostIP,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
+      let
+        remoteipp = IPP (hostIP ++ ":" ++ port)
+
+      timeNow <- io getClockTime
+      --console.log(["RECV from ", remoteipp, ": ", JSON.stringify(telex)].join(""));
+      logT ("<--\tfrom " ++ (show remoteipp) ++ ":"++ msg
+                  ++ " at " ++ (show timeNow))
+
+      let
+        maybeRxTelex = parseTelex msg
+
+      case maybeRxTelex of
+        Just rxTelex -> handleRxTelex rxTelex remoteipp timeNow
+        Nothing -> do
+          -- TODO:
+          -- //out of band data non JSON. (used by the channels module)
+          -- if (self.handleOOB) self.handleOOB(msg, rinfo);
+          --   return;
+          return ()
+
+-- ---------------------------------------------------------------------
+
+handleRxTelex :: Telex -> IPP -> ClockTime -> TeleHash ()
+handleRxTelex rxTelex remoteipp timeNow = do
+  {-
+  if (self.state == STATE.seeding) {
+    //only accept packets from seeds - note: we need at least 2 live seeds for SNAT detection
+    for (var i in self.seeds) {
+        if (from == self.seeds[i]) {
+            handleSeedTelex(telex, from, msg.length);
+            break;
+        }
+    }
+    return;
+  }
+  if (self.state == STATE.online) {
+      //process all packets
+      handleTelex(telex, from, msg.length);
+  }
+  -}
+  master <- get
+  case (selfState master) of
+    StateOffline -> return () -- Should not happen
+    StateSeeding -> do
+      -- only accept packets from seeds -
+      -- NOTE: we need at least 2 live seeds for SNAT detection
+      case (remoteipp `elem` (selfSeeds master)) of
+        True -> handleSeedTelex rxTelex remoteipp timeNow
+        False -> return ()
+    StateOnline -> do
+      handleTelex rxTelex remoteipp timeNow
+
+-- ---------------------------------------------------------------------
+
+handleSeedTelex :: Telex -> IPP -> ClockTime -> TeleHash ()
+handleSeedTelex telex remoteipp timeNow = do
+  {-
+    //do NAT detection once
+    if(!self.nat){
+        if (!self.me && telex._to && !util.isLocalIP(telex._to)) {
+            //we are behind NAT
+            self.nat = true;
+            console.log("NAT Detected!");
+        }
+    }
+  -}
+  master <- get
+  isLocal <- isLocalIP (teleTo telex)
+  case (fromMaybe False (selfNat master)) of
+    True -> return ();
+    False -> do
+      case ( (selfMe master == Nothing)
+             && (not isLocal)
+           ) of
+        True -> do
+          logT ("NAT Detected")
+          put (master { selfNat = Just True })
+
+  master' <- get
+  {-
+      //first telex from seed will establish our identity
+    if (!self.me && telex._to) {
+        self.me = slib.getSwitch(telex._to);
+        self.me.self = true; // flag switch to not send to itself
+        clearTimeout(self.seedTimeout);
+        delete self.seedTimeout;
+        console.log("our identity:",self.me.ipp," hash:",self.me.end);
+        //delay...to allow time for SNAT detection (we need a response from another seed)
+        setTimeout(function () {
+            if (!self.snat && self.mode == MODE.FULL){
+                 self.me.visible = true; //become visible (announce our-selves in .see commands)
+                 console.error('Making ourself Visible..');
+            }
+            self.state = STATE.online;
+            console.log("GOING ONLINE: nat:",self.nat," snat:",self.snat, " visible:", self.me.visible," mode:", self.mode);
+            if(self.nat) doPopTap(); //only needed if we are behind NAT
+            if (self.onSeeded) self.onSeeded();
+        }, 2000);
+    }
+  -}
+  case (selfMe master') of
+    Just _ -> return ();
+    Nothing -> do
+      -- first telex from seed will establish our identity
+      switch <- getOrCreateSwitch remoteipp timeNow
+      let
+        switchMe = switch {
+          swiIsSelf = True
+          }
+
+      updateTelehashSwitch switchMe
+
+      -- TODO: This part should happen in 2000 ms, to allow more seed replies to detect SNAT
+      -- NOTE: This process only makes sense if the initial seeding process hits more than one
+      --       seed at the same time.
+      delayedSetMe
+
+-- ---------------------------------------------------------------------
+
+handleTelex :: Telex -> IPP -> ClockTime -> TeleHash ()
+handleTelex telex remoteipp timeNow = do
+  return ()
+
+-- ---------------------------------------------------------------------
+
+delayedSetMe :: TeleHash ()
+delayedSetMe = do
+  {-
+        //delay...to allow time for SNAT detection (we need a response from another seed)
+        setTimeout(function () {
+            if (!self.snat && self.mode == MODE.FULL){
+                 self.me.visible = true; //become visible (announce our-selves in .see commands)
+                 console.error('Making ourself Visible..');
+            }
+            self.state = STATE.online;
+            console.log("GOING ONLINE: nat:",self.nat," snat:",self.snat, " visible:", self.me.visible," mode:", self.mode);
+            if(self.nat) doPopTap(); //only needed if we are behind NAT
+            if (self.onSeeded) self.onSeeded();
+        }, 2000);
+  -}
+  master <- get
+  case ((selfSNat master == Nothing || selfSNat master == Just False)
+        && (selfMode master == ModeFull)) of
+    False -> return ()
+    True -> do
+      me <- getMe
+      logT ("Making ourself Visible..")
+      updateTelehashSwitch (me {swiVisible = True})
+
+  put $ (master { selfState = StateOnline })
+  -- console.log("GOING ONLINE: nat:",self.nat," snat:",self.snat, " visible:", self.me.visible," mode:", self.mode);
+  switchMe <- getMe
+  let
+    visible = case (selfMe master) of
+      Nothing -> False
+      Just ipp -> (swiVisible switchMe)
+
+  logT("GOING ONLINE: nat:" ++ (show $ selfNat master) ++ " snat:" ++ (show $ selfSNat master) ++ " visible:" ++ (show visible) ++ " mode:" ++ (show $  selfMode master))
+
+  case (selfNat master == Just True) of
+    True -> doPopTap
+    False -> return ()
+
+  -- if (self.onSeeded) self.onSeeded();
+
+-- ---------------------------------------------------------------------
+
+doPopTap :: TeleHash ()
+doPopTap = return ()
+
+-- ---------------------------------------------------------------------
+
+isLocalIP :: IPP -> TeleHash Bool
+isLocalIP (IPP ipp) = do
+  interfaces <- io (getNetworkInterfaces)
+  let
+    ifstrings = map (\interface -> show $ ipv4 interface) interfaces
+    [ip,port] = split ":" ipp
+
+    matching = filter (\ifs -> ip == ifs) ifstrings
+  return (matching /= [])
+
+-- ---------------------------------------------------------------------
+
+updateTelehashSwitch :: Switch -> TeleHash ()
+updateTelehashSwitch switch = do
+  master <- get
+
+  let
+    network = (selfNetwork master)
+
+    network' = Map.insert (swiIpp switch) switch network
+
+    master' = master {selfNetwork = network'}
+
+  put master'
+
+-- ---------------------------------------------------------------------
 
 {-
 setup :: Maybe Master -> IO (Master)
@@ -348,28 +582,6 @@ pingSeeds = do
       nextSeed <- rotateToNextSeed
       pingSeed nextSeed
     False -> return ()
-
--- ---------------------------------------------------------------------
-
-purgeSeeds :: TeleHash ()
-purgeSeeds = undefined
-  {-
-    self.seeds.forEach(function (ipp) {
-        slib.getSwitch(ipp).drop();
-    });
-  -}
-
--- ---------------------------------------------------------------------
-
-rotateToNextSeed :: TeleHash IPP
-rotateToNextSeed = do
-  seeds <- gets selfSeeds
-  s <- get
-  case seeds of
-    [] -> return (IPP "")
-    _  -> do
-      put (s { selfSeeds = ((tail seeds) ++ [head seeds]) })
-      return (head seeds)
 
 -- ---------------------------------------------------------------------
 
@@ -402,6 +614,28 @@ pingSeed seed =
     return ()
 
 -- ---------------------------------------------------------------------
+
+purgeSeeds :: TeleHash ()
+purgeSeeds = undefined
+  {-
+    self.seeds.forEach(function (ipp) {
+        slib.getSwitch(ipp).drop();
+    });
+  -}
+
+-- ---------------------------------------------------------------------
+
+rotateToNextSeed :: TeleHash IPP
+rotateToNextSeed = do
+  seeds <- gets selfSeeds
+  s <- get
+  case seeds of
+    [] -> return (IPP "")
+    _  -> do
+      put (s { selfSeeds = ((tail seeds) ++ [head seeds]) })
+      return (head seeds)
+
+-- ---------------------------------------------------------------------
 {-
 function resetIdentity() {
     if (self.me) {
@@ -419,7 +653,9 @@ resetIdentity timeNow = do
   master <- get
   case (selfMe master) of
     Nothing -> return ()
-    Just switch -> dropSwitch switch timeNow
+    Just ipp -> do
+      switch <- getOrCreateSwitch ipp timeNow
+      dropSwitch switch timeNow
 
   let
     master' = master { selfMe = Nothing

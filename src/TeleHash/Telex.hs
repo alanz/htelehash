@@ -10,6 +10,7 @@ module TeleHash.Telex
        , Telex(..)
        , mkTelex
        , encodeTelex
+       , parseTelex
        ) where
 
 import Control.Applicative ((<$>), (<*>), empty, pure)
@@ -142,6 +143,9 @@ mkTelex seedIPP =
 -- Note: should maybe keep it as a ByteString
 encodeTelex :: Telex -> String
 encodeTelex telex = BL.unpack $ encode telex
+
+parseTelex :: String -> Maybe Telex
+parseTelex str = decode $ BL.pack str
 
 -- ---------------------------------------------------------------------
 {-
