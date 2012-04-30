@@ -568,6 +568,13 @@ setup arg =
 
 -- ---------------------------------------------------------------------
 
+setState :: SwitchState -> TeleHash ()
+setState state = do
+  master <- get
+  put $ master {selfState = state }
+
+-- ---------------------------------------------------------------------
+
 pingSeeds :: TeleHash ()
 pingSeeds = do
   seeds <- gets selfSeeds
@@ -579,6 +586,7 @@ pingSeeds = do
   -- TODO: rotate the seeds, so the we use a fresh one each time through
   case (not connected) && (seeds /= []) of
     True -> do
+      setState StateSeeding
       nextSeed <- rotateToNextSeed
       pingSeed nextSeed
     False -> return ()
