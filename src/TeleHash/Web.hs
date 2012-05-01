@@ -32,8 +32,8 @@ getRootR = defaultLayout $ do
     setTitle "Homepage"
     addHamlet [hamlet|
 <ul>
-  <li> <a href="@{FnR "Switch"}">Switch
-  <li> <a href="@{FnR "RawSwitch"}">RawSwitch
+  <li> <a href="@{FnR "Master"}">Master
+  <li> <a href="@{FnR "RawMaster"}">RawMaster
   <li> <a href="@{StatsR}">stats
 
 |]
@@ -46,11 +46,11 @@ getFnR :: [Char] -> Handler RepHtml
 getFnR fn = do
     -- let json = jsonMap [("fn", jsonScalar fn)]
     (R ch1 ch2) <- getYesod
-    sw <- liftIO (querySwitch ch1 ch2)
-    -- let json = jsonMap [("fn", jsonScalar $ prettySwitch sw)]
+    sw <- liftIO (queryMaster ch1 ch2)
+    -- let json = jsonMap [("fn", jsonScalar $ prettyMaster sw)]
     let json = case fn of
-          "RawSwitch" -> show sw
-          "Switch"    -> prettySwitch sw
+          "RawMaster" -> show sw
+          "Master"    -> prettyMaster sw
           "Counts"    -> prettyCounts sw
           _           -> "unknown fn:" ++ fn
     let widget = do
@@ -63,7 +63,7 @@ getFnR fn = do
 getStatsR :: Handler RepHtml
 getStatsR = do
   (R ch1 ch2) <- getYesod
-  sw <- liftIO (querySwitch ch1 ch2)
+  sw <- liftIO (queryMaster ch1 ch2)
   let content = prettyCounts sw
 
   let widget = do
@@ -74,15 +74,15 @@ getStatsR = do
 
 -- ---------------------------------------------------------------------
 
-prettySwitch :: Reply -> String
-prettySwitch (ReplyGetSwitch sw) =
+prettyMaster :: Reply -> String
+prettyMaster (ReplyGetMaster sw) =
   ("Connected:" ++ (show $ swConnected sw) ++ ",Seeds:" ++ (show $ swSeeds sw)
    ++ ",IPP:" ++ (show $ swSelfIpp sw) ++ ",Hash:" ++ (show $ swSelfHash sw))
 
 -- ---------------------------------------------------------------------
 
 prettyCounts :: Reply -> String
-prettyCounts (ReplyGetSwitch sw) =
+prettyCounts (ReplyGetMaster sw) =
   ("Online:" ++ (show $ swCountOnline sw) ++ ",Tx:" ++ (show $ swCountTx sw) ++ ",Rx:" ++ (show $ swCountRx sw) )
 
 -- ---------------------------------------------------------------------

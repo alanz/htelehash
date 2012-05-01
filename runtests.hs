@@ -45,7 +45,7 @@ case_seeVisible2 = do
   (res,state) <- (runStateT (seeVisible True line ipp1 ipp2 ) st2)
 
   let
-    Just lineNew = getLineMaybe (swMaster state) hash2
+    Just lineNew = getLineMaybe (selfNetwork state) hash2
 
   case (swiVisible line == swiVisible lineNew) of
     True  -> assertFailure ("Line is the same:" ++ (show line))
@@ -59,18 +59,18 @@ case_near_to1 :: Assertion
 case_near_to1 = do
   -- Check that a line exists for the given ipp. If not, should get an undefined result
   let
-    st = (Switch {swH = Nothing
-                 , swSeeds = []
-                 , swSeedsIndex = (Set.fromList [])
-                 , swConnected = False
-                 , swMaster = Map.empty
-                 , swSelfIpp = Nothing
-                 , swSelfHash = Nothing
-                 , swTaps = []
-                 , swCountOnline = 0
-                 , swCountTx = 0
-                 , swCountRx = 0
-                 , swSender = doNullSendDgram
+    st = (Master {selfH = Nothing
+                 , selfSeeds = []
+                 , selfSeedsIndex = (Set.fromList [])
+                 , selfConnected = False
+                 , selfNetwork = Map.empty
+                 , selfSelfIpp = Nothing
+                 , selfSelfHash = Nothing
+                 , selfTaps = []
+                 , selfCountOnline = 0
+                 , selfCountTx = 0
+                 , selfCountRx = 0
+                 , selfSender = doNullSendDgram
                  })
 
   (res,state) <- runStateT (near_to hash1 ipp2 ) st
@@ -87,18 +87,18 @@ case_near_to2 = do
   -- Check that a line exists for the given ipp. If not, should get an undefined result
   let
     line2 = mkLine ipp2 (TOD 1000 999) 2345
-    st = (Switch {swH = Nothing
-                 , swSeeds = []
-                 , swSeedsIndex = (Set.fromList [])
-                 , swConnected = False
-                 , swMaster = Map.fromList [(mkHash ipp2, line2)]
-                 , swSelfIpp = Nothing
-                 , swSelfHash = Nothing
-                 , swTaps = []
-                 , swCountOnline = 0
-                 , swCountTx = 0
-                 , swCountRx = 0
-                 , swSender = doNullSendDgram
+    st = (Master {selfH = Nothing
+                 , selfSeeds = []
+                 , selfSeedsIndex = (Set.fromList [])
+                 , selfConnected = False
+                 , selfNetwork = Map.fromList [(mkHash ipp2, line2)]
+                 , selfSelfIpp = Nothing
+                 , selfSelfHash = Nothing
+                 , selfTaps = []
+                 , selfCountOnline = 0
+                 , selfCountTx = 0
+                 , selfCountRx = 0
+                 , selfSender = doNullSendDgram
                  })
 
   (res,state) <- runStateT (near_to hash1 ipp2) st
@@ -109,39 +109,39 @@ case_near_to2 = do
 
 -- ---------------------------------------------------------------------
 
-st1 = (Switch {swH = Nothing
-              , swSeeds = []
-              , swSeedsIndex = (Set.fromList [])
-              , swConnected = False
-              , swMaster = Map.empty
-              , swSelfIpp = Nothing
-              , swSelfHash = Nothing
-              , swTaps = []
-              , swCountOnline = 0
-              , swCountTx = 0
-              , swCountRx = 0
-              , swSender = doNullSendDgram
+st1 = (Master {selfH = Nothing
+              , selfSeeds = []
+              , selfSeedsIndex = (Set.fromList [])
+              , selfConnected = False
+              , selfNetwork = Map.empty
+              , selfSelfIpp = Nothing
+              , selfSelfHash = Nothing
+              , selfTaps = []
+              , selfCountOnline = 0
+              , selfCountTx = 0
+              , selfCountRx = 0
+              , selfSender = doNullSendDgram
               })
 
 st1_online =
   let
     line1 = (mkLine ipp1 (TOD 1000 999)) 1234
   in
-   (Switch {swH = Nothing
-           , swSeeds = []
-           , swSeedsIndex = (Set.fromList [])
-           , swConnected = True
-           , swMaster = Map.fromList
+   (Master {selfH = Nothing
+           , selfSeeds = []
+           , selfSeedsIndex = (Set.fromList [])
+           , selfConnected = True
+           , selfNetwork = Map.fromList
                         [
                           (hash1,line1) -- us
                         ]
-           , swSelfIpp = Just ipp1
-           , swSelfHash = Just hash1
-           , swTaps = []
-           , swCountOnline = 0
-           , swCountTx = 0
-           , swCountRx = 0
-           , swSender = doNullSendDgram
+           , selfSelfIpp = Just ipp1
+           , selfSelfHash = Just hash1
+           , selfTaps = []
+           , selfCountOnline = 0
+           , selfCountTx = 0
+           , selfCountRx = 0
+           , selfSender = doNullSendDgram
            })
 
 st2 =
@@ -150,23 +150,23 @@ st2 =
     line2 = (mkLine ipp2 (TOD 1002 999)) 2345
     line3 = (mkLine ipp3 (TOD 1003 999)) 3456
   in
-   (Switch {swH = Nothing
-           , swSeeds = []
-           , swSeedsIndex = (Set.fromList [])
-           , swConnected = False
-           , swMaster = Map.fromList
+   (Master {selfH = Nothing
+           , selfSeeds = []
+           , selfSeedsIndex = (Set.fromList [])
+           , selfConnected = False
+           , selfNetwork = Map.fromList
                         [
                           (hash1,line1 {swiNeighbors = Set.fromList [hash1,hash2]}) -- ipp under test
                         , (hash2,line2 {swiVisible = True })-- first neighbour
                         , (hash3,line3 {swiVisible = True })-- second neighbour
                         ]
-           , swSelfIpp = Nothing
-           , swSelfHash = Nothing
-           , swTaps = []
-           , swCountOnline = 0
-           , swCountTx = 0
-           , swCountRx = 0
-           , swSender = doNullSendDgram
+           , selfSelfIpp = Nothing
+           , selfSelfHash = Nothing
+           , selfTaps = []
+           , selfCountOnline = 0
+           , selfCountTx = 0
+           , selfCountRx = 0
+           , selfSender = doNullSendDgram
            })
 
 ipp1 = IPP "1.2.3.4:1234"
@@ -434,22 +434,22 @@ case_getOrCreateLine_firstTime = do
     then (assertFailure $ "neighbours wrong, got " ++ (show (swiNeighbors line)))
     else return ()
 
-  if (Map.size (swMaster state) /= 1)
-    then (assertFailure $ "state swMaster size wrong, got " ++ (show (Map.size (swMaster state))))
+  if (Map.size (selfNetwork state) /= 1)
+    then (assertFailure $ "state selfNetwork size wrong, got " ++ (show (Map.size (selfNetwork state))))
     else return ()
 
-  if (Map.notMember hash1 (swMaster state))
-    then (assertFailure $ "line notMember state swMaster")
+  if (Map.notMember hash1 (selfNetwork state))
+    then (assertFailure $ "line notMember state selfNetwork")
     else return ()
 
-  if ((swMaster state) Map.! hash1 /= line)
-    then (assertFailure $ "returned line /= swMaster line")
+  if ((selfNetwork state) Map.! hash1 /= line)
+    then (assertFailure $ "returned line /= selfNetwork line")
     else return ()
 
 -- ---------------------------------------------------------------------
 
 case_getOrCreateLine_alreadyThere = do
-  let st = st1 {swMaster = Map.fromList
+  let st = st1 {selfNetwork = Map.fromList
                            [
                              (hash1,
                               (mkLine ipp1 (TOD 1000 1234) 1234) {swiNeighbors = Set.fromList [hash1]})
@@ -476,12 +476,12 @@ case_getOrCreateLine_alreadyThere = do
     then (assertFailure $ "end wrong, got " ++ (show (swiEnd line)))
     else return ()
 
-  if (Map.size (swMaster state) /= 1)
-    then (assertFailure $ "state swMaster size wrong, got " ++ (show (Map.size (swMaster state))))
+  if (Map.size (selfNetwork state) /= 1)
+    then (assertFailure $ "state selfNetwork size wrong, got " ++ (show (Map.size (selfNetwork state))))
     else return ()
 
-  if (Map.notMember hash1 (swMaster state))
-    then (assertFailure $ "line notMember state swMaster")
+  if (Map.notMember hash1 (selfNetwork state))
+    then (assertFailure $ "line notMember state selfNetwork")
     else return ()
 
 -- ---------------------------------------------------------------------
@@ -489,27 +489,27 @@ case_getOrCreateLine_alreadyThere = do
 case_online = do
   (line,state) <- runStateT (online msg1 (TOD 1000 9999)) st1
 
-  if (swConnected state == True)
+  if (selfConnected state == True)
     then return ()
-    else (assertFailure $ "online:swConnected fail" ++ (show $ (line,state)))
+    else (assertFailure $ "online:selfConnected fail" ++ (show $ (line,state)))
 
-  if (swSelfIpp state == Just (IPP "1.2.3.4:1234"))
+  if (selfSelfIpp state == Just (IPP "1.2.3.4:1234"))
     then return ()
-    else (assertFailure $ "online:swSelfIpp fail" ++ (show $ (line,state)))
+    else (assertFailure $ "online:selfSelfIpp fail" ++ (show $ (line,state)))
 
-  if (swSelfHash state == Just (mkHash (IPP "1.2.3.4:1234")))
+  if (selfSelfHash state == Just (mkHash (IPP "1.2.3.4:1234")))
     then return ()
-    else (assertFailure $ "online:swSelfHash fail" ++ (show $ (line,state)))
+    else (assertFailure $ "online:selfSelfHash fail" ++ (show $ (line,state)))
 
-  if (Map.size (swMaster state) == 1)
+  if (Map.size (selfNetwork state) == 1)
     then return ()
-    else (assertFailure $ "online:swMaster size fail" ++ (show $ (line,state)))
+    else (assertFailure $ "online:selfNetwork size fail" ++ (show $ (line,state)))
 
 -- ---------------------------------------------------------------------
 
 case_prepareTelex_bSentOk = do
   let
-    st = st1 { swMaster =
+    st = st1 { selfNetwork =
                   Map.fromList [
                     (hash1,
                      (mkLine ipp1 (TOD 1000 999) 1234) {swiBsent = 10000, swiBrin = 100 })
@@ -525,7 +525,7 @@ case_prepareTelex_bSentOk = do
 
 case_prepareTelex_bSentFail = do
   let
-    st = st1 { swMaster =
+    st = st1 { selfNetwork =
                   Map.fromList [
                     (hash1,
                      (mkLine ipp1 (TOD 1000 999) 1234) {swiBsent = 10101, swiBrin = 100 })
@@ -558,7 +558,7 @@ case_prepareTelex_ringout = do
 
 case_prepareTelex_line = do
   let
-    st = st1 { swMaster =
+    st = st1 { selfNetwork =
                   Map.fromList [
                     (hash1,
                      (mkLine ipp1 (TOD 1000 999) 1234 ) {swiLine = Just 123456})
@@ -582,7 +582,7 @@ case_prepareTelex_line = do
 
 case_prepareTelex_counters = do
   let
-    st = st1 { swMaster =
+    st = st1 { selfNetwork =
                   Map.fromList [
                     (hash1,
                      (mkLine ipp1 (TOD 1000 999) 1234) {swiBr = 100, swiBrout = 10, swiBsent = 120})
@@ -684,19 +684,19 @@ samples' = do
 -- ---------------------------------------------------------------------
 
 case_removeLineM = do
-  if (Map.size (swMaster st2) == 3)
+  if (Map.size (selfNetwork st2) == 3)
     then return ()
-    else (assertFailure $ "removeLineM:starting with 3 lines " ++ (show $ (swMaster st2)))
+    else (assertFailure $ "removeLineM:starting with 3 lines " ++ (show $ (selfNetwork st2)))
 
   (line,state) <- runStateT (removeLineM hash2) st2
 
-  if (Map.size (swMaster state) == 2)
+  if (Map.size (selfNetwork state) == 2)
     then return ()
-    else (assertFailure $ "removeLineM:expected 2 lines left" ++ (show $ (swMaster state)))
+    else (assertFailure $ "removeLineM:expected 2 lines left" ++ (show $ (selfNetwork state)))
 
-  if (Map.keys (swMaster state) == sort [hash1,hash3])
+  if (Map.keys (selfNetwork state) == sort [hash1,hash3])
     then return ()
-    else (assertFailure $ "removeLineM:wrong lines left" ++ (show $ (swMaster state)))
+    else (assertFailure $ "removeLineM:wrong lines left" ++ (show $ (selfNetwork state)))
 
 -- ---------------------------------------------------------------------
 {-
@@ -727,9 +727,9 @@ case_processSee_Self = do
     line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
     line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = False}
 
-    st = st1 { swSelfIpp  = Just ipp1,
-               swSelfHash = Just hash1,
-               swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
+    st = st1 { selfSelfIpp  = Just ipp1,
+               selfSelfHash = Just hash1,
+               selfNetwork   = Map.fromList [(hash1,line1),(hash2,line2)] }
 
     telex = (mkTelex ipp1) { teleSee = Just [ipp1] }
 
@@ -737,7 +737,7 @@ case_processSee_Self = do
 
   if (state == st)
      then return ()
-     else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+     else (assertFailure $ "processSee:" ++ (show $ (selfNetwork state)))
 
 -- ---------------------------------------------------------------------
 
@@ -748,9 +748,9 @@ case_processSee_AlreadyVisible = do
     line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
     line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = True}
 
-    st = st1 { swSelfIpp  = Just ipp1,
-               swSelfHash = Just hash1,
-               swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
+    st = st1 { selfSelfIpp  = Just ipp1,
+               selfSelfHash = Just hash1,
+               selfNetwork   = Map.fromList [(hash1,line1),(hash2,line2)] }
 
     telex = (mkTelex ipp1) { teleSee = Just [ipp1] }
 
@@ -758,7 +758,7 @@ case_processSee_AlreadyVisible = do
 
   if (state == st)
      then return ()
-     else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+     else (assertFailure $ "processSee:" ++ (show $ (selfNetwork state)))
 
 -- ---------------------------------------------------------------------
 
@@ -769,18 +769,18 @@ case_processSee_NotVisible = do
     line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
     line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = False}
 
-    st = st1 { swSelfIpp  = Just ipp1,
-               swSelfHash = Just hash1,
-               swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
+    st = st1 { selfSelfIpp  = Just ipp1,
+               selfSelfHash = Just hash1,
+               selfNetwork   = Map.fromList [(hash1,line1),(hash2,line2)] }
 
     telex = (mkTelex ipp1) { teleSee = Just [ipp2] }
 
   (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
 
-  let line2' = (swMaster state) Map.! hash2
+  let line2' = (selfNetwork state) Map.! hash2
   if (swiVisible line2')
      then return ()
-     else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+     else (assertFailure $ "processSee:" ++ (show $ (selfNetwork state)))
 
 -- ---------------------------------------------------------------------
 
@@ -792,9 +792,9 @@ case_processSee_LineKnown = do
     line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = False}
     line3 = (mkLine ipp3 (TOD 1000 999) 3456) {swiNeighbors = Set.fromList [hash3], swiVisible = False}
 
-    st = st1 { swSelfIpp  = Just ipp1,
-               swSelfHash = Just hash1,
-               swMaster   = Map.fromList [(hash1,line1),(hash2,line2),(hash3,line3)] }
+    st = st1 { selfSelfIpp  = Just ipp1,
+               selfSelfHash = Just hash1,
+               selfNetwork   = Map.fromList [(hash1,line1),(hash2,line2),(hash3,line3)] }
 
     telex = (mkTelex ipp1) { teleSee = Just [ipp3] }
 
@@ -802,7 +802,7 @@ case_processSee_LineKnown = do
 
   if (state == st)
      then return ()
-     else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+     else (assertFailure $ "processSee:" ++ (show $ (selfNetwork state)))
 
 -- ---------------------------------------------------------------------
 
@@ -813,17 +813,17 @@ case_processSee_LineUnKnown = do
     line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
     line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = False}
 
-    st = st1 { swSelfIpp  = Just ipp1,
-               swSelfHash = Just hash1,
-               swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
+    st = st1 { selfSelfIpp  = Just ipp1,
+               selfSelfHash = Just hash1,
+               selfNetwork   = Map.fromList [(hash1,line1),(hash2,line2)] }
 
     telex = (mkTelex ipp1) { teleSee = Just [ipp3] }
 
   (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
 
-  if (Map.member hash3 (swMaster state))
+  if (Map.member hash3 (selfNetwork state))
      then return ()
-     else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
+     else (assertFailure $ "processSee:" ++ (show $ (selfNetwork state)))
 
 -- ---------------------------------------------------------------------
 
@@ -833,9 +833,9 @@ case_processSee_sendTelexes = do
     line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
     line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = False}
 
-    st = st1 { swSelfIpp  = Just ipp1,
-               swSelfHash = Just hash1,
-               swMaster   = Map.fromList [(hash1,line1),(hash2,line2)] }
+    st = st1 { selfSelfIpp  = Just ipp1,
+               selfSelfHash = Just hash1,
+               selfNetwork   = Map.fromList [(hash1,line1),(hash2,line2)] }
 
     telex = (mkTelex ipp1) { teleSee = Just [ipp3] }
 
@@ -886,8 +886,8 @@ case_ScanLines_LineGoodWithSee = do
     line2 = (mkLine ipp2 (TOD 1000 999) 4567) {swiATseen = Just (TOD 2000 999),
                                                swiVisibled = False}
 
-    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
-              swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
+    st = st1 {selfConnected = True, selfSelfIpp = Just ipp1, selfSelfHash = Just hash1,
+              selfNetwork = Map.fromList [(hash1,line1),(hash2,line2)]
               }
 
   knob <- setupLogger
@@ -913,8 +913,8 @@ case_ScanLines_LineGoodNoSee = do
     line2 = (mkLine ipp2 (TOD 1000 999) 4567) {swiATseen = Just (TOD 2000 999),
                                                swiVisibled = True}
 
-    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
-              swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
+    st = st1 {selfConnected = True, selfSelfIpp = Just ipp1, selfSelfHash = Just hash1,
+              selfNetwork = Map.fromList [(hash1,line1),(hash2,line2)]
               }
 
   knob <- setupLogger
@@ -938,8 +938,8 @@ case_ScanLines_PurgeStaleRing = do
   let
     line2 = (mkLine ipp2 (TOD 1000 999) 4567)
 
-    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
-              swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
+    st = st1 {selfConnected = True, selfSelfIpp = Just ipp1, selfSelfHash = Just hash1,
+              selfNetwork = Map.fromList [(hash1,line1),(hash2,line2)]
               }
 
   knob <- setupLogger
@@ -958,8 +958,8 @@ case_ScanLines_PurgeStaleLine = do
   let
     line2 = (mkLine ipp2 (TOD 1000 999) 4567) {swiATseen = Just (TOD 2000 999)}
 
-    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
-              swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
+    st = st1 {selfConnected = True, selfSelfIpp = Just ipp1, selfSelfHash = Just hash1,
+              selfNetwork = Map.fromList [(hash1,line1),(hash2,line2)]
               }
 
   knob <- setupLogger
@@ -980,8 +980,8 @@ case_ScanLines_PurgeStaleLine = do
 case_ScanLines_Us = do
   let
 
-    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
-              swMaster = Map.fromList [(hash1,line1)]
+    st = st1 {selfConnected = True, selfSelfIpp = Just ipp1, selfSelfHash = Just hash1,
+              selfNetwork = Map.fromList [(hash1,line1)]
               }
 
   knob <- setupLogger
@@ -998,7 +998,7 @@ case_ScanLines_Us = do
 
 case_ScanLines_Offline = do
   let
-    st = st1 {swConnected = False}
+    st = st1 {selfConnected = False}
 
   knob <- setupLogger
 
@@ -1012,7 +1012,7 @@ case_ScanLines_Offline = do
 
 case_ScanLines_Online = do
   let
-    st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1}
+    st = st1 {selfConnected = True, selfSelfIpp = Just ipp1, selfSelfHash = Just hash1}
 
   knob <- setupLogger
 
@@ -1043,7 +1043,7 @@ retrieveLog knob = do
 
 case_rotateToNextSeed = do
   let
-    st = st1 { swSeeds = ["a","b","c"] }
+    st = st1 { selfSeeds = ["a","b","c"] }
 
   (s1,st1) <- runStateT (rotateToNextSeed) st
   if (s1 == "a")
@@ -1093,15 +1093,15 @@ case_TapSignals_RulesMatches_b_us = do
                            "\"_to\":\"196.209.236.12:34963\""++
                            "}")
 
-    st = st1 { swSelfIpp = Just ipp1,
-               swMaster =
+    st = st1 { selfSelfIpp = Just ipp1,
+               selfNetwork =
                   Map.fromList
                   [(hash2,line2),
                    (hash1,line1 {swiRules =
                                     [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
                                           tapHas = ["+pop"]}]})
                   ],
-               swSender = doNullSendDgram
+               selfSender = doNullSendDgram
                }
 
   knob <- setupLogger
@@ -1149,15 +1149,15 @@ case_TapSignals_RulesMatches_b = do
                            "\"_to\":\"196.209.236.12:34963\""++
                            "}")
 
-    st = st1 { swSelfIpp = Just ipp1,
-               swMaster =
+    st = st1 { selfSelfIpp = Just ipp1,
+               selfNetwork =
                   Map.fromList
                   [(hash1,line1),
                    (hash2,line2 {swiRules =
                                     [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
                                           tapHas = ["+pop"]}]})
                   ],
-               swSender = doNullSendDgram
+               selfSender = doNullSendDgram
                }
 
   knob <- setupLogger
@@ -1200,7 +1200,7 @@ case_TapSignals_RulesMatches_a = do
                            "\"_to\":\"196.209.236.12:34963\""++
                            "}")
 
-    st = st1 { swMaster =
+    st = st1 { selfNetwork =
                   Map.fromList
                   [(hash1,line1),
                    (hash2,line2 {swiRules =
@@ -1234,7 +1234,7 @@ case_TapSignals_LineWithRulesOnly = do
   let
     msg = msg1 { teleHop = Just 3 }
 
-    st = st1 { swMaster =
+    st = st1 { selfNetwork =
                   Map.fromList
                   [(hash1,line1),
                    (hash2,line2 {swiRules =
@@ -1304,7 +1304,7 @@ case_ProcessSignalEnd_NoNearest = do
                            "\"_hop\":0"++
                            "}")
 
-    st = st1_online { swMaster = Map.fromList
+    st = st1_online { selfNetwork = Map.fromList
                         [
                           (hash1,line1) -- us
                         , (hash2,line2) -- end under test

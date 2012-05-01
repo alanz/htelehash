@@ -12,11 +12,11 @@
 
 module TeleHash.Controller
        (
-       runSwitch
-       , startSwitchThread
+       runMaster
+       , startMasterThread
        , Signal(..)
        , Reply(..)
-       , querySwitch
+       , queryMaster
        -- For testing
        , recvTelex
        , parseTelex
@@ -28,7 +28,7 @@ module TeleHash.Controller
        , Line(..)
        , IPP(..)
        , unIPP
-       , Switch(..)
+       , Master(..)
        , SocketHandle(..)
        , TeleHash()
        , encodeTelex
@@ -91,9 +91,9 @@ import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
 
 --
--- The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
+-- The 'TeleHash' monad, a wrapper over IO, carrying the master's immutable state.
 --
-type TeleHash = StateT Switch IO
+type TeleHash = StateT Master IO
 
 newtype Hash = Hash String
              deriving (Data,Eq,Show,Typeable,Ord)
@@ -105,22 +105,22 @@ newtype IPP = IPP String
 unIPP :: IPP -> String
 unIPP (IPP str) = str
 
-data Switch = Switch { swH :: Maybe SocketHandle
-                     , swSeeds :: [String] -- IPP?
-                     , swSeedsIndex :: Set.Set IPP
-                     , swConnected :: Bool
-                     , swMaster :: Map.Map Hash Line
-                     , swSelfIpp :: Maybe IPP
-                     , swSelfHash :: Maybe Hash
-                     , swTaps :: [Tap]
-                     , swCountOnline :: Int
-                     , swCountTx :: Int
-                     , swCountRx :: Int
-                     , swSender :: (String -> SockAddr -> TeleHash ())
+data Master = Master { selfH :: Maybe SocketHandle
+                     , selfSeeds :: [String] -- IPP?
+                     , selfSeedsIndex :: Set.Set IPP
+                     , selfConnected :: Bool
+                     , selfNetwork :: Map.Map Hash Line
+                     , selfSelfIpp :: Maybe IPP
+                     , selfSelfHash :: Maybe Hash
+                     , selfTaps :: [Tap]
+                     , selfCountOnline :: Int
+                     , selfCountTx :: Int
+                     , selfCountRx :: Int
+                     , selfSender :: (String -> SockAddr -> TeleHash ())
                        } deriving (Eq,Show)
 
--- instance (Show Switch) where
---   show sw = "{" ++ (intersperse "," [show(swH),show(swSeeds),show(swSeedsIndex),show(swConnected),show(swMaster),show(swSelfIpp),show(swSelfHash),show(swTaps),show(swCountOnline),show(swCountTx),show(swCountRx)]) ++ "}"
+-- instance (Show Master) where
+--   show sw = "{" ++ (intersperse "," [show(selfH),show(selfSeeds),show(selfSeedsIndex),show(selfConnected),show(selfNetwork),show(selfSelfIpp),show(selfSelfHash),show(selfTaps),show(selfCountOnline),show(selfCountTx),show(selfCountRx)]) ++ "}"
 
 instance (Show (String -> SockAddr -> TeleHash ())) where
   --show doNullSendDgram = "doNullSendDgram"
@@ -398,20 +398,20 @@ getRandom seed =
 -}
 -- ---------------------------------------------------------------------
 
-main :: IO ((), Switch)
+main :: IO ((), Master)
 main = do
   s <- streamHandler stdout DEBUG
   -- updateGlobalLogger rootLoggerName (addHandler s) -- setHandlers [s]
   updateGlobalLogger rootLoggerName (setHandlers [s])
-  runSwitch
+  runMaster
 
 -- ---------------------------------------------------------------------
 
 data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx String SockAddr |
-              SignalGetSwitch
+              SignalGetMaster
               deriving (Typeable, Show, Eq)
 
-data Reply = ReplyGetSwitch Switch
+data Reply = ReplyGetMaster Master
            deriving (Typeable, Show)
 
 onesec :: Int
@@ -422,10 +422,10 @@ timer timeoutVal signalValue channel  = forever $
   threadDelay timeoutVal >> writeChan channel signalValue
 
 -- ---------------------------------------------------------------------
--- Routines to interact with the running switch, via the comms channel
-querySwitch :: Chan Signal -> Chan b -> IO b
-querySwitch ch1 ch2 = do
-  writeChan ch1 SignalGetSwitch
+-- Routines to interact with the running master, via the comms channel
+queryMaster :: Chan Signal -> Chan b -> IO b
+queryMaster ch1 ch2 = do
+  writeChan ch1 SignalGetMaster
   res <- readChan ch2
   return res
 
@@ -439,14 +439,14 @@ logT str = io (warningM "Controller" str)
 --
 -- Set up actions to run on start and end, and run the main loop
 --
-runSwitch :: IO ((),Switch)
-runSwitch = bracket initialize disconnect loop
+runMaster :: IO ((),Master)
+runMaster = bracket initialize disconnect loop
   where
-    disconnect (_,_,ss) = sClose (slSocket (fromJust $ swH ss))
+    disconnect (_,_,ss) = sClose (slSocket (fromJust $ selfH ss))
 
     loop (ch1,ch2,st) = catch (runStateT (run ch1 ch2) st) (exc)
 
-    exc :: SomeException -> IO ((),Switch)
+    exc :: SomeException -> IO ((),Master)
     exc _e = return ((),undefined)
 
 -- ---------------------------------------------------------------------
@@ -455,15 +455,15 @@ runSwitch = bracket initialize disconnect loop
 -- its own thread
 --
 
-startSwitchThread :: IO (Chan Signal,Chan Reply,ThreadId)
-startSwitchThread = do
+startMasterThread :: IO (Chan Signal,Chan Reply,ThreadId)
+startMasterThread = do
   (ch1,ch2,st) <- initialize
   -- thread <- forkIO (io (runStateT run st))
   thread <- forkIO (doit ch1 ch2 st)
   return (ch1,ch2,thread)
 
   where
-    doit :: Chan Signal -> Chan Reply -> Switch -> IO ()
+    doit :: Chan Signal -> Chan Reply -> Master -> IO ()
     doit ch1 ch2 st = do
       _ <- runStateT (run ch1 ch2) st
       return ()
@@ -478,7 +478,7 @@ initialSeeds = ["208.68.164.253:42424", "208.68.163.247:42424"]
 -- s.setSeeds(["telehash.org:42424","6.singly.com:42424","208.68.160.25:42424"]);
 
 
-initialize :: IO (Chan a,Chan b,Switch)
+initialize :: IO (Chan a,Chan b,Master)
 initialize = do
   -- Look up the hostname and port.  Either raises an exception
   -- or returns a nonempty list.  First element in that list
@@ -502,7 +502,7 @@ initialize = do
   ch2 <- newChan
 
   -- Save off the socket, and server address in a handle
-  return $ (ch1, ch2, (Switch (Just (SocketHandle sock)) initialSeeds
+  return $ (ch1, ch2, (Master (Just (SocketHandle sock)) initialSeeds
                        -- (Set.fromList [seedIPP])
                        Set.empty
                        False Map.empty Nothing Nothing [] 0 0 0 doSendDgram))
@@ -546,7 +546,7 @@ run ch1 ch2 = do
   _ <- io (forkIO (timer (10 * onesec) SignalScanLines ch1))
   _ <- io (forkIO (timer (30 * onesec) SignalTapTap ch1))
 
-  h <- gets swH
+  h <- gets selfH
   _ <- io (forkIO (dolisten h ch1))
 
   -- Get the ball rolling immediately
@@ -564,36 +564,36 @@ run ch1 ch2 = do
       SignalTapTap         -> taptap timeNow
       SignalMsgRx msg addr -> recvTelex msg addr
       -- External commands
-      SignalGetSwitch      -> do
-        sw <- getSwitch
-        io (writeChan ch2 (ReplyGetSwitch sw))
+      SignalGetMaster      -> do
+        sw <- getMaster
+        io (writeChan ch2 (ReplyGetMaster sw))
     -- io (putStrLn $ "done signal:at " ++ (show timeNow))
 
 -- ---------------------------------------------------------------------
 
-getSwitch :: TeleHash Switch
-getSwitch = do
-  switch <- get
-  return switch
+getMaster :: TeleHash Master
+getMaster = do
+  master <- get
+  return master
 
 -- ---------------------------------------------------------------------
 
 rotateToNextSeed :: TeleHash String
 rotateToNextSeed = do
-  seeds <- gets swSeeds
+  seeds <- gets selfSeeds
   s <- get
   case seeds of
     [] -> return ""
     _  -> do
-      put (s { swSeeds = ((tail seeds) ++ [head seeds]) })
+      put (s { selfSeeds = ((tail seeds) ++ [head seeds]) })
       return (head seeds)
 
 -- ---------------------------------------------------------------------
 
 pingSeeds :: TeleHash ()
 pingSeeds = do
-  seeds <- gets swSeeds
-  connected <- gets swConnected
+  seeds <- gets selfSeeds
+  connected <- gets selfConnected
 
   -- logT $ "pingSeeds:" ++ (show connected) ++ " " ++ (show seeds)
 
@@ -619,8 +619,8 @@ pingSeed seed =
     -- console.log(["SEEDING[", seedIPP, "]"].join(""));
     logT ( "SEEDING[" ++ (show seedIPP))
 
-    switch <- get
-    put switch {swSeedsIndex = Set.insert seedIPP (swSeedsIndex switch) }
+    master <- get
+    put master {selfSeedsIndex = Set.insert seedIPP (selfSeedsIndex master) }
 
     timeNow <- io getClockTime
 
@@ -654,14 +654,14 @@ getOrCreateLine seedIPP timeNow = do
 getLineMaybeM :: Hash -> TeleHash (Maybe Line)
 getLineMaybeM hashIpp = do
   switch <- get
-  let master = (swMaster switch)
-  return $ getLineMaybe master hashIpp
+  let network = (selfNetwork switch)
+  return $ getLineMaybe network hashIpp
 
 getLineMaybe :: Map.Map Hash Line  -> Hash -> Maybe Line
-getLineMaybe master hashIpp  = lineMaybe
+getLineMaybe network hashIpp  = lineMaybe
   where
-    ismember = Map.member hashIpp master
-    member = master Map.! hashIpp
+    ismember = Map.member hashIpp network
+    member = network Map.! hashIpp
 
     lineMaybe = case (ismember) of
       True -> Just member
@@ -670,16 +670,16 @@ getLineMaybe master hashIpp  = lineMaybe
 removeLineM :: Hash -> TeleHash ()
 removeLineM hash = do
   switch <- get
-  master <- gets swMaster
+  network <- gets selfNetwork
 
-  -- put $ switch {swMaster = Map.delete hash master}
+  -- put $ switch {selfNetwork = Map.delete hash network}
   -- TODO: what about neighbours?
   let
-    master' = Map.fromList $
+    network' = Map.fromList $
               map (\(h,line) -> (h,line {swiNeighbors = Set.delete hash (swiNeighbors line)})) $
-              Map.toList $ Map.delete hash master
+              Map.toList $ Map.delete hash network
 
-  put $ switch {swMaster = master'}
+  put $ switch {selfNetwork = network'}
 
 
 -- ---------------------------------------------------------------------
@@ -687,11 +687,11 @@ removeLineM hash = do
 addNeighbour :: Hash -> Hash -> IPP -> TeleHash ()
 addNeighbour hash end ipp = do
   switch <- get
-  let master = swMaster switch
-  case (getLineMaybe master hash) of
+  let network = selfNetwork switch
+  case (getLineMaybe network hash) of
     Just line -> do
       updateTelehashLine (line { swiNeighbors = Set.insert end (swiNeighbors line) })
-      -- console.log(["\t\tSEED ", ipp, " into ", self.master[hash].ipp].join(""));
+      -- console.log(["\t\tSEED ", ipp, " into ", self.network[hash].ipp].join(""));
       logT ( ("\t\tSEED " ++ (show ipp) ++ " into " ++ (show $ swiIpp line) ))
       return ()
     Nothing -> return ()
@@ -707,13 +707,13 @@ updateTelehashLine line = do
   switch <- get
 
   let
-    master = (swMaster switch)
+    network = (selfNetwork switch)
 
     endpointHash = swiEnd line
 
-    master' = Map.insert endpointHash line master
+    network' = Map.insert endpointHash line network
 
-    switch' = switch {swMaster = master'}
+    switch' = switch {selfNetwork = network'}
 
   put switch'
 
@@ -730,9 +730,9 @@ safeGetHop rxTelex = hop
 -- ---------------------------------------------------------------------
 
 hashToIpp :: Map.Map Hash Line -> Hash -> IPP
-hashToIpp master h =
+hashToIpp network h =
   let
-    Just line = getLineMaybe master h
+    Just line = getLineMaybe network h
   in
     swiIpp line
 
@@ -872,12 +872,12 @@ sendTelex msg = do
       logT ( "SEND[:" ++ (show $ teleTo msg) ++ "]\t" ++ (msgJson))
 
       switch <- get
-      put switch {swCountTx = (swCountTx switch) + 1 }
+      put switch {selfCountTx = (selfCountTx switch) + 1 }
 
       addr <- io (addrFromHostPort (swiHost line) (swiPort line))
-      --Just socketh <- gets swH
+      --Just socketh <- gets selfH
       --io (sendDgram socketh msgJson addr)
-      sender <- gets swSender
+      sender <- gets selfSender
       sender msgJson addr
 
       updateTelehashLine(line)
@@ -891,7 +891,7 @@ doNullSendDgram msgJson addr = do
 
 doSendDgram :: String -> SockAddr -> TeleHash ()
 doSendDgram msgJson addr = do
-  Just socketh <- gets swH
+  Just socketh <- gets selfH
   io (sendDgram socketh msgJson addr)
 
 
@@ -963,9 +963,9 @@ recvTelex msg rinfo = do
     -- logT ( ("recvTelex:" ++  (show (parseTelex msg))))
 
     switch' <- get
-    put switch' { swCountRx = (swCountRx switch') + 1 }
+    put switch' { selfCountRx = (selfCountRx switch') + 1 }
     -- switch <- get
-    -- seedsIndex <- gets swSeedsIndex
+    -- seedsIndex <- gets selfSeedsIndex
 
     (Just hostIP,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
     let
@@ -1017,9 +1017,9 @@ handleRxTelex rxTelex remoteipp timeNow = do
 checkOnline :: Telex -> IPP -> ClockTime -> TeleHash Bool
 checkOnline rxTelex remoteipp timeNow = do
   switch <- get
-  seedsIndex <- gets swSeedsIndex
+  seedsIndex <- gets selfSeedsIndex
 
-  case (swConnected switch) of
+  case (selfConnected switch) of
       False -> do
         -- TODO : test that _to field is set. Requires different setup for the JSON leg.
         --        Why would it not be set? Also test that the _to value is us.
@@ -1046,18 +1046,18 @@ tapSignals True  rxTelex = do
   case (safeGetHop rxTelex < 4) of
     False -> return ()
     True -> do
-      master <- gets swMaster
+      network <- gets selfNetwork
       let
         signals = getSignals rxTelex
 
       -- logT ( "\tTAP CHECK:signals=" ++ (show $ signals)) -- ++debug
 
-      mapM_ (\line -> tapLine rxTelex signals line) $ Map.elems master
+      mapM_ (\line -> tapLine rxTelex signals line) $ Map.elems network
       return ()
 
 -- ---------------------------------------------------------------------
 
-tapLine :: Telex -> [(String, String)] -> Line -> StateT Switch IO ()
+tapLine :: Telex -> [(String, String)] -> Line -> StateT Master IO ()
 tapLine telex signals line = do
   mapM_ (\rule -> processRule rule) $ swiRules line
   where
@@ -1094,7 +1094,7 @@ tapLine telex signals line = do
     forward True  = do
       let
         swipp = swiIpp line
-      Just selfipp <- gets swSelfIpp
+      Just selfipp <- gets selfSelfIpp
       -- logT ( "DEBUG:(swipp,selfipp)=" ++ (show (swipp,selfipp)))
       -- // it's us, it has to be our tap_js
       case (swipp == selfipp) of
@@ -1136,7 +1136,7 @@ processCommand
 processCommand ".see" remoteipp telex line = do
   -- logT ( "processCommand .see")
   --switch <- get
-  Just selfipp <- gets swSelfIpp
+  Just selfipp <- gets selfSelfIpp
   case (teleSee telex) of
     -- // loop through and establish lines to them (just being dumb for now and trying everyone)
     Just seeipps -> mapM_ (\ipp -> processSee line remoteipp ipp)
@@ -1174,15 +1174,15 @@ processSee line remoteipp seeipp = do
   -- logT ( "processSee " ++ (show remoteipp) ++ "," ++ (show seeipp))
 
   switch <- get
-  Just selfipp  <- gets swSelfIpp
-  Just selfhash <- gets swSelfHash
+  Just selfipp  <- gets selfSelfIpp
+  Just selfhash <- gets selfSelfHash
 
   seeVisible (seeipp == remoteipp && not (swiVisible line)) line selfipp remoteipp
 
   -- let
-  --   lineSee = getLineMaybe (swMaster switch) (mkHash seeipp)
+  --   lineSee = getLineMaybe (selfNetwork switch) (mkHash seeipp)
 
-  case (getLineMaybe (swMaster switch) (mkHash seeipp)) of
+  case (getLineMaybe (selfNetwork switch) (mkHash seeipp)) of
     Just _lineSee -> return () -- // skip if we know them already
     Nothing -> do
         -- // XXX todo: if we're dialing we'd want to reach out to any of these closer to that $tap_end
@@ -1229,16 +1229,16 @@ near_to endHash ipp = do
 
   let
     -- endHash = mkHash end
-    master = (swMaster switch)
+    network = (selfNetwork switch)
 
-  case (getLineMaybe master (mkHash ipp)) of
+  case (getLineMaybe network (mkHash ipp)) of
     Nothing -> return $ Left "no line for ipp"
     Just line -> do
       let
         -- of the existing and visible cached neighbors, sort by distance to this end
         see = sortBy hashDistanceOrder $ Set.toList $ Set.filter isLineVisible (swiNeighbors line)
 
-        isLineVisible x = case (getLineMaybe master x) of
+        isLineVisible x = case (getLineMaybe network x) of
           Just l -> swiVisible l
           Nothing -> False
 
@@ -1370,9 +1370,9 @@ processSignal "+end" remoteipp telex line = do
   logT ( "processSignal :  +end")
 
   -- switch <- get
-  master        <- gets swMaster
-  Just selfipp  <- gets swSelfIpp
-  Just selfhash <- gets swSelfHash
+  network        <- gets selfNetwork
+  Just selfipp  <- gets selfSelfIpp
+  Just selfhash <- gets selfSelfHash
 
   let
     hop = safeGetHop telex
@@ -1389,7 +1389,7 @@ processSignal "+end" remoteipp telex line = do
             Right hashes -> hashes
             Left msg -> []
 
-      let ipps = take 5 $ map (\h -> hashToIpp master h) hashes
+      let ipps = take 5 $ map (\h -> hashToIpp network h) hashes
       logT ( "+end ipps: " ++ (show ipps))
 
         {-
@@ -1465,10 +1465,10 @@ online rxTelex timeNow = do
     selfIpp  = (teleTo rxTelex)
     selfhash = mkHash $ teleTo rxTelex
   switch <- get
-  put $ switch {swConnected = True
-              , swSelfIpp   = Just selfIpp
-              , swSelfHash  = Just selfhash
-              , swCountOnline = (swCountOnline switch) + 1
+  put $ switch {selfConnected = True
+              , selfSelfIpp   = Just selfIpp
+              , selfSelfHash  = Just selfhash
+              , selfCountOnline = (selfCountOnline switch) + 1
               }
 
   logT ( ("\tSELF[" ++ (show selfIpp) ++ " = " ++ (show selfhash) ++ "]"))
@@ -1477,12 +1477,12 @@ online rxTelex timeNow = do
 
   -- ++AZ++
   switch' <- get
-  -- let taps' = (Tap ("+end",unHash selfhash) ["+news"]):(swTaps switch)
+  -- let taps' = (Tap ("+end",unHash selfhash) ["+news"]):(selfTaps switch)
   let taps' = (Tap ("+end",unHash selfhash) ["+news"]):[]
-  put $ switch' { swTaps = taps'}
+  put $ switch' { selfTaps = taps'}
   -- ++AZ++
 
-  taps <- gets swTaps
+  taps <- gets selfTaps
 
   updateTelehashLine (line {swiVisible = True, swiRules = taps })
 
@@ -1498,10 +1498,10 @@ offline :: ClockTime -> TeleHash ()
 offline now = do
   logT ( "OFFLINE at " ++ (show now))
   switch <- get
-  put $ switch { swSelfIpp = Nothing,
-                swSelfHash = Nothing,
-                swConnected = False,
-                swMaster = Map.empty
+  put $ switch { selfSelfIpp = Nothing,
+                selfSelfHash = Nothing,
+                selfConnected = False,
+                selfNetwork = Map.empty
               }
 
 -- ---------------------------------------------------------------------
@@ -1513,11 +1513,11 @@ taptap timeNow@(TOD secs _picos) = do
     var self = this;
     if(!self.connected) return;
   -}
-  connected <- gets swConnected
+  connected <- gets selfConnected
   case (connected) of
     False -> return ()
     True -> do
-      taps <- gets swTaps
+      taps <- gets selfTaps
       mapM_ doTap taps
       return ()
 
@@ -1526,8 +1526,8 @@ taptap timeNow@(TOD secs _picos) = do
       case (tapIs tap) of
         ("+end",tapEnd) -> do
           -- We have tested for online status, these will be set
-          Just selfipp  <- gets swSelfIpp
-          Just selfhash <- gets swSelfHash
+          Just selfipp  <- gets selfSelfIpp
+          Just selfhash <- gets selfSelfHash
           Right candidateHashes <- near_to (Hash tapEnd) selfipp
           let hashes = take 3 $ filter (\hash -> hash /= selfhash) candidateHashes
           mapM_ (\hash -> doTapLine tap tapEnd hash) hashes
@@ -1554,17 +1554,17 @@ taptap timeNow@(TOD secs _picos) = do
  *-}
 scanlines :: ClockTime -> TeleHash ()
 scanlines now@(TOD _secs _picos) = do
-  connected <- gets swConnected
+  connected <- gets selfConnected
   case (connected) of
     False -> return ()
     True -> do
-      master <- gets swMaster
-      let switches = Map.keys master
+      network <- gets selfNetwork
+      let switches = Map.keys network
       logT ( "SCAN\t" ++ (show $ length switches))
       valid <- foldM (\acc hash -> fscanline acc hash) False switches
 
-      seedsIndex <- gets swSeedsIndex
-      Just selfipp  <- gets swSelfIpp
+      seedsIndex <- gets selfSeedsIndex
+      Just selfipp  <- gets selfSelfIpp
       case (valid == False && Set.notMember selfipp seedsIndex) of
         True -> do
           offline now
@@ -1582,8 +1582,8 @@ scanlines now@(TOD _secs _picos) = do
     scanline :: Hash -> TeleHash Bool
     scanline hash = do
       Just line     <- getLineMaybeM hash
-      Just selfHash <- gets swSelfHash
-      Just selfipp  <- gets swSelfIpp
+      Just selfHash <- gets selfSelfHash
+      Just selfipp  <- gets selfSelfIpp
       case (selfHash == hash) of
         True -> return False -- // skip our own endpoint and what is this (continue)
         False -> do
@@ -1600,7 +1600,7 @@ scanlines now@(TOD _secs _picos) = do
                   return False
                 False -> do
                   -- We have a valid line, return true from here on out
-                  connected <- gets swConnected
+                  connected <- gets selfConnected
                   case connected of
                     True -> do
                       -- // +end ourselves to see if they know anyone closer as a ping
