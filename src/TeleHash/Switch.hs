@@ -11,6 +11,7 @@ module TeleHash.Switch
        , resolveToSeedIPP
        , sendTelex
        , doSendDgram
+       , process
 
        , healthy
        -- , io
@@ -99,90 +100,17 @@ updateMasterSwitch switch = do
 
 -- ---------------------------------------------------------------------
 
-knownSwitch = undefined
+knownSwitch :: IPP -> TeleHash Bool
+knownSwitch ipp = do
+  master <- get
+  return (Map.member ipp (selfNetwork master))
 
 getNear = undefined
 
 ruleMatch = undefined
 
 -- ---------------------------------------------------------------------
-{-
-// every seen IPP becomes a switch object that maintains itself
-function Switch(ipp, arg) {
-    // initialize the absolute minimum here to keep this lightweight as it's used all the time
-    this.ipp = ipp;
-    this.hash = new hlib.Hash(ipp);
-    network[this.ipp] = this;
-    this.end = this.hash.toString();
-    if(arg) this.via = arg.via; // optionally, which switch introduced us
-    this.ATinit = Date.now();
-    this.misses = 0;
-    this.seed = false;
-    this.ip = this.ipp.substr(0, this.ipp.indexOf(':'));
-    this.port = parseInt(this.ipp.substr(this.ipp.indexOf(':') + 1));
-    console.error("New Switch created: " + this.ipp);
-    if( arg && (arg.via || arg.init) ){
-        //this switch has been .seen or we are created directly using 'new Switch(ipp, {init:true})'
-        master.news(this);//pop it, ping it and open a line!
-    }else{
-        //the switch is being created indirectly by getSwitch(ipp) when we get a new telex from an unknown switch
-        //or when we are trying to send a telex to a yet unknown switch.
-    }
-    return this;
-}
--}
 
--- ---------------------------------------------------------------------
-{-
-getOrCreateSwitch :: IPP -> ClockTime -> TeleHash Switch
-getOrCreateSwitch seedIPP timeNow = do
-  switchMaybe <- getSwitchMaybeM (mkHash seedIPP)
-  case switchMaybe of
-    Just switch -> return switch
-    Nothing -> do
-      -- console.log(["\tNEWLINE[", endpoint, "]"].join(""));
-      logT $ "\tNEWLINE[" ++ (show seedIPP) ++ "]"
-      ringOutVal <- io (R.randomRIO (1,32768) )
-      let switch = mkSwitch seedIPP timeNow ringOutVal
-      updateTelehashSwitch switch
-      return switch
--}
-
--- ---------------------------------------------------------------------
-
-{-
-getSwitchMaybeM :: Hash -> TeleHash (Maybe Switch)
-getSwitchMaybeM hashIpp = do
-  switch <- get
-  let master = (swMaster switch)
-  return $ getSwitchMaybe master hashIpp
--}
-{-
-getSwitchMaybe :: Map.Map Hash Line  -> Hash -> Maybe Line
-getSwitchMaybe master hashIpp  = lineMaybe
-  where
-    ismember = Map.member hashIpp master
-    member = master Map.! hashIpp
-
-    lineMaybe = case (ismember) of
-      True -> Just member
-      False -> Nothing
--}
-{-
-removeLineM :: Hash -> TeleHash ()
-removeLineM hash = do
-  switch <- get
-  master <- gets swMaster
-
-  -- put $ switch {swMaster = Map.delete hash master}
-  -- TODO: what about neighbours?
-  let
-    master' = Map.fromList $
-              map (\(h,line) -> (h,line {lineNeighbors = Set.delete hash (lineNeighbors line)})) $
-              Map.toList $ Map.delete hash master
-
-  put $ switch {swMaster = master'}
--}
 updateTelehashSwitch :: Switch -> TeleHash ()
 updateTelehashSwitch switch = do
   master <- get
@@ -386,5 +314,142 @@ healthy switch timeNow =
   in
    -- Relying on short circuit evaluation
    selfOk && atDroppedOk && atInitOk && atRecvOk && missesOk && brOk
+
+-- ---------------------------------------------------------------------
+
+-- | Process incoming telex from this switch
+
+process :: Switch -> Telex -> TeleHash ()
+process switch telex = do
+  return ()
+  {-
+    // do all the integrity and line validation stuff
+    if (!validate(this, telex)) return;
+
+    if (this.ATdropped) return; //dont process telexes from switches marked to be purged!
+    // basic header tracking
+    if (!this.BR) this.BR = 0;
+    this.BR += rawlen;
+    // they can't send us that much more than what we've told them to, bad!
+    if (this.BRout && this.BR - this.BRout > 12000) return;
+    this.BRin = (telex._br) ? parseInt(telex._br) : undefined;
+    if (this.BRin < 0) delete this.line; // negativity is intentionally signalled line drop (experimental)
+
+    // TODO, if no ATrecv yet but we sent only a single +end last (dialing) and a +pop request for this ip, this
+    // could be a NAT pingback and we should re-send our dial immediately
+
+
+    // timer tracking
+    this.ATrecv = Date.now();
+
+    // responses mean healthy
+    delete this.ATexpected;
+    delete this.misses;
+
+    // process serially per switch
+    telex._ = this; // async eats 'this'
+    if (!this.queue) this.queue = async.queue(worker, 1);
+    this.queue.push(telex);
+  -}
+
+-- ---------------------------------------------------------------------
+
+-- | Make sure this telex is valid coming from this switch, and twiddle our bits
+validate :: Switch -> Telex -> TeleHash Bool
+validate switch telex = do
+  timeNow <- io getClockTime
+  let
+    -- first, if it's been more than 10 seconds after a line opened,
+    -- be super strict, no more ringing allowed, _line absolutely required
+    lineTimeOk = case (swiATline switch) of
+      Nothing -> True
+      Just atLine -> (addSeconds atLine 10) < timeNow
+
+    lineOk = (swiLine switch) == (teleLine telex)
+    -- if (s.ATline && s.ATline + 10000 < Date.now() && t._line != s.line) return false;
+
+    ringOutVal = fromMaybe 32769 (swiRingout switch)
+
+  case (lineTimeOk && lineOk) of
+    False -> return False
+    True -> do
+      -- second, process incoming _line
+
+      case (teleLine telex) of
+        Nothing -> do ()
+        Just msgLineNum -> do
+          let
+            -- can't get a _line w/o having sent a _ring
+            ringSent = swiRingout switch /= Nothing
+
+            msgLineOk = case (swiLine switch) of
+              Just lineNum -> lineNum == msgLineNum && (lineNum `mod` ringOutVal == 0)
+              Nothing -> True -- only test if we have a value
+
+
+          -- we can set up the line now if needed
+          switch' = case (ringSent && msgLineOk) of
+            False -> switch
+            True -> do
+              case (swiLine switch) of
+                Just _ -> switch
+                Nothing -> switch { swiRingin = Just (msgLineNum `mod` ringOutVal),
+                                    swiLine = msgLineNum,
+                                    swiATline = Just timeNow
+                                  }
+
+    {-
+
+    if (t._line) {
+        // can't get a _line w/o having sent a _ring
+        if (s.ring == undefined) return false;
+
+        // be nice in what we accept, strict in what we send
+        t._line = parseInt(t._line);
+
+        // must match if exist
+        if (s.line && t._line != s.line) return false;
+
+        // must be a product of our sent ring!!
+        if (t._line % s.ring != 0) return false;
+
+        // we can set up the line now if needed
+        if (!s.line) {
+            s.ringin = t._line / s.ring; // will be valid if the % = 0 above
+            s.line = t._line;
+            s.ATline = Date.now();
+        }
+    }
+
+    // last, process any incoming _ring's (remember, could be out of order after a _line and still be valid)
+    if (t._ring) {
+
+        // be nice in what we accept, strict in what we send
+        t._ring = parseInt(t._ring);
+
+        // already had a ring and this one doesn't match, should be rare
+        if (s.ringin && t._ring != s.ringin) return false;
+
+        // make sure within valid range
+        if (t._ring <= 0 || t._ring > 32768) return false;
+
+        // we can set up the line now if needed
+        //if(s.ATline == 0){ //will never be true!
+
+        if (master.mode() != MODE.ANNOUNCER && !s.ATline) { //changed this to calculate the _line on first packet received from a switch with _ring
+            s.ringin = t._ring;
+            if (!s.ring) s.ring = Math.floor((Math.random() * 32768) + 1);
+            s.line = s.ringin * s.ring;
+            s.ATline = Date.now();
+        }
+    }
+
+    // we're valid at this point, line or otherwise
+    return true;
+}
+-}
+  return False
+
+
 
 -- EOF

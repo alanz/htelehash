@@ -248,6 +248,22 @@ getMe = do
 
 -- ---------------------------------------------------------------------
 
+isNat :: TeleHash Bool
+isNat = do
+  master <- get
+  case (selfNat master) of
+    Nothing -> return False
+    Just bool -> return bool
+
+isSNat :: TeleHash Bool
+isSNat = do
+  master <- get
+  case (selfSNat master) of
+    Nothing -> return False
+    Just bool -> return bool
+
+-- ---------------------------------------------------------------------
+
 run :: Chan Signal -> Chan Reply -> TeleHash ()
 run ch1 ch2 = do
   -- ch1 <- io (newChan)
@@ -480,7 +496,38 @@ handleSeedTelex telex remoteipp timeNow = do
 
 handleTelex :: Telex -> IPP -> ClockTime -> TeleHash ()
 handleTelex telex remoteipp timeNow = do
-  return ()
+  master <- get
+  snat <- isSNat
+  nat  <- isNat
+  known <- knownSwitch (teleFrom telex)
+  -- if (self.me && from == self.me.ipp) return;
+  -- dont process packets that claim to be from us! (we could be our own seed)
+  let
+    (isMe,
+     addressedToMe,
+     addressedToMyIp) =
+      case (selfMe master) of
+        Nothing -> (False,False,False)
+        Just ipp -> (ipp == remoteipp,
+                     ipp == teleTo telex,
+                     --_to will not match self.me.ipp because we are behind
+                     -- SNAT but at least ip should match
+                     ipFromIpp ipp == ipFromIpp (teleTo telex))
+
+    addressingOk = case snat of
+      False -> addressedToMe
+      True  -> addressedToMyIp
+
+    -- if there is a _line in the telex we should already know them..
+    knownOk = case (teleLine telex) of
+      Nothing -> True
+      Just _ -> known
+
+  case (not isMe && addressingOk && knownOk) of
+    False -> return ()
+    True -> do
+      switch <- getSwitch ipp
+      process switch telex
 
 -- ---------------------------------------------------------------------
 
@@ -540,6 +587,13 @@ isLocalIP (IPP ipp) = do
 
     matching = filter (\ifs -> ip == ifs) ifstrings
   return (matching /= [])
+
+-- ---------------------------------------------------------------------
+
+ipFromIpp :: IPP -> String
+ipFromIpp (IPP ipp) = ip
+  where
+    [ip,_port] = split ":" ipp
 
 -- ---------------------------------------------------------------------
 
