@@ -75,15 +75,15 @@ getStatsR = do
 -- ---------------------------------------------------------------------
 
 prettyMaster :: Reply -> String
-prettyMaster (ReplyGetMaster sw) =
-  ("Connected:" ++ (show $ swConnected sw) ++ ",Seeds:" ++ (show $ swSeeds sw)
-   ++ ",IPP:" ++ (show $ swSelfIpp sw) ++ ",Hash:" ++ (show $ swSelfHash sw))
+prettyMaster (ReplyGetMaster self) =
+  ("Connected:" ++ (show $ selfConnected self) ++ ",Seeds:" ++ (show $ selfSeeds self)
+   ++ ",IPP:" ++ (show $ selfSelfIpp self) ++ ",Hash:" ++ (show $ selfSelfHash self))
 
 -- ---------------------------------------------------------------------
 
 prettyCounts :: Reply -> String
-prettyCounts (ReplyGetMaster sw) =
-  ("Online:" ++ (show $ swCountOnline sw) ++ ",Tx:" ++ (show $ swCountTx sw) ++ ",Rx:" ++ (show $ swCountRx sw) )
+prettyCounts (ReplyGetMaster self) =
+  ("Online:" ++ (show $ selfCountOnline self) ++ ",Tx:" ++ (show $ selfCountTx self) ++ ",Rx:" ++ (show $ selfCountRx self) )
 
 -- ---------------------------------------------------------------------
 
