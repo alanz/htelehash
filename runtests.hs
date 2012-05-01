@@ -47,7 +47,7 @@ case_seeVisible2 = do
   let
     Just lineNew = getLineMaybe (swMaster state) hash2
 
-  case (lineVisible line == lineVisible lineNew) of
+  case (swiVisible line == swiVisible lineNew) of
     True  -> assertFailure ("Line is the same:" ++ (show line))
     False -> return ()
 
@@ -156,9 +156,9 @@ st2 =
            , swConnected = False
            , swMaster = Map.fromList
                         [
-                          (hash1,line1 {lineNeighbors = Set.fromList [hash1,hash2]}) -- ipp under test
-                        , (hash2,line2 {lineVisible = True })-- first neighbour
-                        , (hash3,line3 {lineVisible = True })-- second neighbour
+                          (hash1,line1 {swiNeighbors = Set.fromList [hash1,hash2]}) -- ipp under test
+                        , (hash2,line2 {swiVisible = True })-- first neighbour
+                        , (hash3,line3 {swiVisible = True })-- second neighbour
                         ]
            , swSelfIpp = Nothing
            , swSelfHash = Nothing
@@ -231,10 +231,10 @@ _case_encodeMsg1Js =
 -- 3b. msg.ring == line.ringin, if there is a line.ringin
 
 case_lineOk_msgRingMatchesLine =
-  True @=? isRingOk (line1 { lineRingin = Just 15}) (msg1 { teleRing = Just 15})
+  True @=? isRingOk (line1 { swiRingin = Just 15}) (msg1 { teleRing = Just 15})
 
 case_lineOk_msgRingMisMatchesLine =
-  False @=? isRingOk (line1 { lineRingin = Just 14}) (msg1 { teleRing = Just 15})
+  False @=? isRingOk (line1 { swiRingin = Just 14}) (msg1 { teleRing = Just 15})
 
 -- ---------------------------------------------------------------------
 
@@ -253,19 +253,19 @@ case_lineOk_msgRingValid4 =
 -- ---------------------------------------------------------------------
 
 case_lineOk_ringMatch =
-  Right True @=? isLineOk (line1 {lineLine = Just 12345, lineRingout = 5 }) 1008 (msg1 { teleLine = Just 12345 })
+  Right True @=? isLineOk (line1 {swiLine = Just 12345, swiRingout = 5 }) 1008 (msg1 { teleLine = Just 12345 })
 
 case_lineOk_ringMisMatch =
-  Left "msgLineOk=False,ringTimedOut=False" @=? isLineOk (line1 {lineLine = Just 12345, lineRingout = 7 }) 1008 (msg1 { teleLine = Just 12345 })
+  Left "msgLineOk=False,ringTimedOut=False" @=? isLineOk (line1 {swiLine = Just 12345, swiRingout = 7 }) 1008 (msg1 { teleLine = Just 12345 })
 
 case_lineOk_lineMatch1 =
-  Right True @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 12345 })
+  Right True @=? isLineOk (line1 {swiLine = Just 12345 }) 1008 (msg1 { teleLine = Just 12345 })
 
 case_lineOk_lineMatch2 =
-  Right True @=?isLineOk (line1 {lineLineat = Nothing, lineRingout=15}) 1003 (msg1 {teleLine = Just 12345})
+  Right True @=?isLineOk (line1 {swiATline = Nothing, swiRingout=15}) 1003 (msg1 {teleLine = Just 12345})
 
 case_lineOk_lineMisMatch =
-  Left "msgLineOk=False,ringTimedOut=False" @=? isLineOk (line1 {lineLine = Just 12345 }) 1008 (msg1 { teleLine = Just 1 })
+  Left "msgLineOk=False,ringTimedOut=False" @=? isLineOk (line1 {swiLine = Just 12345 }) 1008 (msg1 { teleLine = Just 1 })
 
 -- ---------------------------------------------------------------------
 
@@ -275,17 +275,17 @@ case_lineOk_timeoutOk =
 case_lineOk_timeoutFail =
   -- Left "False" @=? isLineOk line1 1011 msg1
   -- Left "msgLineOk=True,timedOut=True" @=? isLineOk line1 1041 msg1
-  Left "msgLineOk=True,ringTimedOut=True" @=? isLineOk (line1 {lineLineat = Just (TOD 1000 999), lineLine=Just 30}) 1011 msg1
+  Left "msgLineOk=True,ringTimedOut=True" @=? isLineOk (line1 {swiATline = Just (TOD 1000 999), swiLine=Just 30}) 1011 msg1
 
 
---line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { lineLineat = Just (TOD 1000 999), lineRingout = 5, lineBr = 10 }
---line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999) 1234) { lineRingout = 5, lineBr = 10 }
-line1 = (mkLine ipp1 (TOD 1000 999) 1234) { lineRingout = 5, lineBr = 10 }
+--line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999)) { swiATline = Just (TOD 1000 999), swiRingout = 5, swiBr = 10 }
+--line1 = (mkLine (IPP "telehash.org:42424") (TOD 1000 999) 1234) { swiRingout = 5, swiBr = 10 }
+line1 = (mkLine ipp1 (TOD 1000 999) 1234) { swiRingout = 5, swiBr = 10 }
 -- msg1 = (mkTelex (IPP "1.2.3.4:567")) { teleMsgLength = Just 100 }
 msg1 = (mkTelex ipp1) { teleMsgLength = Just 100, teleBr = 97 }
 msg2 = (mkTelex ipp2) { teleMsgLength = Just 200, teleBr = 297 }
 
-line2 = (mkLine ipp2 (TOD 1002 999) 2345) { lineRingout = 2345, lineBr = 102 }
+line2 = (mkLine ipp2 (TOD 1002 999) 2345) { swiRingout = 2345, swiBr = 102 }
 
 -- ---------------------------------------------------------------------
 -- checkLine tests, in terms of modifying line state
@@ -296,52 +296,52 @@ line2 = (mkLine ipp2 (TOD 1002 999) 2345) { lineRingout = 2345, lineBr = 102 }
 
 case_checkLineBrDrop = do
   (Left "lineOk=Right True,ringOk=True,brOk=False")
-  @=? (checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11904, lineBrout = 3})
+  @=? (checkLine (line1 {swiATline = Nothing, swiRingout=15, swiBr = 11904, swiBrout = 3})
                   (msg1 {teleLine = Just 12345, teleRing = Nothing})
                   (TOD 1000 999))
 
 case_checkLineBrNoDrop =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999),
-              lineBr = 12003, lineBrin = 97, lineBrout = 3,
-              lineRingin = Just 823, lineLine = Just 12345, lineRingout = 15})
-  @=? (checkLine (line1 {lineLineat = Nothing, lineRingout=15, lineBr = 11903, lineBrout = 3})
+  (Right $ line1 {swiATseen = Just (TOD 1000 999), swiATline = Just (TOD 1000 999),
+              swiBr = 12003, swiBrin = 97, swiBrout = 3,
+              swiRingin = Just 823, swiLine = Just 12345, swiRingout = 15})
+  @=? (checkLine (line1 {swiATline = Nothing, swiRingout=15, swiBr = 11903, swiBrout = 3})
             (msg1 {teleLine = Just 12345, teleRing = Nothing})
             (TOD 1000 999))
 
 
 case_checkLineRing1 =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999),
-              lineBr = 110, lineBrin = 97, lineRingin = Just 823,
-              lineLine = Just 12345, lineRingout = 15})
-  @=? (checkLine (line1 {lineLineat = Nothing, lineRingout=15})
+  (Right $ line1 {swiATseen = Just (TOD 1000 999), swiATline = Just (TOD 1000 999),
+              swiBr = 110, swiBrin = 97, swiRingin = Just 823,
+              swiLine = Just 12345, swiRingout = 15})
+  @=? (checkLine (line1 {swiATline = Nothing, swiRingout=15})
                 (msg1 {teleLine = Just 12345, teleRing = Nothing})
                 (TOD 1000 999))
 
 case_checkLineRing2 =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineLineat = Just (TOD 1000 999),
-              lineBr = 110, lineBrin = 97, lineRingin = Just 823,
-              lineLine = Just 12345, lineRingout = 15})
-  @=? (checkLine (line1 {lineLineat = Nothing, lineRingout=15})
+  (Right $ line1 {swiATseen = Just (TOD 1000 999), swiATline = Just (TOD 1000 999),
+              swiBr = 110, swiBrin = 97, swiRingin = Just 823,
+              swiLine = Just 12345, swiRingout = 15})
+  @=? (checkLine (line1 {swiATline = Nothing, swiRingout=15})
             (msg1 {teleLine = Nothing, teleRing = Just 823})
             (TOD 1000 999))
 
 case_checkLineRingInvalid =
   (Left "ringOk=False")
-  @=? (checkLine (line1 {lineLineat = Nothing, lineRingout=15})
+  @=? (checkLine (line1 {swiATline = Nothing, swiRingout=15})
             (msg1 {teleLine = Nothing, teleRing = Just 32769})
             (TOD 1000 999))
 
 -- -----------------------------------------------
 
 case_checkLine1 =
-  (Right $ line1 {lineSeenat = Just (TOD 1000 999), lineBr = 110, lineBrin = 97})
+  (Right $ line1 {swiATseen = Just (TOD 1000 999), swiBr = 110, swiBrin = 97})
   @=? checkLine line1 msg1 (TOD 1000 999)
 
 case_checkLine2 =
   Left "msgLineOk=True,ringTimedOut=True"
   -- @=? checkLine line1 msg1 (TOD 1020 999)
   -- @=? checkLine line1 msg1 (TOD 1050 999)
-  @=? checkLine (line1 {lineLineat = Just (TOD 1000 999), lineLine=Just 30}) msg1 (TOD 1011 999)
+  @=? checkLine (line1 {swiATline = Just (TOD 1000 999), swiLine=Just 30}) msg1 (TOD 1011 999)
 
 -- ---------------------------------------------------------------------
 
@@ -417,21 +417,21 @@ case_getOrCreateLine_firstTime = do
 
   let t1 = TOD 1000 9999
 
-  if (lineIpp line /= ipp1)
-    then (assertFailure $ "ipp wrong, got " ++ (show (lineIpp line)))
+  if (swiIpp line /= ipp1)
+    then (assertFailure $ "ipp wrong, got " ++ (show (swiIpp line)))
     else return ()
 
-  if (lineEnd line /= hash1)
-    then (assertFailure $ "end wrong, got " ++ (show (lineEnd line)))
+  if (swiEnd line /= hash1)
+    then (assertFailure $ "end wrong, got " ++ (show (swiEnd line)))
     else return ()
 
-  let (TOD s1 ps1) = (lineInit line)
-  if (lineInit line /= (TOD 1000 9999))
-    then (assertFailure $ "lineInit wrong, got " ++ (show (s1,ps1)))
+  let (TOD s1 ps1) = (swiATinit line)
+  if (swiATinit line /= (TOD 1000 9999))
+    then (assertFailure $ "swiATinit wrong, got " ++ (show (s1,ps1)))
     else return ()
 
-  if ((Set.toList (lineNeighbors line)) /= [hash1])
-    then (assertFailure $ "neighbours wrong, got " ++ (show (lineNeighbors line)))
+  if ((Set.toList (swiNeighbors line)) /= [hash1])
+    then (assertFailure $ "neighbours wrong, got " ++ (show (swiNeighbors line)))
     else return ()
 
   if (Map.size (swMaster state) /= 1)
@@ -452,28 +452,28 @@ case_getOrCreateLine_alreadyThere = do
   let st = st1 {swMaster = Map.fromList
                            [
                              (hash1,
-                              (mkLine ipp1 (TOD 1000 1234) 1234) {lineNeighbors = Set.fromList [hash1]})
+                              (mkLine ipp1 (TOD 1000 1234) 1234) {swiNeighbors = Set.fromList [hash1]})
                              ]}
 
   let t1 = TOD 1000 9999
 
   (line,state) <- runStateT (getOrCreateLine ipp1 t1) st
 
-  if (lineIpp line /= ipp1)
-    then (assertFailure $ "ipp wrong, got " ++ (show (lineIpp line)))
+  if (swiIpp line /= ipp1)
+    then (assertFailure $ "ipp wrong, got " ++ (show (swiIpp line)))
     else return ()
 
-  let (TOD s1 ps1) = (lineInit line)
-  if (lineInit line /= (TOD 1000 1234))
-    then (assertFailure $ "lineInit wrong, got " ++ (show (s1,ps1)))
+  let (TOD s1 ps1) = (swiATinit line)
+  if (swiATinit line /= (TOD 1000 1234))
+    then (assertFailure $ "swiATinit wrong, got " ++ (show (s1,ps1)))
     else return ()
 
-  if ((Set.toList (lineNeighbors line)) /= [hash1])
-    then (assertFailure $ "neighbours wrong, got " ++ (show (lineNeighbors line)))
+  if ((Set.toList (swiNeighbors line)) /= [hash1])
+    then (assertFailure $ "neighbours wrong, got " ++ (show (swiNeighbors line)))
     else return ()
 
-  if (lineEnd line /= hash1)
-    then (assertFailure $ "end wrong, got " ++ (show (lineEnd line)))
+  if (swiEnd line /= hash1)
+    then (assertFailure $ "end wrong, got " ++ (show (swiEnd line)))
     else return ()
 
   if (Map.size (swMaster state) /= 1)
@@ -512,7 +512,7 @@ case_prepareTelex_bSentOk = do
     st = st1 { swMaster =
                   Map.fromList [
                     (hash1,
-                     (mkLine ipp1 (TOD 1000 999) 1234) {lineBsent = 10000, lineBrin = 100 })
+                     (mkLine ipp1 (TOD 1000 999) 1234) {swiBsent = 10000, swiBrin = 100 })
                     ]}
 
   (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st
@@ -528,7 +528,7 @@ case_prepareTelex_bSentFail = do
     st = st1 { swMaster =
                   Map.fromList [
                     (hash1,
-                     (mkLine ipp1 (TOD 1000 999) 1234) {lineBsent = 10101, lineBrin = 100 })
+                     (mkLine ipp1 (TOD 1000 999) 1234) {swiBsent = 10101, swiBrin = 100 })
                     ]}
 
   (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st
@@ -561,7 +561,7 @@ case_prepareTelex_line = do
     st = st1 { swMaster =
                   Map.fromList [
                     (hash1,
-                     (mkLine ipp1 (TOD 1000 999) 1234 ) {lineLine = Just 123456})
+                     (mkLine ipp1 (TOD 1000 999) 1234 ) {swiLine = Just 123456})
                     ]}
 
   (res,state) <- runStateT (prepareTelex msg1 (TOD 1000 9999)) st
@@ -585,7 +585,7 @@ case_prepareTelex_counters = do
     st = st1 { swMaster =
                   Map.fromList [
                     (hash1,
-                     (mkLine ipp1 (TOD 1000 999) 1234) {lineBr = 100, lineBrout = 10, lineBsent = 120})
+                     (mkLine ipp1 (TOD 1000 999) 1234) {swiBr = 100, swiBrout = 10, swiBsent = 120})
                     ]}
 
   (res,state) <- runStateT (prepareTelex msg1 (TOD 10003 9999)) st
@@ -594,21 +594,21 @@ case_prepareTelex_counters = do
     Just (line,msgJson) = res
     msg = parseTelex msgJson
 
-  if (lineBr line == 100)
+  if (swiBr line == 100)
     then return ()
-    else (assertFailure $ "prepareTelex:lineBr " ++ (show $ line))
+    else (assertFailure $ "prepareTelex:swiBr " ++ (show $ line))
 
-  if (lineBrout line == 100)
+  if (swiBrout line == 100)
     then return ()
-    else (assertFailure $ "prepareTelex:lineBrout " ++ (show $ line))
+    else (assertFailure $ "prepareTelex:swiBrout " ++ (show $ line))
 
-  if (lineBsent line == 120 + (length msgJson))
+  if (swiBsent line == 120 + (length msgJson))
     then return ()
-    else (assertFailure $ "prepareTelex:lineBsent " ++ (show $ line))
+    else (assertFailure $ "prepareTelex:swiBsent " ++ (show $ line))
 
-  if (lineSentat line == Just (TOD 10003 9999))
+  if (swiATsent line == Just (TOD 10003 9999))
     then return ()
-    else (assertFailure $ "prepareTelex:lineSentat " ++ (show $ line))
+    else (assertFailure $ "prepareTelex:swiATsent " ++ (show $ line))
 
 -- ---------------------------------------------------------------------
 
@@ -707,7 +707,7 @@ can be seen from the remote ipp
 
 1. Do not process an IPP of ourselves
 
-2. Only process a see once, tracked in the lineVisible flag
+2. Only process a see once, tracked in the swiVisible flag
 
 3. For the self-see, ie. line making iteslf visible
    TODO:*** still to test*** set the line neighbours to be the near_to list of the see list.
@@ -724,8 +724,8 @@ case_processSee_Self = do
   let
     remoteipp = ipp2
     seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = False}
 
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
@@ -745,8 +745,8 @@ case_processSee_AlreadyVisible = do
   let
     remoteipp = ipp1
     seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = True}
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = True}
 
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
@@ -766,8 +766,8 @@ case_processSee_NotVisible = do
   let
     remoteipp = ipp2
     seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = False}
 
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
@@ -778,7 +778,7 @@ case_processSee_NotVisible = do
   (line,state) <- runStateT (processCommand ".see" remoteipp telex line2) st
 
   let line2' = (swMaster state) Map.! hash2
-  if (lineVisible line2')
+  if (swiVisible line2')
      then return ()
      else (assertFailure $ "processSee:" ++ (show $ (swMaster state)))
 
@@ -788,9 +788,9 @@ case_processSee_LineKnown = do
   let
     remoteipp = ipp2
     seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
-    line3 = (mkLine ipp3 (TOD 1000 999) 3456) {lineNeighbors = Set.fromList [hash3], lineVisible = False}
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = False}
+    line3 = (mkLine ipp3 (TOD 1000 999) 3456) {swiNeighbors = Set.fromList [hash3], swiVisible = False}
 
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
@@ -810,8 +810,8 @@ case_processSee_LineUnKnown = do
   let
     remoteipp = ipp2
     seeipp    = ipp1
-    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = False}
 
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
@@ -830,8 +830,8 @@ case_processSee_LineUnKnown = do
 case_processSee_sendTelexes = do
   let
     remoteipp = ipp2
-    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {lineNeighbors = Set.fromList [hash1], lineVisible = True}
-    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {lineNeighbors = Set.fromList [hash2], lineVisible = False}
+    line1 = (mkLine ipp1 (TOD 1000 999) 1234) {swiNeighbors = Set.fromList [hash1], swiVisible = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 2345) {swiNeighbors = Set.fromList [hash2], swiVisible = False}
 
     st = st1 { swSelfIpp  = Just ipp1,
                swSelfHash = Just hash1,
@@ -883,8 +883,8 @@ The next three are all in a single message
 
 case_ScanLines_LineGoodWithSee = do
   let
-    line2 = (mkLine ipp2 (TOD 1000 999) 4567) {lineSeenat = Just (TOD 2000 999),
-                                               lineVisibled = False}
+    line2 = (mkLine ipp2 (TOD 1000 999) 4567) {swiATseen = Just (TOD 2000 999),
+                                               swiVisibled = False}
 
     st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
               swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
@@ -910,8 +910,8 @@ case_ScanLines_LineGoodWithSee = do
 
 case_ScanLines_LineGoodNoSee = do
   let
-    line2 = (mkLine ipp2 (TOD 1000 999) 4567) {lineSeenat = Just (TOD 2000 999),
-                                               lineVisibled = True}
+    line2 = (mkLine ipp2 (TOD 1000 999) 4567) {swiATseen = Just (TOD 2000 999),
+                                               swiVisibled = True}
 
     st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
               swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
@@ -956,7 +956,7 @@ case_ScanLines_PurgeStaleRing = do
 
 case_ScanLines_PurgeStaleLine = do
   let
-    line2 = (mkLine ipp2 (TOD 1000 999) 4567) {lineSeenat = Just (TOD 2000 999)}
+    line2 = (mkLine ipp2 (TOD 1000 999) 4567) {swiATseen = Just (TOD 2000 999)}
 
     st = st1 {swConnected = True, swSelfIpp = Just ipp1, swSelfHash = Just hash1,
               swMaster = Map.fromList [(hash1,line1),(hash2,line2)]
@@ -1097,7 +1097,7 @@ case_TapSignals_RulesMatches_b_us = do
                swMaster =
                   Map.fromList
                   [(hash2,line2),
-                   (hash1,line1 {lineRules =
+                   (hash1,line1 {swiRules =
                                     [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
                                           tapHas = ["+pop"]}]})
                   ],
@@ -1153,7 +1153,7 @@ case_TapSignals_RulesMatches_b = do
                swMaster =
                   Map.fromList
                   [(hash1,line1),
-                   (hash2,line2 {lineRules =
+                   (hash2,line2 {swiRules =
                                     [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
                                           tapHas = ["+pop"]}]})
                   ],
@@ -1203,7 +1203,7 @@ case_TapSignals_RulesMatches_a = do
     st = st1 { swMaster =
                   Map.fromList
                   [(hash1,line1),
-                   (hash2,line2 {lineRules =
+                   (hash2,line2 {swiRules =
                                     [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
                                           tapHas = ["+pop"]}]})
                   ] }
@@ -1237,7 +1237,7 @@ case_TapSignals_LineWithRulesOnly = do
     st = st1 { swMaster =
                   Map.fromList
                   [(hash1,line1),
-                   (hash2,line2 {lineRules =
+                   (hash2,line2 {swiRules =
                                     [Tap {tapIs = ("+end","38666817e1b38470644e004b9356c1622368fa57"),
                                           tapHas = ["+pop"]}]})
                   ] }
