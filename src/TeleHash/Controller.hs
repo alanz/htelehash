@@ -16,7 +16,9 @@ module TeleHash.Controller
        , startMasterThread
        , Signal(..)
        , Reply(..)
+       , ReplyUser(..)
        , queryMaster
+       , sendUserMsg
        -- For testing
        , recvTelex
        , parseTelex
@@ -76,6 +78,7 @@ import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
+--import TeleHash.Telex
 import TeleHash.TelexOld
 import Text.JSON
 import Text.JSON.Generic
@@ -202,11 +205,15 @@ main = do
 
 -- ---------------------------------------------------------------------
 
-data Signal = SignalPingSeeds | SignalScanSwitchs | SignalTapTap | SignalMsgRx String SockAddr |
-              SignalGetMaster
+data Signal = SignalPingSeeds | SignalScanSwitchs | SignalTapTap | SignalMsgRx String SockAddr
+            | SignalGetMaster
+            | SignalSendUserMsg [(String,String)] -- ^Send a user message, having the JSON key:value pairs given
               deriving (Typeable, Show, Eq)
 
 data Reply = ReplyGetMaster Master
+           deriving (Typeable, Show)
+
+data ReplyUser = ReplyUserString String
            deriving (Typeable, Show)
 
 onesec :: Int
@@ -224,6 +231,10 @@ queryMaster ch1 ch2 = do
   res <- readChan ch2
   return res
 
+sendUserMsg :: Chan Signal -> [(String,String)] -> IO ()
+sendUserMsg ch1 vals = do
+  writeChan ch1 (SignalSendUserMsg vals)
+
 -- ---------------------------------------------------------------------
 -- Logging
 
@@ -237,9 +248,9 @@ logT str = io (warningM "Controller" str)
 runMaster :: IO ((),Master)
 runMaster = bracket initialize disconnect loop
   where
-    disconnect (_,_,ss) = sClose (slSocket (fromJust $ selfH ss))
+    disconnect (_,_,_,ss) = sClose (slSocket (fromJust $ selfH ss))
 
-    loop (ch1,ch2,st) = catch (runStateT (run ch1 ch2) st) (exc)
+    loop (ch1,ch2,ch3,st) = catch (runStateT (run ch1 ch2 ch3) st) (exc)
 
     exc :: SomeException -> IO ((),Master)
     exc _e = return ((),undefined)
@@ -250,17 +261,17 @@ runMaster = bracket initialize disconnect loop
 -- its own thread
 --
 
-startMasterThread :: IO (Chan Signal,Chan Reply,ThreadId)
+startMasterThread :: IO (Chan Signal,Chan Reply,Chan ReplyUser,ThreadId)
 startMasterThread = do
-  (ch1,ch2,st) <- initialize
+  (ch1,ch2,ch3,st) <- initialize
   -- thread <- forkIO (io (runStateT run st))
-  thread <- forkIO (doit ch1 ch2 st)
-  return (ch1,ch2,thread)
+  thread <- forkIO (doit ch1 ch2 ch3 st)
+  return (ch1,ch2,ch3,thread)
 
   where
-    doit :: Chan Signal -> Chan Reply -> Master -> IO ()
-    doit ch1 ch2 st = do
-      _ <- runStateT (run ch1 ch2) st
+    doit :: Chan Signal -> Chan Reply -> Chan ReplyUser -> Master -> IO ()
+    doit ch1 ch2 ch3 st = do
+      _ <- runStateT (run ch1 ch2 ch3) st
       return ()
 
 
@@ -273,7 +284,7 @@ initialSeeds = ["208.68.164.253:42424", "208.68.163.247:42424"]
 -- s.setSeeds(["telehash.org:42424","6.singly.com:42424","208.68.160.25:42424"]);
 
 
-initialize :: IO (Chan a,Chan b,Master)
+initialize :: IO (Chan a,Chan b,Chan c,Master)
 initialize = do
   -- Look up the hostname and port.  Either raises an exception
   -- or returns a nonempty list.  First element in that list
@@ -295,12 +306,14 @@ initialize = do
 
   ch1 <- newChan
   ch2 <- newChan
+  ch3 <- newChan
 
   -- Save off the socket, and server address in a handle
-  return $ (ch1, ch2, (Master (Just (SocketHandle sock)) initialSeeds
-                       -- (Set.fromList [seedIPP])
-                       Set.empty
-                       False Map.empty Nothing Nothing [] 0 0 0 doSendDgram))
+  return $ (ch1, ch2, ch3,
+            (Master (Just (SocketHandle sock)) initialSeeds
+             -- (Set.fromList [seedIPP])
+             Set.empty
+             False Map.empty Nothing Nothing [] 0 0 0 doSendDgram))
 
 -- ---------------------------------------------------------------------
 
@@ -334,8 +347,8 @@ addrFromHostPort hostname port = do
 
 -- ---------------------------------------------------------------------
 
-run :: Chan Signal -> Chan Reply -> TeleHash ()
-run ch1 ch2 = do
+run :: Chan Signal -> Chan Reply -> Chan ReplyUser -> TeleHash ()
+run ch1 ch2 ch3 = do
   -- ch1 <- io (newChan)
   _ <- io (forkIO (timer (10 * onesec) SignalPingSeeds ch1))
   _ <- io (forkIO (timer (10 * onesec) SignalScanSwitchs ch1))
@@ -362,6 +375,9 @@ run ch1 ch2 = do
       SignalGetMaster      -> do
         sw <- getMaster
         io (writeChan ch2 (ReplyGetMaster sw))
+      SignalSendUserMsg vals -> do
+        io (writeChan ch3 (ReplyUserString "foo"))
+
     -- io (putStrLn $ "done signal:at " ++ (show timeNow))
 
 -- ---------------------------------------------------------------------
@@ -1416,23 +1432,6 @@ scanlines now@(TOD _secs _picos) = do
           return (secs - initSecs > cTIMEOUT)
         Just (TOD seenatSecs _) ->
           return (secs - seenatSecs > cTIMEOUT)
-
--- ---------------------------------------------------------------------
-{-
-/**
- * Hash objects represent a message digest of string content,
- * with methods useful to DHT calculations.
- */
--}
-
-mkHash :: IPP -> Hash
-mkHash (IPP str) =
-  let
-    digest = SHA.sha1 $ BL.fromChunks [BC.pack str]
-  in
-   -- B64.encode $ BL.unpack $ SHA.bytestringDigest digest
-   Hash (show digest)
-
 
 -- ---------------------------------------------------------------------
 -- Convenience.

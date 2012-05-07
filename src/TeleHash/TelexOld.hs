@@ -6,6 +6,7 @@ module TeleHash.TelexOld
        , unIPP
        , Hash(..)
        , unHash
+       , mkHash
        , Tap(..)
        , Telex(..)
        , mkTelex
@@ -17,7 +18,12 @@ import Data.List
 import Text.JSON
 import Text.JSON.Generic
 import Text.JSON.Types
+import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
+
+-- ---------------------------------------------------------------------
 
 newtype Hash = Hash String
              deriving (Data,Eq,Show,Typeable,Ord)
@@ -229,5 +235,22 @@ mkTelex seedIPP =
     -- set _to = seedIPP
   -- Telex Nothing Nothing 0 (T.pack seedIPP) Nothing Nothing Nothing Map.empty -- Nothing
   Telex Nothing Nothing 0 seedIPP Nothing Nothing Nothing Nothing Nothing Map.empty Nothing
+
+-- ---------------------------------------------------------------------
+{-
+/**
+ * Hash objects represent a message digest of string content,
+ * with methods useful to DHT calculations.
+ */
+-}
+
+mkHash :: IPP -> Hash
+mkHash (IPP str) =
+  let
+    digest = SHA.sha1 $ BL.fromChunks [BC.pack str]
+  in
+   -- B64.encode $ BL.unpack $ SHA.bytestringDigest digest
+   Hash (show digest)
+
 
 -- EOF

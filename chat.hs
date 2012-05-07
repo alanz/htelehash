@@ -4,18 +4,27 @@ import Prelude hiding (id, (.), head, either, catch)
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
-import TeleHash.WebNew
-import TeleHash.Types
-import qualified TeleHash.TeleHash as T
+import TeleHash.Chat
+import TeleHash.Web
+import qualified TeleHash.Controller as C
 
 main :: IO ()
 main = do
-    s <- streamHandler stdout DEBUG
-    updateGlobalLogger rootLoggerName (setHandlers [s])
 
-    (ch1,ch2,thread) <- T.seed Nothing
+  let logPath = "/tmp/telehash.log"
+  myFileHandler <- fileHandler logPath DEBUG
+  updateGlobalLogger rootLoggerName (setHandlers [myFileHandler])
 
-    catch (runWeb ch1 ch2) (exc thread)
+  -- s <- streamHandler stdout DEBUG
+  -- updateGlobalLogger rootLoggerName (setHandlers [s])
+
+  -- C.runSwitch
+  (ch1,ch2,ch3,thread) <- C.startMasterThread
+
+  --runWeb
+  webThread <- forkIO (runWeb ch1 ch2)
+
+  catch (runChat ch1 ch3) (exc thread)
 
     where
       exc :: ThreadId -> SomeException -> IO ()
@@ -24,7 +33,7 @@ main = do
         killThread thread
         -- return ((),undefined)
 
-
-
 chatRoom = "telechat:lobby"
 nickName = "@user"
+
+-- EOF

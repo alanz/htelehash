@@ -24,7 +24,7 @@ main = do
     updateGlobalLogger rootLoggerName (setHandlers [s])
 
     -- C.runSwitch
-    (ch1,ch2,thread) <- C.startMasterThread
+    (ch1,ch2,ch3,thread) <- C.startMasterThread
 
     --runWeb
     catch (runWeb ch1 ch2) (exc thread)

@@ -56,6 +56,11 @@ executable             main
     main-is:           main.hs
     ghc-options:  -Wall -fhpc
 
+executable             chat
+    hs-source-dirs:    . src
+    main-is:           chat.hs
+    ghc-options:  -Wall -fhpc
+
 executable             runtests
     if flag(buildtests)
         Buildable: True
