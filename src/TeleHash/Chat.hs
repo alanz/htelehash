@@ -10,12 +10,13 @@ import System.IO
 
 -- ---------------------------------------------------------------------
 
-runChat :: Chan Signal -> Chan ReplyUser -> IO ()
-runChat ch1 ch3  = do
+runChat :: Chan Signal -> Chan ReplyUser -> String -> IO ()
+runChat ch1 ch3 nickName = do
   putStr $ ": "
   hFlush stdout
   str <- getLine
   putStrLn $ "msg:" ++ str
-  runChat ch1 ch3
+  sendUserMsg ch1 [("txt",str),("nick",nickName)]
+  runChat ch1 ch3 nickName
 
 -- EOF

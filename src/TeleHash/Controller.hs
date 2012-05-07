@@ -376,7 +376,8 @@ run ch1 ch2 ch3 = do
         sw <- getMaster
         io (writeChan ch2 (ReplyGetMaster sw))
       SignalSendUserMsg vals -> do
-        io (writeChan ch3 (ReplyUserString "foo"))
+        -- io (writeChan ch3 (ReplyUserString "foo"))
+        doSendUserMsg vals ch3
 
     -- io (putStrLn $ "done signal:at " ++ (show timeNow))
 
@@ -386,6 +387,34 @@ getMaster :: TeleHash Master
 getMaster = do
   master <- get
   return master
+
+doSendUserMsg :: [(String,String)] -> Chan ReplyUser -> TeleHash ()
+doSendUserMsg vals ch = do
+  timeNow <- io getClockTime
+  let
+    guid = (show timeNow)
+    meEnd = "TBD"
+    message = "MSG"
+    endName = Hash "end"
+  -- send the message
+  case True of -- reply expected?
+    True -> do
+      -- changed to send end instead of ip:port. (maintain some anonymity)
+      -- if ip:port needs to be shared..send it in the message.
+      doAnnounce endName [("+connect",guid),("+from",meEnd),("+message",message)]
+    False -> do
+      -- dont share our ip.. if we dont have to
+      doAnnounce endName [("+connect",guid),("+message",message)]
+  -- console.error("Sending message: " + JSON.stringify(message)+" guid:"+guid);
+  logT     $ "Sending message: " ++ (show vals) ++ " guid:" ++ guid;
+  io (putStrLn $ "Sending message: " ++ (show vals) ++ " guid:" ++ guid)
+
+
+-- ---------------------------------------------------------------------
+
+doAnnounce :: Hash -> [(String,String)] -> TeleHash ()
+doAnnounce end signals = do
+  return ()
 
 -- ---------------------------------------------------------------------
 

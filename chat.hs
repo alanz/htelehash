@@ -24,7 +24,7 @@ main = do
   --runWeb
   webThread <- forkIO (runWeb ch1 ch2)
 
-  catch (runChat ch1 ch3) (exc thread)
+  catch (runChat ch1 ch3 nickName) (exc thread)
 
     where
       exc :: ThreadId -> SomeException -> IO ()
