@@ -6,14 +6,65 @@ module TeleHash.Switch
   , switch
   ) where
 
+import Control.Concurrent
+import Control.Exception
+import Control.Monad
+import Control.Monad.Error
+import Control.Monad.State
+import Data.Bits
+import Data.Char
+import Data.List
+import Data.Maybe
+import Data.String.Utils
+import Network.BSD
+import qualified Network.Socket as NS
+import Text.JSON
+import Text.JSON.Generic
+import Text.JSON.Types
+import Prelude hiding (id, (.), head, either, catch)
+import System.IO
+import System.Log.Handler.Simple
+import System.Log.Logger
+import System.Time
+
+
+--import Text.Printf
+import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
+import qualified Data.Set as Set
+import qualified Network.Socket.ByteString as SB
+import qualified System.Random as R
+
+
+-- ---------------------------------------------------------------------
+
+--
+-- The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
+--
+type TeleHash = StateT Switch IO
 
 -- ---------------------------------------------------------------------
 
 data Msg = Msg String
-type Path = String
+data Path = Path
+      { pType :: String
+      }
+
+data To = To { pathOut :: Path -> Path
+             }
+
 type Packet = String
 type Channel = String
+type Bucket = [Line]
+data Line = Line { lineAge :: ClockTime
+                 , lineSeed :: String
+                 , lineAddress :: String
+                 , lineLinked :: Maybe String
+                 , lineAlive :: Bool
+                 , lineSentat :: Maybe ClockTime
+                 } deriving Show
 
 -- ---------------------------------------------------------------------
 
@@ -51,74 +102,75 @@ defaults = Defaults
 
 -- ---------------------------------------------------------------------
 
-data Switch = Switch { swSeeds :: [String]
-                     , swLocals :: [String]
-                     , swLines :: [String]
-                     , swBridges :: [String]
-                     , swBridgeLine :: [String]
-                     , swAll :: [String]
-                     , swBuckets :: [String]
-                     , swCapacity :: [String]
-                     , swRels :: [String]
-                     , swRaws :: Map.Map String (String -> Packet -> Channel -> IO ())
-                     , swPaths :: [String]
-                     , swBridgeCache :: [String]
-                     , swNetworks :: Map.Map String (Path -> Msg -> IO ())
-                     , swCSets :: [String]
+data Switch = Switch
+       { swSeeds :: [String]
+       , swLocals :: [String]
+       , swLines :: [String]
+       , swBridges :: [String]
+       , swBridgeLine :: [String]
+       , swAll :: [String]
+       , swBuckets :: [Bucket]
+       , swCapacity :: [String]
+       , swRels :: [String]
+       , swRaws :: Map.Map String (String -> Packet -> Channel -> IO ())
+       , swPaths :: [String]
+       , swBridgeCache :: [String]
+       , swNetworks :: Map.Map String (Path -> Msg -> Maybe To -> TeleHash ())
+       , swCSets :: [String]
 
-                     , swLoad :: String -> Bool -- load function
-                     , swMake :: () -> () -> IO ()
+       , swLoad :: String -> Bool -- load function
+       , swMake :: () -> () -> IO ()
 
-                     , swNat :: Bool
-                     , swSeed :: Bool
+       , swNat :: Bool
+       , swSeed :: Bool
 
-                     -- udp socket stuff
-                     , swPcounter :: Int
-                     , swReceive :: Msg -> Path -> IO ()
+       -- udp socket stuff
+       , swPcounter :: Int
+       , swReceive :: Msg -> Path -> IO ()
 
-                     -- outgoing packets to the network
-                     , swDeliver :: String -> () -> ()
-                     , swSend    :: Path -> Msg -> String -> IO ()
-                     , swPathSet :: Path -> IO ()
+       -- outgoing packets to the network
+       , swDeliver :: String -> () -> ()
+       , swSend    :: Path -> Msg -> Maybe To -> TeleHash ()
+       , swPathSet :: Path -> IO ()
 
-                     -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
-                     , swAddSeed :: String -> IO ()
+       -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
+       , swAddSeed :: String -> IO ()
 
-                     --  map a hashname to an object, whois(hashname)
-                     , swWhois :: String -> IO ()
-                     , swWhokey :: String -> String -> [String] -> IO ()
+       --  map a hashname to an object, whois(hashname)
+       , swWhois :: String -> IO ()
+       , swWhokey :: String -> String -> [String] -> IO ()
 
-                     , swStart :: String -> String -> String -> () -> IO ()
-                     , swOnline :: () -> IO ()
-                     , swListen :: String -> () -> IO ()
+       , swStart :: String -> String -> String -> () -> IO ()
+       , swOnline :: () -> IO ()
+       , swListen :: String -> () -> IO ()
 
-                     -- advanced usage only
-                     , swRaw :: String -> () -> IO ()
+       -- advanced usage only
+       , swRaw :: String -> () -> IO ()
 
-                     -- primarily internal, to seek/connect to a hashname
-                     , swSeek :: String -> () -> IO ()
-                     , swBridge :: Path -> Msg -> String -> IO ()
+       -- primarily internal, to seek/connect to a hashname
+       , swSeek :: String -> () -> IO ()
+       , swBridge :: Path -> Msg -> Maybe To -> TeleHash ()
 
-                     -- for modules
-                     , swPencode :: String -> String -> String
-                     , swPdecode :: Packet -> String
-                     , swIsLocalIP :: String -> Bool
-                     , swRandomHEX :: IO String
-                     , swUriparse :: String -> String
-                     , swIsHashname :: ()
-                     , swWraps :: ()
-                     , swWaits :: ()
-                     , swWaiting :: Bool
-                     , swWait :: Bool -> ()
+       -- for modules
+       , swPencode :: String -> String -> String
+       , swPdecode :: Packet -> String
+       , swIsLocalIP :: String -> Bool
+       , swRandomHEX :: IO String
+       , swUriparse :: String -> String
+           , swIsHashname :: String -> String
+           , swWraps :: IO ()
+           , swWaits :: [String]
+           , swWaiting :: Bool
+           , swWait :: Bool -> IO ()
 
-                     -- , swCountOnline :: Int
-                     -- , swCountTx :: Int
-                     -- , swCountRx :: Int
-                     }
+           -- , swCountOnline :: Int
+           -- , swCountTx :: Int
+           -- , swCountRx :: Int
+           }
 
 -- ---------------------------------------------------------------------
 
-switch :: Defaults -> IO Switch
+switch :: Defaults -> TeleHash Switch
 switch def = do
   let
     sw = Switch
@@ -191,26 +243,19 @@ switch def = do
       , swIsLocalIP = isLocalIP
       , swRandomHEX = randomHEX
       , swUriparse = uriparse
+
+      -- for modules
+      , swIsHashname = isHashName
+      , swWraps = channelWraps
+      , swWaits = []
+      , swWaiting = False
+      , swWait = wait
       }
-{-
+  put sw
+  linkLoop -- should never return
+  sw' <- get
+  return sw'
 
-  // for modules
-  self.isHashname = function(hex){return isHEX(hex, 64)};
-  self.wraps = channelWraps;
-  self.waits = [];
-  self.waiting = false
-  self.wait = function(bool){
-    if(bool) return self.waits.push(true);
-    self.waits.pop();
-    if(self.waiting && self.waits.length == 0) self.waiting();
-  }
-
-  linkLoop(self);
-  return self;
-
--}
-
-  return undefined
 
 -- ---------------------------------------------------------------------
 {-
@@ -386,8 +431,8 @@ deliver = undefined
     path.relay.send({body:msg});
   };
 -}
-relay :: Path -> Msg -> IO ()
-relay path msg = undefined
+relay :: Path -> Msg -> Maybe To -> TeleHash ()
+relay path msg _ = undefined
 
 -- ---------------------------------------------------------------------
 
@@ -409,8 +454,43 @@ relay path msg = undefined
   };
 -}
 
-send :: Path -> Msg -> String -> IO ()
-send path msg to = undefined
+send :: Path -> Msg -> Maybe To -> TeleHash ()
+send mpath msg mto = do
+  sw <- get
+  let path = case mto of
+       Just to -> (pathOut to) mpath
+       Nothing -> mpath
+    -- if(!path) return debug("send called w/ no valid network, dropping");
+    -- debug("<<<<",Date(),msg.length,[path.type,path.ip,path.port,path.id].join(","),to&&to.hashname);
+  logT $ "<<<<"
+  -- try to send it via a supported network
+  -- if(self.networks[path.type]) self.networks[path.type](path,msg,to);
+  case Map.lookup (pType path) (swNetworks sw) of
+    Nothing -> return ()
+    Just sender -> sender path msg mto
+
+  -- if the path has been active in or out recently, we're done
+
+  -- no network support or unresponsive path, try a bridge
+  (swBridge sw) path msg mto
+
+
+{-
+    if(to) path = to.pathOut(path);
+    if(!path) return debug("send called w/ no valid network, dropping");
+    debug("<<<<",Date(),msg.length,[path.type,path.ip,path.port,path.id].join(","),to&&to.hashname);
+
+    // try to send it via a supported network
+    if(self.networks[path.type]) self.networks[path.type](path,msg,to);
+
+    // if the path has been active in or out recently, we're done
+    if(Date.now() - path.lastIn < defaults.nat_timeout || Date.now() - path.lastOut < (defaults.chan_timeout / 2)) return;
+
+    // no network support or unresponsive path, try a bridge
+    self.bridge(path,msg,to);
+  };
+-}
+
 
 -- ---------------------------------------------------------------------
 
@@ -1291,7 +1371,7 @@ function seek(hn, callback)
 
 -- ---------------------------------------------------------------------
 
-bridge :: Path -> Msg -> String -> IO ()
+bridge :: Path -> Msg -> Maybe To -> TeleHash ()
 bridge = undefined
 
 {-
@@ -1465,3 +1545,214 @@ function uriparse(uri)
 
 
 -}
+
+-- ---------------------------------------------------------------------
+
+isHashName :: String -> String
+isHashName = undefined
+
+{-
+  self.isHashname = function(hex){return isHEX(hex, 64)};
+-}
+
+-- ---------------------------------------------------------------------
+
+{-
+/* CHANNELS API
+hn.channel(type, arg, callback)
+  - used by app to create a reliable channel of given type
+  - arg contains .js and .body for the first packet
+  - callback(err, arg, chan, cbDone)
+    - called when any packet is received (or error/fail)
+    - given the response .js .body in arg
+    - cbDone when arg is processed
+    - chan.send() to send packets
+    - chan.wrap(bulk|stream) to modify interface, replaces this callback handler
+      - chan.bulk(str, cbDone) / onBulk(cbDone(err, str))
+      - chan.read/write
+hn.raw(type, arg, callback)
+  - arg contains .js and .body to create an unreliable channel
+  - callback(err, arg, chan)
+    - called on any packet or error
+    - given the response .js .body in arg
+    - chan.send() to send packets
+
+self.channel(type, callback)
+  - used to listen for incoming reliable channel starts
+  - callback(err, arg, chan, cbDone)
+    - called for any answer or subsequent packets
+    - chan.wrap() to modify
+self.raw(type, callback)
+  - used to listen for incoming unreliable channel starts
+  - callback(err, arg, chan)
+    - called for any incoming packets
+*/
+-}
+
+channelWraps :: IO ()
+channelWraps = undefined
+
+{-
+// these are called once a reliable channel is started both ways to add custom functions for the app
+var channelWraps = {
+  "bulk":function(chan){
+    // handle any incoming bulk flow
+    var bulkIn = "";
+    chan.callback = function(end, packet, chan, cb)
+    {
+      cb();
+      if(packet.body) bulkIn += packet.body;
+      if(!chan.onBulk) return;
+      if(end) chan.onBulk(end!==true?end:false, bulkIn);
+    }
+    // handle (optional) outgoing bulk flow
+    chan.bulk = function(data, callback)
+    {
+      // break data into chunks and send out, no backpressure yet
+      while(data)
+      {
+        var chunk = data.substr(0,1000);
+        data = data.substr(1000);
+        var packet = {body:chunk};
+        if(!data) packet.callback = callback; // last packet gets confirmed
+        chan.send(packet);
+      }
+      chan.end();
+    }
+  }
+}
+
+-}
+
+-- ---------------------------------------------------------------------
+
+wait :: Bool -> IO ()
+wait = undefined
+
+{-
+  self.wait = function(bool){
+    if(bool) return self.waits.push(true);
+    self.waits.pop();
+    if(self.waiting && self.waits.length == 0) self.waiting();
+  }
+
+-}
+
+-- ---------------------------------------------------------------------
+
+--  do the maintenance work for links
+linkLoop :: TeleHash ()
+linkLoop = do
+  sw <- get
+  put sw {swBridgeCache = []} -- reset cache for any bridging
+  hnReap
+  linkMaint -- ping all of them
+  io $ threadDelay $ milliToMicro (linkTimer defaults)
+  linkLoop
+
+-- | convert a millisecond value to a microsecond one
+milliToMicro :: Num a => a -> a
+milliToMicro x = 1000 * x
+
+-- ---------------------------------------------------------------------
+
+hnReap :: TeleHash ()
+hnReap = do return ()
+{-
+// delete any defunct hashnames!
+function hnReap(self)
+{
+  var hn;
+  function del(why)
+  {
+    if(hn.lineOut) delete self.lines[hn.lineOut];
+    delete self.all[hn.hashname];
+    debug("reaping ", hn.hashname, why);
+  }
+  Object.keys(self.all).forEach(function(h){
+    hn = self.all[h];
+    debug("reap check",hn.hashname,Date.now()-hn.sentAt,Date.now()-hn.recvAt,Object.keys(hn.chans).length);
+    if(hn.isSeed) return;
+    if(Object.keys(hn.chans).length > 0) return; // let channels clean themselves up
+    if(Date.now() - hn.at < hn.timeout()) return; // always leave n00bs around for a while
+    if(!hn.sentAt) return del("never sent anything, gc");
+    if(!hn.recvAt) return del("sent open, never received");
+    if(Date.now() - hn.sentAt > hn.timeout()) return del("we stopped sending to them");
+    if(Date.now() - hn.recvAt > hn.timeout()) return del("they stopped responding to us");
+  });
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+{-
+// every link that needs to be maintained, ping them
+function linkMaint(self)
+{
+  // process every bucket
+  Object.keys(self.buckets).forEach(function(bucket){
+    // sort by age and send maintenance to only k links
+    var sorted = self.buckets[bucket].sort(function(a,b){ return a.age - b.age });
+    if(sorted.length) debug("link maintenance on bucket",bucket,sorted.length);
+    sorted.slice(0,defaults.link_k).forEach(function(hn){
+      if(!hn.linked || !hn.alive) return;
+      if((Date.now() - hn.linked.sentAt) < Math.ceil(defaults.link_timer/2)) return; // we sent to them recently
+      hn.linked.send({js:{seed:self.seed}});
+    });
+  });
+}
+-}
+
+-- every link that needs to be maintained, ping them
+linkMaint :: TeleHash ()
+linkMaint = do
+  sw <- get
+  -- process every bucket
+  forM (swBuckets sw) $ \bucket -> do
+    -- sort the bucket contents on age
+    let sorted = sortBy sf bucket
+        sf a b = compare (lineAge a) (lineAge b)
+    when (not $ null sorted) $ logT $ "link maintenance on bucket " ++ show (bucket,length sorted)
+    forM (take (linkK defaults) sorted) $ \hn -> do
+      if (lineLinked hn == Nothing) || (not $ lineAlive hn)
+        then return ()
+        else do
+          timeNow <- io getClockTime
+          -- if (timeNow - (lineSentat hn) < ((linkTimer defaults) `div` 2))
+          if isTimeOut timeNow (lineSentat hn) ((linkTimer defaults) `div` 2)
+            then return () -- we sent to them recently
+            else lineSend (fromJust $ lineLinked hn) (seedMsg (swSeed sw))
+  return ()
+
+-- ---------------------------------------------------------------------
+
+lineSend = undefined
+
+-- ---------------------------------------------------------------------
+
+isTimeOut :: ClockTime -> Maybe ClockTime -> Int -> Bool
+isTimeOut (TOD secs _picos) mt millis
+ = case mt of
+     Nothing -> True
+     Just (TOD s _) -> (secs - s) < (fromIntegral millis `div` 1000)
+
+-- ---------------------------------------------------------------------
+
+seedMsg :: Bool -> Msg
+seedMsg = undefined
+
+-- ---------------------------------------------------------------------
+-- Logging
+
+logT :: String -> TeleHash ()
+logT str = io (warningM "Controller" str)
+
+-- ---------------------------------------------------------------------
+-- Convenience.
+--
+io :: IO a -> TeleHash a
+io = liftIO
+
+-- ---------------------------------------------------------------------
+
+

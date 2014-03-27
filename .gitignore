@@ -21,3 +21,6 @@
 /src/TeleHash/irc.hs
 /transcript-2011-10-16.txt
 
+/main_flymake.hs
+/runtests_flymake.hs
+/src/TeleHash/Packet_flymake.hs

@@ -44,34 +44,37 @@ Library
                    , syb              >= 0.3.3   && < 0.5
   hs-source-dirs: src
   Buildable: False
-  Exposed-modules:     TeleHash.TeleHash
-                       TeleHash.Controller
-                       TeleHash.Web
+  Exposed-modules:
+                       -- TeleHash.TeleHash
+                       -- TeleHash.Controller
+                       TeleHash.Switch
+                       -- TeleHash.Web
   --ghc-options:         -Wall
   ghc-options:         -Wall -fhpc
 
-executable             main
-    hs-source-dirs:    . src
-    main-is:           main.hs
-    ghc-options:  -Wall -fhpc
+-- executable             main
+--     hs-source-dirs:    . src
+--     main-is:           main.hs
+--     ghc-options:  -Wall -fhpc
 
-executable             runtests
-    if flag(buildtests)
-        Buildable: True
-        cpp-options:   -DTEST
-        build-depends: QuickCheck >= 2 && < 3,
-                       HUnit,
-                       test-framework-quickcheck2,
-                       test-framework-hunit,
-                       test-framework,
-                       test-framework-th
-                       , knob
-        -- hs-source-dirs: . src ./dist/build
-        hs-source-dirs: . src
-    else
-        Buildable: False
-    main-is:         runtests.hs
-    ghc-options:  -fhpc
+-- test-suite             runtests
+--     type:
+--       exitcode-stdio-1.0
+
+--     cpp-options:   -DTEST
+--     build-depends:
+--                    QuickCheck >= 2 && < 3,
+--                    HUnit,
+--                    test-framework-quickcheck2,
+--                    -- test-framework-quickcheck,
+--                    test-framework-hunit,
+--                    test-framework,
+--                    test-framework-th
+--                    , knob
+--         -- hs-source-dirs: . src ./dist/build
+--     hs-source-dirs: . src
+--     main-is:         runtests.hs
+--     ghc-options:  -fhpc
 
 source-repository head
   type:     git
