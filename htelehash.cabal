@@ -42,6 +42,9 @@ Library
                    , hslogger         >= 1.1.5   && < 2
                    , yesod            >= 0.9.3   && < 1.5
                    , syb              >= 0.3.3   && < 0.5
+                   , crypto-random
+                   , base16-bytestring
+                   , utf8-string
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:

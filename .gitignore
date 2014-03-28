@@ -24,3 +24,5 @@
 /main_flymake.hs
 /runtests_flymake.hs
 /src/TeleHash/Packet_flymake.hs
+/src/TeleHash/Controller_flymake.hs
+/src/TeleHash/Switch_flymake.hs

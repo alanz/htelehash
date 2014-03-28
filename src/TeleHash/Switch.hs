@@ -11,6 +11,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State
+import Crypto.Random
 import Data.Bits
 import Data.Char
 import Data.List
@@ -36,7 +37,8 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
-
+import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.UTF8 as BU
 
 -- ---------------------------------------------------------------------
 
@@ -47,21 +49,28 @@ type TeleHash = StateT Switch IO
 
 -- ---------------------------------------------------------------------
 
+data Packet = Packet
+data Telex = Telex
+data Body = Body
+
+-- ---------------------------------------------------------------------
+
 data Msg = Msg String
 data Path = Path
-      { pType :: String
-      }
+      { pType    :: String
+      , pLastIn  :: Maybe ClockTime
+      , pLastOut :: Maybe ClockTime
+      } deriving (Show,Eq)
 
 data To = To { pathOut :: Path -> Path
              }
 
-type Packet = String
 type Channel = String
 type Bucket = [Line]
 data Line = Line { lineAge :: ClockTime
                  , lineSeed :: String
                  , lineAddress :: String
-                 , lineLinked :: Maybe String
+                 , lineLinked :: Maybe Path
                  , lineAlive :: Bool
                  , lineSentat :: Maybe ClockTime
                  } deriving Show
@@ -115,7 +124,7 @@ data Switch = Switch
        , swRaws :: Map.Map String (String -> Packet -> Channel -> IO ())
        , swPaths :: [String]
        , swBridgeCache :: [String]
-       , swNetworks :: Map.Map String (Path -> Msg -> Maybe To -> TeleHash ())
+       , swNetworks :: Map.Map String (Path -> Packet -> Maybe To -> TeleHash ())
        , swCSets :: [String]
 
        , swLoad :: String -> Bool -- load function
@@ -123,14 +132,15 @@ data Switch = Switch
 
        , swNat :: Bool
        , swSeed :: Bool
+       , swLanToken :: Maybe String
 
        -- udp socket stuff
        , swPcounter :: Int
-       , swReceive :: Msg -> Path -> IO ()
+       , swReceive :: Packet -> Path -> IO ()
 
        -- outgoing packets to the network
        , swDeliver :: String -> () -> ()
-       , swSend    :: Path -> Msg -> Maybe To -> TeleHash ()
+       , swSend    :: Path -> Packet -> Maybe To -> TeleHash ()
        , swPathSet :: Path -> IO ()
 
        -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
@@ -141,7 +151,8 @@ data Switch = Switch
        , swWhokey :: String -> String -> [String] -> IO ()
 
        , swStart :: String -> String -> String -> () -> IO ()
-       , swOnline :: () -> IO ()
+       , swOnline :: TeleHash () -> TeleHash ()
+       , swIsOnline :: Bool
        , swListen :: String -> () -> IO ()
 
        -- advanced usage only
@@ -149,19 +160,23 @@ data Switch = Switch
 
        -- primarily internal, to seek/connect to a hashname
        , swSeek :: String -> () -> IO ()
-       , swBridge :: Path -> Msg -> Maybe To -> TeleHash ()
+       , swBridge :: Path -> Packet -> Maybe To -> TeleHash ()
 
        -- for modules
-       , swPencode :: String -> String -> String
-       , swPdecode :: Packet -> String
+       , swPencode :: Telex -> Body -> Packet
+       , swPdecode :: Packet -> (Telex,Body)
        , swIsLocalIP :: String -> Bool
-       , swRandomHEX :: IO String
+       , swRandomHEX :: Int -> TeleHash String
        , swUriparse :: String -> String
-           , swIsHashname :: String -> String
-           , swWraps :: IO ()
-           , swWaits :: [String]
-           , swWaiting :: Bool
-           , swWait :: Bool -> IO ()
+       , swIsHashname :: String -> String
+       , swWraps :: IO ()
+       , swWaits :: [String]
+       , swWaiting :: Maybe (TeleHash ())
+       , swWait :: Bool -> IO ()
+
+
+       -- crypto
+       , swRNG :: SystemRNG
 
            -- , swCountOnline :: Int
            -- , swCountTx :: Int
@@ -172,6 +187,7 @@ data Switch = Switch
 
 switch :: Defaults -> TeleHash Switch
 switch def = do
+  rng <- io $ initRNG
   let
     sw = Switch
       { swSeeds = []
@@ -196,6 +212,8 @@ switch def = do
       , swNat = False
       , swSeed = True
 
+      , swLanToken = Nothing
+
       -- udp socket stuff
       , swPcounter = 1
       , swReceive = receive
@@ -217,6 +235,7 @@ switch def = do
       , swStart = start
 
       -- connect to the network, online(callback(err))
+      , swIsOnline = False
       , swOnline = online
 
       -- handle new reliable channels coming in from anyone
@@ -248,14 +267,21 @@ switch def = do
       , swIsHashname = isHashName
       , swWraps = channelWraps
       , swWaits = []
-      , swWaiting = False
+      , swWaiting = Nothing
       , swWait = wait
+
+      -- crypto
+      , swRNG = rng
       }
   put sw
   linkLoop -- should never return
   sw' <- get
   return sw'
 
+initRNG :: IO SystemRNG
+initRNG = do
+  pool <- createEntropyPool
+  return $ cprgCreate pool
 
 -- ---------------------------------------------------------------------
 {-
@@ -302,7 +328,7 @@ keysgen cbDone cbStep = undefined
 
 -- ---------------------------------------------------------------------
 
-receive :: Msg -> Path -> IO ()
+receive :: Packet -> Path -> IO ()
 receive = undefined
 {-
 // self.receive, raw incoming udp data
@@ -431,7 +457,7 @@ deliver = undefined
     path.relay.send({body:msg});
   };
 -}
-relay :: Path -> Msg -> Maybe To -> TeleHash ()
+relay :: Path -> Packet -> Maybe To -> TeleHash ()
 relay path msg _ = undefined
 
 -- ---------------------------------------------------------------------
@@ -454,7 +480,7 @@ relay path msg _ = undefined
   };
 -}
 
-send :: Path -> Msg -> Maybe To -> TeleHash ()
+send :: Path -> Packet -> Maybe To -> TeleHash ()
 send mpath msg mto = do
   sw <- get
   let path = case mto of
@@ -470,10 +496,14 @@ send mpath msg mto = do
     Just sender -> sender path msg mto
 
   -- if the path has been active in or out recently, we're done
-
-  -- no network support or unresponsive path, try a bridge
-  (swBridge sw) path msg mto
-
+  timeNow <- io getClockTime
+  if (isTimeOut timeNow (pLastIn path)  (natTimeout defaults)) ||
+     (isTimeOut timeNow (pLastOut path) (chanTimeout defaults))
+    then
+      -- no network support or unresponsive path, try a bridge
+      (swBridge sw) path msg mto
+    else
+      return ()
 
 {-
     if(to) path = to.pathOut(path);
@@ -953,9 +983,18 @@ start hashname typ arg cb = undefined
 
 -- ---------------------------------------------------------------------
 
-online :: () -> IO ()
-online = undefined
-
+online :: TeleHash () -> TeleHash ()
+online callback = do
+  sw <- get
+  if swWaits sw /= []
+    then put $ sw {swWaiting = Just (online callback)}
+    else do
+      setIsOnline True
+      -- ping lan
+      -- self.lanToken = randomHEX(16);
+      token <- randomHEX 16
+      setLanToken $ token
+      (swSend sw) (Path "lan" Nothing Nothing) (pencode Telex Body) Nothing
 {-
 
 function online(callback)
@@ -998,6 +1037,21 @@ function online(callback)
 }
 
 -}
+  return ()
+
+-- ---------------------------------------------------------------------
+
+-- | Set the swIsOnline flag
+setIsOnline :: Bool -> TeleHash ()
+setIsOnline v = do
+  sw <- get
+  put $ sw {swIsOnline = v}
+
+-- | Set the swLanToken value
+setLanToken :: String -> TeleHash ()
+setLanToken v = do
+  sw <- get
+  put $ sw {swLanToken = Just v}
 
 -- ---------------------------------------------------------------------
 {-
@@ -1371,7 +1425,7 @@ function seek(hn, callback)
 
 -- ---------------------------------------------------------------------
 
-bridge :: Path -> Msg -> Maybe To -> TeleHash ()
+bridge :: Path -> Packet -> Maybe To -> TeleHash ()
 bridge = undefined
 
 {-
@@ -1425,7 +1479,7 @@ function bridge(path, msg, to)
 
 -- ---------------------------------------------------------------------
 
-pencode :: String -> String -> String
+pencode :: Telex -> Body -> Packet
 pencode = undefined
 
 {-
@@ -1443,7 +1497,7 @@ function pencode(js, body)
 
 -- ---------------------------------------------------------------------
 
-pdecode :: Packet -> String
+pdecode :: Packet -> (Telex,Body)
 pdecode = undefined
 
 {-
@@ -1508,9 +1562,12 @@ function isLocalIP(ip)
 
 -- ---------------------------------------------------------------------
 
-randomHEX :: IO String
-randomHEX = undefined
-
+randomHEX :: Int -> TeleHash String
+randomHEX len = do
+  sw <- get
+  let (bytes,newRNG) = cprgGenerate len (swRNG sw)
+  put $ sw {swRNG = newRNG}
+  return $ BU.toString $ B16.encode bytes 
 {-
 // return random bytes, in hex
 function randomHEX(len)
@@ -1721,12 +1778,8 @@ linkMaint = do
           -- if (timeNow - (lineSentat hn) < ((linkTimer defaults) `div` 2))
           if isTimeOut timeNow (lineSentat hn) ((linkTimer defaults) `div` 2)
             then return () -- we sent to them recently
-            else lineSend (fromJust $ lineLinked hn) (seedMsg (swSeed sw))
+            else send (fromJust $ lineLinked hn) (seedMsg (swSeed sw)) Nothing
   return ()
-
--- ---------------------------------------------------------------------
-
-lineSend = undefined
 
 -- ---------------------------------------------------------------------
 
@@ -1738,7 +1791,7 @@ isTimeOut (TOD secs _picos) mt millis
 
 -- ---------------------------------------------------------------------
 
-seedMsg :: Bool -> Msg
+seedMsg :: Bool -> Packet
 seedMsg = undefined
 
 -- ---------------------------------------------------------------------
