@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module TeleHash.Switch
   (
     Switch(..)
@@ -6,6 +7,7 @@ module TeleHash.Switch
   , switch
   ) where
 
+import Control.Applicative
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
@@ -19,25 +21,27 @@ import Data.Maybe
 import Data.String.Utils
 import Network.BSD
 import qualified Network.Socket as NS
-import Text.JSON
-import Text.JSON.Generic
-import Text.JSON.Types
+-- import Text.JSON
+-- import Text.JSON.Generic
+-- import Text.JSON.Types
 import Prelude hiding (id, (.), head, either, catch)
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
-
+-- import System.Directory
 
 --import Text.Printf
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Digest.Pure.SHA as SHA
+import Data.Aeson
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString as B
 import qualified Data.ByteString.UTF8 as BU
 
 -- ---------------------------------------------------------------------
@@ -55,9 +59,41 @@ data Body = Body
 
 -- ---------------------------------------------------------------------
 
+data Id = Id { id1a :: String
+             , id1a_secret :: String
+             } deriving Show
+
+
+instance FromJSON Id where
+     parseJSON (Object v) = Id <$>
+                            v .: "1a" <*>
+                            v .: "1a_secret"
+     -- A non-Object value is of the wrong type, so fail.
+     parseJSON _          = mzero
+
+testId :: Maybe Id
+testId = r
+  where
+    v = "{\"1a\":\"o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg==\",\"1a_secret\":\"iollyIcHaGeD/JpUNn/7ef1QAzE=\"}"
+    r = decode v
+
+
+testSeeds = do
+  fc <- BL.readFile "../data/seeds.json"
+  let mv = decode fc :: Maybe Value
+  putStrLn $ "seeds=" ++ show mv
+
+
+-- ---------------------------------------------------------------------
+
 data Msg = Msg String
+
+-- TODO : make the pType the data type constructors
 data Path = Path
       { pType    :: String
+      , pIp      :: String
+      , pPort    :: Int
+      , pHttp    :: String
       , pLastIn  :: Maybe ClockTime
       , pLastOut :: Maybe ClockTime
       } deriving (Show,Eq)
@@ -74,6 +110,58 @@ data Line = Line { lineAge :: ClockTime
                  , lineAlive :: Bool
                  , lineSentat :: Maybe ClockTime
                  } deriving Show
+
+data Seed = Seed { sAlive :: Bool
+                 , sLink :: TeleHash () ->TeleHash ()
+                 }
+
+data SeedInfo = SI
+  { sId :: String
+  , sAdmin :: String
+  , sPaths :: [Path]
+  , sParts :: [(String,String)] -- crypto ids?
+  , sKeys :: [(String,String)] -- crypto scheme name, crypto key
+  , sIsBridge :: Bool
+  } deriving Show
+
+initialSeeds :: [SeedInfo]
+initialSeeds =
+ [ SI
+    { sId = "89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de"
+    , sPaths =
+       [ Path { pType = "ipv4"
+              , pIp = "208.68.164.253"
+              , pPort = 42424
+              , pHttp = ""
+              , pLastIn = Nothing
+              , pLastOut = Nothing
+              }
+       , Path { pType = "ipv6"
+              , pIp = "2605:da00:5222:5269:230:48ff:fe35:6572"
+              , pPort = 42424
+              , pHttp = ""
+              , pLastIn = Nothing
+              , pLastOut = Nothing
+              }
+       , Path { pType = "http"
+              , pIp = ""
+              , pPort = 42424
+              , pHttp = "http://208.68.164.253:42424"
+              , pLastIn = Nothing
+              , pLastOut = Nothing
+              }
+       ]
+    , sParts =
+        [("2a", "beb07e8864786e1d3d70b0f537e96fb719ca2bbb4a2a3791ca45e215e2f67c9a")
+        ,("1a", "6c0da502755941a463454e9d478b16bbe4738e67")
+        ]
+    , sKeys =
+        [ ("2a", "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvJlhpi2pZZRrnf+bmnnRRAQHfzMzDwOV+s+JzamyL0X9wwJK8m2DHCFcpJQSLFIzv3v+e102+pZlIWAU6vvO5s6J60C+9UwQoKj9L3cxUL/XmEBjAnbwfs+61HGSjf8yS8Uon/0oDXxssJyJjnrzAJT7K5G+Nqf5N5IJiEfhYkfa9wkhWR4fU1ZiC3PZZoMrGurGxWAwIs4No2LlBkZXUtAC31jISWODBAahGcaRjPgHFVaDxQ+gEQFse0Aa0mWA7KCRiSbBC89Brx837AREWFa7t14UAi01BLcPSkbAIbIv1SmM+E3k7HdN6rXTjz2h7Na5DOCS4z1LgujXW460WQIDAQAB")
+        , ("1a", "hhzKwBDYADu6gQdDrP2AgQJmAE5iIbEqpPmLLZI9w72rLTCCqob9sw==")
+        ]
+    , sIsBridge = True
+    }
+ ]
 
 -- ---------------------------------------------------------------------
 
@@ -112,7 +200,7 @@ defaults = Defaults
 -- ---------------------------------------------------------------------
 
 data Switch = Switch
-       { swSeeds :: [String]
+       { swSeeds :: [Seed]
        , swLocals :: [String]
        , swLines :: [String]
        , swBridges :: [String]
@@ -995,6 +1083,20 @@ online callback = do
       token <- randomHEX 16
       setLanToken $ token
       (swSend sw) (Path "lan" Nothing Nothing) (pencode Telex Body) Nothing
+
+      case (swSeeds sw) of
+        [] -> do
+          logT "no seeds"
+          callback
+        dones -> do
+          let
+            -- safely callback only once or when all seeds return
+            done = undefined
+          -- forM dones $ \ seed -> do
+            -- fn = do undefined
+            -- (sLink seed) fn
+          return undefined
+-- WIP here
 {-
 
 function online(callback)

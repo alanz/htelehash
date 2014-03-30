@@ -1,0 +1,50 @@
+{
+  "89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de": {
+    "admin":"http://github.com/quartzjer",
+    "paths": [{
+      "type": "ipv4",
+      "ip": "208.68.164.253",
+      "port": 42424
+    }, {
+      "type": "ipv6",
+      "ip": "2605:da00:5222:5269:230:48ff:fe35:6572",
+      "port": 42424
+    }, {
+      "type": "http",
+      "http": "http://208.68.164.253:42424"
+    }],
+    "parts": {
+      "2a": "beb07e8864786e1d3d70b0f537e96fb719ca2bbb4a2a3791ca45e215e2f67c9a",
+      "1a": "6c0da502755941a463454e9d478b16bbe4738e67"
+    },
+    "keys": {
+      "2a": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvJlhpi2pZZRrnf+bmnnRRAQHfzMzDwOV+s+JzamyL0X9wwJK8m2DHCFcpJQSLFIzv3v+e102+pZlIWAU6vvO5s6J60C+9UwQoKj9L3cxUL/XmEBjAnbwfs+61HGSjf8yS8Uon/0oDXxssJyJjnrzAJT7K5G+Nqf5N5IJiEfhYkfa9wkhWR4fU1ZiC3PZZoMrGurGxWAwIs4No2LlBkZXUtAC31jISWODBAahGcaRjPgHFVaDxQ+gEQFse0Aa0mWA7KCRiSbBC89Brx837AREWFa7t14UAi01BLcPSkbAIbIv1SmM+E3k7HdN6rXTjz2h7Na5DOCS4z1LgujXW460WQIDAQAB",
+      "1a": "hhzKwBDYADu6gQdDrP2AgQJmAE5iIbEqpPmLLZI9w72rLTCCqob9sw=="
+    },
+    "bridge": true
+  },
+  "f50f423ce7f94fe98cdd09268c7e57001aed300b23020840a84a881c76739471": {
+    "admin":"http://github.com/quartzjer",
+    "paths": [{
+      "type": "ipv4",
+      "ip": "208.126.199.195",
+      "port": 42424
+    }, {
+      "type": "ipv6",
+      "ip": "2001:470:c0a6:3::10",
+      "port": 42424
+    }, {
+      "type": "http",
+      "http": "http://208.126.199.195:42424"
+    }],
+    "parts": {
+      "2a": "8a5235d7cebb82d48a945e7c4b301efed40503d50ea1063464fe839b12278d93",
+      "1a": "b3c9341ff5d11670c1e1c918ad51631b1251448a"
+    },
+    "keys": {
+      "2a": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5mWOu3o0chHcpcxPYX43fD6DTWGkCj09QaWerHbTX1Gua5eW8VdPOM/Ki21WEY2xcBa55/s37hIRP1XZveFiWgIXft9g/L+1AsF56cO0ZGnHhrp5Wabrt+L5mVuWg2VcSAUQ/gdoSLmDRTdOc0ruzroIN4a4Wnfk6rwvFYq/LfTj2w5cBD3ziVts4XSicX9fnmWElrTKfGLWyC6W5ICbLZ0BmTt9CZLbdNmotuYqQkPXPJ0wccsWAuI8yjbmU2my+F+vakWbGFvMSCBlLlQLXMTnLbLtgnwgeujTHiJaB0Iycw5Q9FS0RiQ0QeFqUvmMX9BezKfayq2hHjcob58WbwIDAQAB",
+      "1a": "idT0VmmEmSdDF1eMrajIVHP0XZ/8Udgeas1Zxy0va5tD/KP393Ri3w=="
+    },
+    "bridge": true
+  }
+}

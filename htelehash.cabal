@@ -49,6 +49,7 @@ Library
                    , base16-bytestring
                    , base64-bytestring
                    , utf8-string
+                   , aeson
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:
