@@ -26,3 +26,5 @@
 /src/TeleHash/Packet_flymake.hs
 /src/TeleHash/Controller_flymake.hs
 /src/TeleHash/Switch_flymake.hs
+/src/TeleHash/Controller_flymake_flymake.hs
+/src/TeleHash/Crypto1a_flymake.hs
