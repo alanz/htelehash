@@ -1,8 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module TeleHash.Switch
   (
-    Switch(..)
-  , Defaults(..)
+    Defaults(..)
   , defaults
   , switch
   ) where
@@ -14,6 +13,7 @@ import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State
 import Crypto.Random
+import Data.Aeson
 import Data.Bits
 import Data.Char
 import Data.List
@@ -21,41 +21,29 @@ import Data.Maybe
 import Data.String.Utils
 import Network.BSD
 import qualified Network.Socket as NS
--- import Text.JSON
--- import Text.JSON.Generic
--- import Text.JSON.Types
 import Prelude hiding (id, (.), head, either, catch)
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 -- import System.Directory
+import TeleHash.Utils
 
---import Text.Printf
+import qualified Crypto.Hash.SHA256 as SHA256
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.UTF8 as BU
 import qualified Data.Digest.Pure.SHA as SHA
-import Data.Aeson
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
-import qualified Data.ByteString.Base16 as B16
-import qualified Data.ByteString as B
-import qualified Data.ByteString.UTF8 as BU
 
 -- ---------------------------------------------------------------------
 
 --
--- The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
---
-type TeleHash = StateT Switch IO
-
--- ---------------------------------------------------------------------
-
-data Packet = Packet
-data Telex = Telex
-data Body = Body
 
 -- ---------------------------------------------------------------------
 
@@ -88,62 +76,30 @@ testSeeds = do
 
 data Msg = Msg String
 
--- TODO : make the pType the data type constructors
-data Path = Path
-      { pType    :: String
-      , pIp      :: String
-      , pPort    :: Int
-      , pHttp    :: String
-      , pLastIn  :: Maybe ClockTime
-      , pLastOut :: Maybe ClockTime
-      } deriving (Show,Eq)
+relayPid = PId 1
 
-data To = To { pathOut :: Path -> Path
-             }
-
-type Channel = String
-type Bucket = [Line]
-data Line = Line { lineAge :: ClockTime
-                 , lineSeed :: String
-                 , lineAddress :: String
-                 , lineLinked :: Maybe Path
-                 , lineAlive :: Bool
-                 , lineSentat :: Maybe ClockTime
-                 } deriving Show
-
-data Seed = Seed { sAlive :: Bool
-                 , sLink :: TeleHash () ->TeleHash ()
-                 }
-
-data SeedInfo = SI
-  { sId :: String
-  , sAdmin :: String
-  , sPaths :: [Path]
-  , sParts :: [(String,String)] -- crypto ids?
-  , sKeys :: [(String,String)] -- crypto scheme name, crypto key
-  , sIsBridge :: Bool
-  } deriving Show
 
 initialSeeds :: [SeedInfo]
 initialSeeds =
  [ SI
     { sId = "89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de"
+    , sAdmin = "http://github.com/quartzjer"
     , sPaths =
-       [ Path { pType = "ipv4"
+       [ Path { pType = PathType"ipv4"
               , pIp = "208.68.164.253"
               , pPort = 42424
               , pHttp = ""
               , pLastIn = Nothing
               , pLastOut = Nothing
               }
-       , Path { pType = "ipv6"
+       , Path { pType = PathType "ipv6"
               , pIp = "2605:da00:5222:5269:230:48ff:fe35:6572"
               , pPort = 42424
               , pHttp = ""
               , pLastIn = Nothing
               , pLastOut = Nothing
               }
-       , Path { pType = "http"
+       , Path { pType = PathType "http"
               , pIp = ""
               , pPort = 42424
               , pHttp = "http://208.68.164.253:42424"
@@ -199,80 +155,6 @@ defaults = Defaults
 
 -- ---------------------------------------------------------------------
 
-data Switch = Switch
-       { swSeeds :: [Seed]
-       , swLocals :: [String]
-       , swLines :: [String]
-       , swBridges :: [String]
-       , swBridgeLine :: [String]
-       , swAll :: [String]
-       , swBuckets :: [Bucket]
-       , swCapacity :: [String]
-       , swRels :: [String]
-       , swRaws :: Map.Map String (String -> Packet -> Channel -> IO ())
-       , swPaths :: [String]
-       , swBridgeCache :: [String]
-       , swNetworks :: Map.Map String (Path -> Packet -> Maybe To -> TeleHash ())
-       , swCSets :: [String]
-
-       , swLoad :: String -> Bool -- load function
-       , swMake :: () -> () -> IO ()
-
-       , swNat :: Bool
-       , swSeed :: Bool
-       , swLanToken :: Maybe String
-
-       -- udp socket stuff
-       , swPcounter :: Int
-       , swReceive :: Packet -> Path -> IO ()
-
-       -- outgoing packets to the network
-       , swDeliver :: String -> () -> ()
-       , swSend    :: Path -> Packet -> Maybe To -> TeleHash ()
-       , swPathSet :: Path -> IO ()
-
-       -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
-       , swAddSeed :: String -> IO ()
-
-       --  map a hashname to an object, whois(hashname)
-       , swWhois :: String -> IO ()
-       , swWhokey :: String -> String -> [String] -> IO ()
-
-       , swStart :: String -> String -> String -> () -> IO ()
-       , swOnline :: TeleHash () -> TeleHash ()
-       , swIsOnline :: Bool
-       , swListen :: String -> () -> IO ()
-
-       -- advanced usage only
-       , swRaw :: String -> () -> IO ()
-
-       -- primarily internal, to seek/connect to a hashname
-       , swSeek :: String -> () -> IO ()
-       , swBridge :: Path -> Packet -> Maybe To -> TeleHash ()
-
-       -- for modules
-       , swPencode :: Telex -> Body -> Packet
-       , swPdecode :: Packet -> (Telex,Body)
-       , swIsLocalIP :: String -> Bool
-       , swRandomHEX :: Int -> TeleHash String
-       , swUriparse :: String -> String
-       , swIsHashname :: String -> String
-       , swWraps :: IO ()
-       , swWaits :: [String]
-       , swWaiting :: Maybe (TeleHash ())
-       , swWait :: Bool -> IO ()
-
-
-       -- crypto
-       , swRNG :: SystemRNG
-
-           -- , swCountOnline :: Int
-           -- , swCountTx :: Int
-           -- , swCountRx :: Int
-           }
-
--- ---------------------------------------------------------------------
-
 switch :: Defaults -> TeleHash Switch
 switch def = do
   rng <- io $ initRNG
@@ -288,10 +170,15 @@ switch def = do
       , swCapacity = []
       , swRels = []
       -- , swRaws = []
-      , swPaths = []
+      , swPaths = Map.empty
       , swBridgeCache = []
-      -- , swNetworks = Map.empty
-      , swCSets = []
+
+      , swId = Map.empty
+      , swCs = Map.empty
+      , swKeys = Map.empty
+
+      , swCSets = Map.empty
+      , swParts = []
 
       , swLoad = load
       , swMake = keysgen
@@ -308,7 +195,7 @@ switch def = do
 
       -- outgoing packets to the network
       , swDeliver = deliver
-      , swNetworks = Map.fromList [("relay", relay)]
+      , swNetworks = Map.fromList [(PathType "relay", (relayPid,relay))]
       , swSend = send
       , swPathSet = pathset
 
@@ -388,31 +275,6 @@ initRNG = do
 
 load :: String -> Bool
 load s = undefined
-
--- ---------------------------------------------------------------------
-
-{-
-function keysgen(cbDone,cbStep)
-{
-  var self = this;
-  var ret = {parts:{}};
-  var todo = Object.keys(self.CSets);
-  if(todo.length == 0) return cbDone("no sets supported");
-  function pop(err)
-  {
-    if(err) return cbDone(err);
-    var csid = todo.pop();
-    if(!csid){
-      self.load(ret);
-      return cbDone(null, ret);
-    }
-    self.CSets[csid].genkey(ret,pop,cbStep);
-  }
-  pop();
-}
--}
-keysgen :: () -> () -> IO ()
-keysgen cbDone cbStep = undefined
 
 -- ---------------------------------------------------------------------
 
@@ -545,7 +407,7 @@ deliver = undefined
     path.relay.send({body:msg});
   };
 -}
-relay :: Path -> Packet -> Maybe To -> TeleHash ()
+relay :: PathType -> Packet -> Maybe To -> TeleHash ()
 relay path msg _ = undefined
 
 -- ---------------------------------------------------------------------
@@ -568,7 +430,7 @@ relay path msg _ = undefined
   };
 -}
 
-send :: Path -> Packet -> Maybe To -> TeleHash ()
+send :: PathType -> Packet -> Maybe To -> TeleHash ()
 send mpath msg mto = do
   sw <- get
   let path = case mto of
@@ -579,19 +441,31 @@ send mpath msg mto = do
   logT $ "<<<<"
   -- try to send it via a supported network
   -- if(self.networks[path.type]) self.networks[path.type](path,msg,to);
-  case Map.lookup (pType path) (swNetworks sw) of
-    Nothing -> return ()
-    Just sender -> sender path msg mto
+  mpid <- case Map.lookup path (swNetworks sw) of
+    Nothing -> return Nothing
+    Just (pid,sender) -> do
+      sender path msg mto
+      return $ Just pid
 
-  -- if the path has been active in or out recently, we're done
-  timeNow <- io getClockTime
-  if (isTimeOut timeNow (pLastIn path)  (natTimeout defaults)) ||
-     (isTimeOut timeNow (pLastOut path) (chanTimeout defaults))
-    then
-      -- no network support or unresponsive path, try a bridge
-      (swBridge sw) path msg mto
-    else
-      return ()
+
+  case mpid of
+    Nothing -> do
+       -- debug("send called w/ no valid network, dropping");
+       logT "send called w/ no valid network, dropping"
+       return ()
+    Just pid -> do
+       -- if the path has been active in or out recently (ideally by the
+       -- send process), we're done
+       timeNow <- io getClockTime
+       sw' <- get -- get a fresh one, send may have updated it
+       let Just p = Map.lookup pid (swPaths sw')
+       if (isTimeOut timeNow (pLastIn p)  (natTimeout defaults)) ||
+          (isTimeOut timeNow (pLastOut p) (chanTimeout defaults))
+         then
+           -- no network support or unresponsive path, try a bridge
+           (swBridge sw') path msg mto
+         else
+           return ()
 
 {-
     if(to) path = to.pathOut(path);
@@ -649,12 +523,15 @@ function addSeed(arg) {
 }
 -}
 
-addSeed :: a -> IO ()
-addSeed = undefined
+addSeed :: SeedInfo -> TeleHash ()
+addSeed args = do
+  sw <- get
+  -- seed <- (swWhoKey sw) 
+  return ()
 
 -- ---------------------------------------------------------------------
 
-whois :: String -> IO ()
+whois :: HashName -> TeleHash (Maybe HashContainer)
 whois = undefined
 
 {-
@@ -1052,8 +929,48 @@ function whokey(parts, key, keys)
 
 -}
 
-whokey :: a -> b -> [b] -> IO ()
-whokey = undefined
+whokey :: Parts -> String -> Map.Map String String -> TeleHash (Maybe HashName)
+whokey parts key keys = do
+  sw <- get
+  let mcsid = partsMatch (swParts sw) parts
+  case mcsid of
+    Nothing -> return Nothing
+    Just csid -> do
+      mhn <- (swWhois sw) (parts2hn parts)
+      case mhn of
+        Nothing -> return Nothing
+        Just hn -> do
+          let hn' = hn {hcParts = parts}
+              key' = case Map.lookup csid keys of
+                Nothing -> key
+                Just k -> k
+          (hn'',ok) <- loadkey hn' csid key'
+          return undefined
+
+-- WIP continue here
+
+-- ---------------------------------------------------------------------
+
+{-
+function partsMatch(parts1, parts2)
+{
+  if(typeof parts1 != "object" || typeof parts2 != "object") return false;
+  var ids = Object.keys(parts1).sort();
+  var csid;
+  while(csid = ids.pop()) if(parts2[csid]) return csid;
+  return false;
+}
+
+-}
+
+partsMatch :: Parts -> Parts -> Maybe String
+partsMatch parts1 parts2 = r
+  where
+    ids = sort $ map fst parts1
+    p2 = Set.fromList $ map fst parts2
+    common = filter (\k -> Set.member k p2) ids
+    r = if common == [] then Nothing
+                        else Just $ head common
 
 -- ---------------------------------------------------------------------
 
@@ -1082,7 +999,7 @@ online callback = do
       -- self.lanToken = randomHEX(16);
       token <- randomHEX 16
       setLanToken $ token
-      (swSend sw) (Path "lan" Nothing Nothing) (pencode Telex Body) Nothing
+      (swSend sw) (PathType "lan") (pencode Telex Body) Nothing
 
       case (swSeeds sw) of
         [] -> do
@@ -1527,7 +1444,7 @@ function seek(hn, callback)
 
 -- ---------------------------------------------------------------------
 
-bridge :: Path -> Packet -> Maybe To -> TeleHash ()
+bridge :: PathType -> Packet -> Maybe To -> TeleHash ()
 bridge = undefined
 
 {-
@@ -1581,6 +1498,33 @@ function bridge(path, msg, to)
 
 -- ---------------------------------------------------------------------
 
+{-
+function parts2hn(parts)
+{
+  var rollup = new Buffer(0);
+  Object.keys(parts).sort().forEach(function(id){
+    rollup = crypto.createHash("sha256").update(Buffer.concat([rollup,new Buffer(id)])).digest();
+    rollup = crypto.createHash("sha256").update(Buffer.concat([rollup,new Buffer(parts[id])])).digest();
+  });
+  return rollup.toString("hex");
+}
+-}
+
+parts2hn :: Parts -> HashName
+parts2hn parts = HN r
+  where
+    sp = sort parts
+    ctx = SHA256.init
+    vals = concatMap (\(a,b) -> [BC.pack a,BC.pack b]) sp
+    _ = SHA256.updates ctx vals
+    bsfinal = SHA256.finalize ctx
+
+    r = BU.toString $ B16.encode bsfinal
+
+testParts2hn = parts2hn (sParts $ head initialSeeds)
+
+-- ---------------------------------------------------------------------
+
 pencode :: Telex -> Body -> Packet
 pencode = undefined
 
@@ -1631,6 +1575,99 @@ function pdecode(packet)
 
 
 -}
+
+-- ---------------------------------------------------------------------
+
+{-
+
+function getkey(id, csid)
+{
+  return id.cs && id.cs[csid] && id.cs[csid].key;
+}
+-}
+-- ---------------------------------------------------------------------
+
+loadkeys :: TeleHash ()
+loadkeys = do
+  sw <- get
+  put $ sw { swCs = Map.empty, swKeys = Map.empty }
+
+  let
+    doOne (csid,v) = do
+      sw <- get
+      let cs' = Map.insert csid Map.empty (swCs sw)
+      return ()
+      -- sw {swCs
+-- WIP carry on here
+  mapM_ doOne (swParts sw)
+
+
+  return ()
+
+{-
+function loadkeys(self)
+{
+  self.cs = {};
+  self.keys = {};
+  var err = false;
+  Object.keys(self.parts).forEach(function(csid){
+    self.cs[csid] = {};
+    if(!self.CSets[csid]) err = csid+" not supported";
+    err = err||self.CSets[csid].loadkey(self.cs[csid], self.id[csid], self.id[csid+"_secret"]);
+    self.keys[csid] = self.id[csid];
+  });
+  return err;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+{-
+function loadkey(self, id, csid, key)
+{
+  id.csid = csid;
+  return self.CSets[csid].loadkey(id, key);
+}
+-}
+
+loadkey :: HashContainer -> String -> String -> TeleHash (HashContainer,Bool)
+loadkey id1 csid key = do
+  sw <- get
+  let id1' = id1 { hcCsid = csid }
+  let set = Map.lookup csid (swCSets sw)
+  case set of
+    Nothing -> do
+      logT $ "missing CSet for " ++ csid
+      return (id1,False)
+    Just cs -> do
+      (csLoadkey cs) id1' key Nothing
+
+
+-- ---------------------------------------------------------------------
+
+{-
+function keysgen(cbDone,cbStep)
+{
+  var self = this;
+  var ret = {parts:{}};
+  var todo = Object.keys(self.CSets);
+  if(todo.length == 0) return cbDone("no sets supported");
+  function pop(err)
+  {
+    if(err) return cbDone(err);
+    var csid = todo.pop();
+    if(!csid){
+      self.load(ret);
+      return cbDone(null, ret);
+    }
+    self.CSets[csid].genkey(ret,pop,cbStep);
+  }
+  pop();
+}
+-}
+keysgen :: () -> () -> IO ()
+keysgen cbDone cbStep = undefined
+
 
 -- ---------------------------------------------------------------------
 
@@ -1880,7 +1917,7 @@ linkMaint = do
           -- if (timeNow - (lineSentat hn) < ((linkTimer defaults) `div` 2))
           if isTimeOut timeNow (lineSentat hn) ((linkTimer defaults) `div` 2)
             then return () -- we sent to them recently
-            else send (fromJust $ lineLinked hn) (seedMsg (swSeed sw)) Nothing
+            else send (pType $ fromJust $ lineLinked hn) (seedMsg (swSeed sw)) Nothing
   return ()
 
 -- ---------------------------------------------------------------------
@@ -1896,18 +1933,5 @@ isTimeOut (TOD secs _picos) mt millis
 seedMsg :: Bool -> Packet
 seedMsg = undefined
 
--- ---------------------------------------------------------------------
--- Logging
-
-logT :: String -> TeleHash ()
-logT str = io (warningM "Controller" str)
-
--- ---------------------------------------------------------------------
--- Convenience.
---
-io :: IO a -> TeleHash a
-io = liftIO
-
--- ---------------------------------------------------------------------
 
 

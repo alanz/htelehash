@@ -46,6 +46,7 @@ Library
                    , crypto-pubkey
                    , crypto-pubkey-types
                    , crypto-numbers
+                   , cryptohash
                    , base16-bytestring
                    , base64-bytestring
                    , utf8-string

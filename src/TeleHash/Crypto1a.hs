@@ -2,6 +2,7 @@ module TeleHash.Crypto1a
   (
   --  init
   crypt_keygen_1a
+  , crypt_loadkey_1a
   ) where
 
 -- | Implement Cypher Suite 1a for TeleHash, as per
@@ -24,8 +25,11 @@ import Crypto.Types.PubKey.ECC
 import Data.ByteString.Base64
 import Data.Word
 import Crypto.Number.Serialize
+import TeleHash.Utils
 import qualified Data.ByteString.Char8 as B8
 import qualified Data.ByteString as B
+
+curve = getCurveByName SEC_p160r1
 
 -- ---------------------------------------------------------------------
 
@@ -33,7 +37,7 @@ import qualified Data.ByteString as B
 crypt_keygen_1a :: CPRG t => t -> ((B.ByteString, B.ByteString), t)
 crypt_keygen_1a g = ((pub_b64,priv_b64),g')
   where
-    ((pub,priv) ,g') = generate g (getCurveByName SEC_p160r1)
+    ((pub,priv) ,g') = generate g curve
     (PublicKey _ pubk) = pub
     (PrivateKey _ privk) = priv
 
@@ -64,6 +68,60 @@ int crypt_keygen_1a(packet_t p)
 
 -- ---------------------------------------------------------------------
 
+crypt_loadkey_1a :: HashContainer -> String -> Maybe String -> TeleHash (HashContainer,Bool)
+crypt_loadkey_1a hc pub mpriv = do
+  -- base64 decode it
+  let mbs = decode $ B8.pack pub
+  case mbs of
+    Left _err -> do
+      logT $ "invalid public key b64decode failed:" ++ pub
+      return (hc,False)
+    Right bs -> do
+      if B8.length bs /= 40
+        then do logT $ "invalid public key wrong len:" ++ pub
+                return (hc,False)
+        else do
+          -- convert the ByteString into a pair of Integer
+          let (b1,b2) = B.splitAt 20 bs
+              i1 = os2ip b1
+              i2 = os2ip b2
+          -- create the public key
+              pubkey = PublicKey curve (Point i1 i2)
+              hc' = case mpriv of
+                Nothing -> hc
+                Just priv -> hcp
+                  where
+                    mbsp = decode $ B8.pack priv
+                    hcp = case mbsp of
+                      Left _err -> hc
+                      Right bsp -> hc {hcPrivate = Just $ Private1a privkey}
+                        where
+                          i = os2ip bsp
+                          privkey = PrivateKey curve i
+              hc'' =  hc' {hcKey = pub, hcPublic = Public1a pubkey}
+          return (hc'',True)
+
+{-
+exports.loadkey = function(id, pub, priv)
+{
+  if(typeof pub == "string") pub = new Buffer(pub,"base64");
+  if(!Buffer.isBuffer(pub) || pub.length != 40) return "invalid public key";
+  id.key = pub;
+  id.public = new crypto.ecc.ECKey(crypto.ecc.ECCurves.secp160r1, Buffer.concat([new Buffer("04","hex"),id.key]), true);
+  if(!id.public) return "public key load failed";
+
+  if(priv)
+  {
+    if(typeof priv == "string") priv = new Buffer(priv,"base64");
+    if(!Buffer.isBuffer(priv) || priv.length != 20) return "invalid private key";
+    id.private = new crypto.ecc.ECKey(crypto.ecc.ECCurves.secp160r1, priv);
+    if(!id.private) return "private key load failed";
+  }
+  return false;
+}
+
+
+-}
 
 -- ---------------------------------------------------------------------
 
