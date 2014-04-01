@@ -1,10 +1,14 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 module TeleHash.Switch
   (
     Defaults(..)
   , defaults
-  , switch
+  , initial_switch
+  , startSwitchThread
   ) where
+
 
 import Control.Applicative
 import Control.Concurrent
@@ -19,16 +23,18 @@ import Data.Char
 import Data.List
 import Data.Maybe
 import Data.String.Utils
+import Data.Typeable
 import Network.BSD
-import qualified Network.Socket as NS
 import Prelude hiding (id, (.), head, either, catch)
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
--- import System.Directory
+import TeleHash.Crypto1a
 import TeleHash.Utils
-
+-- import Text.JSON
+-- import Text.JSON.Generic
+-- import Text.JSON.Types
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
@@ -38,12 +44,189 @@ import qualified Data.ByteString.UTF8 as BU
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
-
 --
+-- Set up actions to run on start and end, and run the main loop
+--
+runSwitch :: IO ((),Switch)
+runSwitch = bracket initialize disconnect loop
+  where
+    disconnect (_,_,ss) = NS.sClose (slSocket (fromJust $ swH ss))
+
+    loop (ch1,ch2,st) = catch (runStateT (run ch1 ch2) st) (exc)
+
+    exc :: SomeException -> IO ((),Switch)
+    exc _e = return ((),undefined)
+
+-- ---------------------------------------------------------------------
+--
+-- Set up actions to run on start and end, and run the main loop in
+-- its own thread
+--
+
+startSwitchThread :: IO (Chan Signal,Chan Reply,ThreadId)
+startSwitchThread = do
+  (ch1,ch2,st) <- initialize
+  -- thread <- forkIO (io (runStateT run st))
+  thread <- forkIO (doit ch1 ch2 st)
+  return (ch1,ch2,thread)
+
+  where
+    doit :: Chan Signal -> Chan Reply -> Switch -> IO ()
+    doit ch1 ch2 st = do
+      _ <- runStateT (run ch1 ch2) st
+      return ()
+
+-- ---------------------------------------------------------------------
+
+-- | The first point where we have entered the TeleHash Monad
+run :: Chan Signal -> Chan Reply -> TeleHash ()
+run ch1 ch2 = do
+  -- ch1 <- io (newChan)
+  _ <- io (forkIO (timer (10 * onesec) SignalPingSeeds ch1))
+  _ <- io (forkIO (timer (10 * onesec) SignalScanLines ch1))
+  _ <- io (forkIO (timer (30 * onesec) SignalTapTap ch1))
+
+  h <- gets swH
+  _ <- io (forkIO (dolisten h ch1))
+
+  -- load the id
+  loadId testId
+  logT $ "loading id done"
+ 
+  -- Get the ball rolling immediately
+  -- pingSeeds
+
+  -- Process the async messages from the various sources above
+  forever $ do
+    s <- io (readChan ch1)
+    timeNow <- io getClockTime
+    -- io (putStrLn $ "got signal: " ++ (show s) ++ " at " ++ (show timeNow))
+    -- io (putStrLn $ "got signal:at " ++ (show timeNow))
+    case s of
+      -- SignalPingSeeds      -> pingSeeds
+      -- SignalScanLines      -> scanlines timeNow
+      -- SignalTapTap         -> taptap timeNow
+      -- SignalMsgRx msg addr -> recvTelex msg addr
+      -- External commands
+      SignalGetSwitch      -> do
+        sw <- getSwitch
+        io (writeChan ch2 (ReplyGetSwitch sw))
+      _ -> logT $ "run not processing signal:" ++ show s
+    -- io (putStrLn $ "done signal:at " ++ (show timeNow))
+
+-- ---------------------------------------------------------------------
+
+getSwitch :: TeleHash Switch
+getSwitch = do
+  switch <- get
+  return switch
+
+-- ---------------------------------------------------------------------
+
+initialize :: IO (Chan a,Chan b,Switch)
+initialize = do
+  -- Look up the hostname and port.  Either raises an exception
+  -- or returns a nonempty list.  First element in that list
+  -- is supposed to be the best option.
+
+  -- (serveraddr,ip,port) <- resolveToSeedIPP initialSeed
+  -- let seedIPP = IPP (ip ++ ":" ++ port)
+
+  -- Establish a socket for communication
+  --sock <- socket (addrFamily serveraddr) Datagram defaultProtocol
+  sock <- NS.socket NS.AF_INET NS.Datagram defaultProtocol
+
+  -- We want to listen on all interfaces (0.0.0.0)
+  bindAddr <- NS.inet_addr "0.0.0.0"
+  NS.bindSocket sock (NS.SockAddrInet 0 bindAddr)
+
+  socketName <- NS.getSocketName sock
+  warningM "Controller" ("server listening " ++ (show socketName))
+
+  ch1 <- newChan
+  ch2 <- newChan
+
+  -- Save off the socket, and server address in a handle
+  sw <- initial_switch
+  return (ch1, ch2, sw {swH = Just (SocketHandle sock)})
+
+-- ---------------------------------------------------------------------
+--
+-- Listen for incoming messages and drop them in the FIFO
+--
+dolisten :: Maybe SocketHandle -> Chan Signal -> IO ()
+dolisten Nothing _ = return ()
+dolisten (Just h) channel = forever $ do
+    (msg,rinfo) <- (SB.recvFrom (slSocket h) 1000)
+
+    -- (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
+    (writeChan channel (SignalMsgRx (BC.unpack msg) rinfo))
+
+-- ---------------------------------------------------------------------
+
+data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx String NS.SockAddr |
+              SignalGetSwitch
+              deriving (Typeable, Show, Eq)
+
+data Reply = ReplyGetSwitch Switch
+           -- deriving (Typeable, Show)
+           deriving (Typeable)
+
+onesec :: Int
+onesec = 1000000
+
+timer :: Int -> a -> Chan a -> IO ()
+timer timeoutVal signalValue channel  = forever $
+  threadDelay timeoutVal >> writeChan channel signalValue
+
+-- =====================================================================
+-- ---------------------------------------------------------------------
+
+-- API
+
+loadId :: Id -> TeleHash ()
+loadId anId = do
+  logT $ "loadId:" ++ show anId
+  sw <- get
+  csids <- crypt_supported
+  hn <- crypt_loadkey_1a Nothing (id1a anId) (Just $ id1a_secret anId)
+  logT $ "loadId:got hn=" ++ show hn
+  return ()
+
+{-
+int switch_init(switch_t s, packet_t keys)
+{
+
+  char *csid = crypt_supported;
+  if(!keys) return 1;
+
+  while(*csid)
+  {
+    loadkey(*csid,s,keys);
+    csid++;
+  }
+
+  packet_free(keys);
+  if(!s->parts->json) return 1;
+  s->id = hn_getparts(s->index, s->parts);
+  if(!s->id) return 1;
+  return 0;
+}
+
+-- Result of running telehash-c ping
+
+alanz@alanz-laptop:~/mysrc/github/telehash/telehash-c$ ./bin/ping
+*** public key o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg== ***
+*** secret key iollyIcHaGeD/JpUNn/7ef1QAzE= ***
+loaded hashname 7ecf6a5884d483fde2f6a027e33e6e1756efdb70925557c3e3f776b35329aef5
+
+
+-}
 
 -- ---------------------------------------------------------------------
 
@@ -59,12 +242,11 @@ instance FromJSON Id where
      -- A non-Object value is of the wrong type, so fail.
      parseJSON _          = mzero
 
-testId :: Maybe Id
+testId :: Id
 testId = r
   where
     v = "{\"1a\":\"o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg==\",\"1a_secret\":\"iollyIcHaGeD/JpUNn/7ef1QAzE=\"}"
-    r = decode v
-
+    Just r = decode v
 
 testSeeds = do
   fc <- BL.readFile "../data/seeds.json"
@@ -155,17 +337,18 @@ defaults = Defaults
 
 -- ---------------------------------------------------------------------
 
-switch :: Defaults -> TeleHash Switch
-switch def = do
-  rng <- io $ initRNG
+initial_switch :: IO Switch
+initial_switch = do
+  rng <- initRNG
   let
     sw = Switch
-      { swSeeds = []
+      { swH = Nothing
+      , swSeeds = []
       , swLocals = []
       , swLines = []
       , swBridges = []
       , swBridgeLine = []
-      , swAll = []
+      , swAll = Map.empty
       , swBuckets = []
       , swCapacity = []
       , swRels = []
@@ -177,7 +360,7 @@ switch def = do
       , swCs = Map.empty
       , swKeys = Map.empty
 
-      , swCSets = Map.empty
+      , swCSets = Map.fromList [("1a",cset_1a)]
       , swParts = []
 
       , swLoad = load
@@ -248,15 +431,25 @@ switch def = do
       -- crypto
       , swRNG = rng
       }
+{-
   put sw
   linkLoop -- should never return
   sw' <- get
   return sw'
+-}
+  return sw
 
 initRNG :: IO SystemRNG
 initRNG = do
   pool <- createEntropyPool
   return $ cprgCreate pool
+
+-- ---------------------------------------------------------------------
+
+crypt_supported :: TeleHash [String]
+crypt_supported = do
+  sw <- get
+  return $ Map.keys (swCSets sw)
 
 -- ---------------------------------------------------------------------
 {-
@@ -944,7 +1137,7 @@ whokey parts key keys = do
               key' = case Map.lookup csid keys of
                 Nothing -> key
                 Just k -> k
-          (hn'',ok) <- loadkey hn' csid key'
+          mhn'' <- loadkey hn' csid key'
           return undefined
 
 -- WIP continue here
@@ -1596,9 +1789,27 @@ loadkeys = do
     doOne (csid,v) = do
       sw <- get
       let cs' = Map.insert csid Map.empty (swCs sw)
+      put sw {swCs = cs'}
+
+      case Map.lookup csid (swCSets sw) of
+        Nothing -> logT $ csid ++ " not supported"
+        Just cset -> do
+          let mpub = Map.lookup csid (swId sw)
+              mpriv = Map.lookup (csid ++ "_secret") (swId sw)
+          case mpub of
+            Nothing -> return ()
+            Just pub -> do
+              mhc <- (csLoadkey cset) Nothing pub mpriv
+              case mhc of
+                Just hc -> do
+                  let keys = Map.insert csid (swId sw) (swKeys sw)
+                      allHc = Map.insert (hcHashName hc) hc (swAll sw)
+                  put $ sw {swKeys = keys, swAll = allHc }
+                Nothing -> return ()
+              return ()
       return ()
       -- sw {swCs
--- WIP carry on here
+-- WIP carry on here xxxxxx
   mapM_ doOne (swParts sw)
 
 
@@ -1630,7 +1841,7 @@ function loadkey(self, id, csid, key)
 }
 -}
 
-loadkey :: HashContainer -> String -> String -> TeleHash (HashContainer,Bool)
+loadkey :: HashContainer -> String -> String -> TeleHash (Maybe HashContainer)
 loadkey id1 csid key = do
   sw <- get
   let id1' = id1 { hcCsid = csid }
@@ -1638,9 +1849,9 @@ loadkey id1 csid key = do
   case set of
     Nothing -> do
       logT $ "missing CSet for " ++ csid
-      return (id1,False)
+      return Nothing
     Just cs -> do
-      (csLoadkey cs) id1' key Nothing
+      (csLoadkey cs) (Just id1') key Nothing
 
 
 -- ---------------------------------------------------------------------

@@ -1,7 +1,8 @@
 module TeleHash.Crypto1a
   (
+    cset_1a
   --  init
-  crypt_keygen_1a
+  , crypt_keygen_1a
   , crypt_loadkey_1a
   ) where
 
@@ -31,6 +32,12 @@ import qualified Data.ByteString as B
 
 curve = getCurveByName SEC_p160r1
 
+-- ---------------------------------------------------------------------
+
+cset_1a = CS
+  {
+  csLoadkey = crypt_loadkey_1a
+  }
 -- ---------------------------------------------------------------------
 
 -- | Generate base64 encoded public and matching private keys
@@ -68,18 +75,18 @@ int crypt_keygen_1a(packet_t p)
 
 -- ---------------------------------------------------------------------
 
-crypt_loadkey_1a :: HashContainer -> String -> Maybe String -> TeleHash (HashContainer,Bool)
-crypt_loadkey_1a hc pub mpriv = do
+crypt_loadkey_1a :: Maybe HashContainer -> String -> Maybe String -> TeleHash (Maybe HashContainer)
+crypt_loadkey_1a mhc pub mpriv = do
   -- base64 decode it
   let mbs = decode $ B8.pack pub
   case mbs of
     Left _err -> do
       logT $ "invalid public key b64decode failed:" ++ pub
-      return (hc,False)
+      return Nothing
     Right bs -> do
       if B8.length bs /= 40
         then do logT $ "invalid public key wrong len:" ++ pub
-                return (hc,False)
+                return Nothing
         else do
           -- convert the ByteString into a pair of Integer
           let (b1,b2) = B.splitAt 20 bs
@@ -88,18 +95,28 @@ crypt_loadkey_1a hc pub mpriv = do
           -- create the public key
               pubkey = PublicKey curve (Point i1 i2)
               hc' = case mpriv of
-                Nothing -> hc
+                Nothing -> mhc
                 Just priv -> hcp
                   where
                     mbsp = decode $ B8.pack priv
                     hcp = case mbsp of
-                      Left _err -> hc
-                      Right bsp -> hc {hcPrivate = Just $ Private1a privkey}
+                      Left _err -> mhc
+                      Right bsp -> Just $ hcn {hcPrivate = Just $ Private1a privkey}
                         where
                           i = os2ip bsp
                           privkey = PrivateKey curve i
-              hc'' =  hc' {hcKey = pub, hcPublic = Public1a pubkey}
-          return (hc'',True)
+                          hcn = case mhc of
+                            Just h -> h { hcKey = pub, hcParts = [], hcCsid = "1a" }
+                            Nothing -> HC { hcHashName = HN ""
+                                          , hcParts = []
+                                          , hcCsid = "1a"
+                                          , hcKey = pub
+                                          , hcPublic = Public1a pubkey
+                                          , hcPrivate = Nothing
+                                          }
+
+              -- hc'' =  hc' {hcKey = pub, hcPublic = Public1a pubkey}
+          return hc'
 
 {-
 exports.loadkey = function(id, pub, priv)

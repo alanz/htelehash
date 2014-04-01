@@ -18,6 +18,7 @@ module TeleHash.Utils
   , CSet(..)
   , PublicKey(..)
   , PrivateKey(..)
+  , SocketHandle(..)
   , io
   , logT
   ) where
@@ -37,6 +38,7 @@ import Data.List
 import Data.Maybe
 import Data.String.Utils
 import Network.BSD
+import Network.Socket
 import qualified Network.Socket as NS
 import Prelude hiding (id, (.), head, either, catch)
 import System.IO
@@ -79,24 +81,25 @@ type Channel = String
 -- ---------------------------------------------------------------------
 
 data HashName = HN String
-              deriving (Eq,Show)
+              deriving (Eq,Show,Ord)
 
 data HashContainer = HC
   { hcHashName :: HashName
+  , hcHexName :: String
   , hcParts :: Parts
   , hcCsid :: String
   , hcKey :: String
   , hcPublic :: PublicKey
   , hcPrivate :: Maybe PrivateKey
-  }
+  } deriving Show
 
-data PublicKey = Public1a ECDSA.PublicKey
-data PrivateKey = Private1a ECDSA.PrivateKey
+data PublicKey = Public1a ECDSA.PublicKey deriving Show
+data PrivateKey = Private1a ECDSA.PrivateKey deriving Show
 
 -- ---------------------------------------------------------------------
 
 data CSet = CS
-  { csLoadkey :: HashContainer -> String -> Maybe String -> TeleHash (HashContainer,Bool)
+  { csLoadkey :: Maybe HashContainer -> String -> Maybe String -> TeleHash (Maybe HashContainer)
 
   }
 
@@ -160,12 +163,14 @@ data SeedInfo = SI
 -- ---------------------------------------------------------------------
 
 data Switch = Switch
-       { swSeeds :: [Seed]
+
+       { swH :: Maybe SocketHandle
+       , swSeeds :: [Seed]
        , swLocals :: [String]
        , swLines :: [String]
        , swBridges :: [String]
        , swBridgeLine :: [String]
-       , swAll :: [String]
+       , swAll :: Map.Map HashName HashContainer
        , swBuckets :: [Bucket]
        , swCapacity :: [String]
        , swRels :: [String]
@@ -175,11 +180,12 @@ data Switch = Switch
        , swNetworks :: Map.Map PathType (PathId,(PathType -> Packet -> Maybe To -> TeleHash ()))
 
        , swId :: Map.Map String String
-       , swCs :: Map.Map String String
-       , swKeys :: Map.Map String String
+       , swCs :: Map.Map String (Map.Map String String)
+       , swKeys :: Map.Map String (Map.Map String String)
 
        , swCSets :: Map.Map String CSet
        , swParts :: Parts
+
 
        , swLoad :: String -> Bool -- load function
        , swMake :: () -> () -> IO ()
@@ -232,10 +238,17 @@ data Switch = Switch
        -- crypto
        , swRNG :: SystemRNG
 
-           -- , swCountOnline :: Int
-           -- , swCountTx :: Int
-           -- , swCountRx :: Int
-           }
+       -- , swCountOnline :: Int
+       -- , swCountTx :: Int
+       -- , swCountRx :: Int
+       }
+
+-- ---------------------------------------------------------------------
+
+data SocketHandle =
+    SocketHandle {slSocket :: Socket
+                 --, slAddress :: SockAddr
+                 } deriving (Eq,Show)
 
 -- ---------------------------------------------------------------------
 -- Logging
