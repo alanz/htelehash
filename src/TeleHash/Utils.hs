@@ -10,6 +10,8 @@ module TeleHash.Utils
   , Body(..)
   , Packet(..)
   , To(..)
+  , Hash(..)
+  , unHash
   , HashName(..)
   , HashContainer(..)
   , Parts(..)
@@ -19,6 +21,7 @@ module TeleHash.Utils
   , PublicKey(..)
   , PrivateKey(..)
   , SocketHandle(..)
+  , parts2hn
   , io
   , logT
   ) where
@@ -78,6 +81,14 @@ data Packet = Packet
 
 type Channel = String
 
+
+-- ---------------------------------------------------------------------
+
+newtype Hash = Hash String
+             deriving (Eq,Show,Ord)
+unHash :: Hash -> String
+unHash (Hash str) = str
+
 -- ---------------------------------------------------------------------
 
 data HashName = HN String
@@ -85,7 +96,7 @@ data HashName = HN String
 
 data HashContainer = HC
   { hcHashName :: HashName
-  , hcHexName :: String
+  , hcHexName :: Hash
   , hcParts :: Parts
   , hcCsid :: String
   , hcKey :: String
@@ -184,7 +195,7 @@ data Switch = Switch
        , swKeys :: Map.Map String (Map.Map String String)
 
        , swCSets :: Map.Map String CSet
-       , swParts :: Parts
+       , swParts :: Parts -- ++AZ++ TODO: this should be a packet
 
 
        , swLoad :: String -> Bool -- load function
@@ -242,6 +253,39 @@ data Switch = Switch
        -- , swCountTx :: Int
        -- , swCountRx :: Int
        }
+
+-- ---------------------------------------------------------------------
+
+{-
+function parts2hn(parts)
+{
+  var rollup = new Buffer(0);
+  Object.keys(parts).sort().forEach(function(id){
+    rollup = crypto.createHash("sha256").update(Buffer.concat([rollup,new Buffer(id)])).digest();
+    rollup = crypto.createHash("sha256").update(Buffer.concat([rollup,new Buffer(parts[id])])).digest();
+  });
+  return rollup.toString("hex");
+}
+-}
+
+parts2hn :: Parts -> HashName
+parts2hn parts = HN r
+  where
+    sp = sort parts
+    iCtx = SHA256.init
+    vals = concatMap (\(a,b) -> [BC.pack a,BC.pack b]) sp
+    ctx = SHA256.updates iCtx vals
+    -- bsfinal = SHA256.finalize ctx
+
+    bsfinal = foldl' (\acc cur -> SHA256.hash (BC.append acc cur)) BC.empty vals
+
+    r = BU.toString $ B16.encode bsfinal
+
+-- testParts2hn = parts2hn (sParts $ head initialSeeds)
+
+testParts2hn = parts2hn [ ("1a","o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg==")
+                        , ("1a_secret","iollyIcHaGeD/JpUNn/7ef1QAzE=")]
+
 
 -- ---------------------------------------------------------------------
 

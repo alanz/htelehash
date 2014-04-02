@@ -24,11 +24,18 @@ import Crypto.PubKey.ECC.Generate
 import Crypto.Random
 import Crypto.Types.PubKey.ECC
 import Data.ByteString.Base64
+import Data.List
+import Data.Maybe
 import Data.Word
 import Crypto.Number.Serialize
 import TeleHash.Utils
-import qualified Data.ByteString.Char8 as B8
+import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Data.ByteString as B
+import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Char8 as B8
+import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.UTF8 as BU
+import qualified Data.Digest.Pure.SHA as SHA
 
 curve = getCurveByName SEC_p160r1
 
@@ -75,7 +82,8 @@ int crypt_keygen_1a(packet_t p)
 
 -- ---------------------------------------------------------------------
 
-crypt_loadkey_1a :: Maybe HashContainer -> String -> Maybe String -> TeleHash (Maybe HashContainer)
+crypt_loadkey_1a :: Maybe HashContainer -> String -> Maybe String
+   -> TeleHash (Maybe HashContainer)
 crypt_loadkey_1a mhc pub mpriv = do
   -- base64 decode it
   let mbs = decode $ B8.pack pub
@@ -105,18 +113,86 @@ crypt_loadkey_1a mhc pub mpriv = do
                         where
                           i = os2ip bsp
                           privkey = PrivateKey curve i
+                          newPartsPub = ("1a",pub)
+                          newParts = case mpriv of
+                            Nothing -> [newPartsPub]
+                            Just pr -> [("1a_secret",pr),newPartsPub]
                           hcn = case mhc of
-                            Just h -> h { hcKey = pub, hcParts = [], hcCsid = "1a" }
-                            Nothing -> HC { hcHashName = HN ""
-                                          , hcParts = []
+                            Just h  -> h  { hcHashName = parts2hn (hcParts h ++ newParts)
+                                          , hcHexName = mkHashFromBS bs
+                                          , hcParts = (hcParts h ++ newParts)
                                           , hcCsid = "1a"
                                           , hcKey = pub
                                           , hcPublic = Public1a pubkey
-                                          , hcPrivate = Nothing
+                                          , hcPrivate = Just $ Private1a privkey
+                                          }
+                            Nothing -> HC { hcHashName = parts2hn newParts
+                                          , hcHexName =  mkHashFromBS bs
+                                          , hcParts = newParts
+                                          , hcCsid = "1a"
+                                          , hcKey = pub
+                                          , hcPublic = Public1a pubkey
+                                          , hcPrivate = Just $ Private1a privkey
                                           }
 
-              -- hc'' =  hc' {hcKey = pub, hcPublic = Public1a pubkey}
+          logT $ "crypt_loadkey_1a:parts=" ++ show (hcParts $ fromJust hc')
           return hc'
+
+mkHashFromBS :: B8.ByteString -> Hash
+mkHashFromBS bs =
+  let
+    digest = SHA.sha1 $ BL.fromChunks [bs]
+  in
+   Hash (show digest)
+
+mkHashFromB64 :: String -> Hash
+mkHashFromB64 str =
+  let
+    digest = SHA.sha1 $ BL.fromChunks [B8.pack str]
+  in
+   -- B64.encode $ BL.unpack $ SHA.bytestringDigest digest
+   Hash (show digest)
+
+testhash :: IO ()
+testhash = do
+  let b64 = "o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg=="
+  let Right bs = decode $ B8.pack b64
+  let digest = SHA.sha1 $ BL.fromChunks [bs]
+  putStrLn (show digest)
+
+  let mh = parts2hn [("1a",show digest)]
+  putStrLn (show [("1a",show digest)])
+  putStrLn (show mh)
+
+  putStrLn (show $ parts2hn [("1a","a5c8b5c8a630c84dc01f92d2e5af6aa41801457a")
+                            ,("2a","bf6e23c6db99ed2d24b160e89a37c9cd183fb61afeca40c4bc378cf6e488bebe")
+                            ])
+
+  putStrLn "foo"
+  let
+    digest' = SHA256.finalize ctx
+    ctx    = foldl' SHA256.update iCtx (map BU.fromString
+                     [ "1a", "a5c8b5c8a630c84dc01f92d2e5af6aa41801457a",
+                       "2a", "bf6e23c6db99ed2d24b160e89a37c9cd183fb61afeca40c4bc378cf6e488bebe"
+                     ])
+    iCtx   = SHA256.init
+  putStrLn $ show $ BU.toString $ B16.encode digest'
+
+
+  let c0 = SHA256.init
+      c1 = SHA256.update c0 $ BU.fromString "1a"
+      c2 = SHA256.update c1 $ BU.fromString "a5c8b5c8a630c84dc01f92d2e5af6aa41801457a"
+      c3 = SHA256.update c2 $ BU.fromString "2a"
+      c4 = SHA256.update c3 $ BU.fromString "bf6e23c6db99ed2d24b160e89a37c9cd183fb61afeca40c4bc378cf6e488bebe"
+  putStrLn $ show $ BU.toString $ B16.encode $ SHA256.finalize c4
+
+  let h1 = SHA256.hash $ B8.pack "1a"
+      h2 = SHA256.hash $ B8.append h1 $ B8.pack "a5c8b5c8a630c84dc01f92d2e5af6aa41801457a"
+      h3 = SHA256.hash $ B8.append h2 $ B8.pack "2a"
+      h4 = SHA256.hash $ B8.append h3 $ B8.pack "bf6e23c6db99ed2d24b160e89a37c9cd183fb61afeca40c4bc378cf6e488bebe"
+  putStrLn $ show $ B8.unpack $ B16.encode $ h4
+
+  return ()
 
 {-
 exports.loadkey = function(id, pub, priv)

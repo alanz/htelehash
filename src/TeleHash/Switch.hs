@@ -97,7 +97,7 @@ run ch1 ch2 = do
   -- load the id
   loadId testId
   logT $ "loading id done"
- 
+
   -- Get the ball rolling immediately
   -- pingSeeds
 
@@ -1688,33 +1688,6 @@ function bridge(path, msg, to)
 }
 
 -}
-
--- ---------------------------------------------------------------------
-
-{-
-function parts2hn(parts)
-{
-  var rollup = new Buffer(0);
-  Object.keys(parts).sort().forEach(function(id){
-    rollup = crypto.createHash("sha256").update(Buffer.concat([rollup,new Buffer(id)])).digest();
-    rollup = crypto.createHash("sha256").update(Buffer.concat([rollup,new Buffer(parts[id])])).digest();
-  });
-  return rollup.toString("hex");
-}
--}
-
-parts2hn :: Parts -> HashName
-parts2hn parts = HN r
-  where
-    sp = sort parts
-    ctx = SHA256.init
-    vals = concatMap (\(a,b) -> [BC.pack a,BC.pack b]) sp
-    _ = SHA256.updates ctx vals
-    bsfinal = SHA256.finalize ctx
-
-    r = BU.toString $ B16.encode bsfinal
-
-testParts2hn = parts2hn (sParts $ head initialSeeds)
 
 -- ---------------------------------------------------------------------
 
