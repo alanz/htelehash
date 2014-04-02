@@ -113,13 +113,11 @@ crypt_loadkey_1a mhc pub mpriv = do
                         where
                           i = os2ip bsp
                           privkey = PrivateKey curve i
-                          newPartsPub = ("1a",pub)
-                          newParts = case mpriv of
-                            Nothing -> [newPartsPub]
-                            Just pr -> [("1a_secret",pr),newPartsPub]
+                          hexName = mkHashFromBS bs
+                          newParts = [("1a",unHash hexName)]
                           hcn = case mhc of
                             Just h  -> h  { hcHashName = parts2hn (hcParts h ++ newParts)
-                                          , hcHexName = mkHashFromBS bs
+                                          , hcHexName = hexName
                                           , hcParts = (hcParts h ++ newParts)
                                           , hcCsid = "1a"
                                           , hcKey = pub
@@ -127,7 +125,7 @@ crypt_loadkey_1a mhc pub mpriv = do
                                           , hcPrivate = Just $ Private1a privkey
                                           }
                             Nothing -> HC { hcHashName = parts2hn newParts
-                                          , hcHexName =  mkHashFromBS bs
+                                          , hcHexName = hexName
                                           , hcParts = newParts
                                           , hcCsid = "1a"
                                           , hcKey = pub
