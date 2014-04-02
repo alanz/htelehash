@@ -98,6 +98,9 @@ run ch1 ch2 = do
   loadId testId
   logT $ "loading id done"
 
+  -- load the seeds, hardcoded for now
+  mapM_ addSeed initialSeeds
+
   -- Get the ball rolling immediately
   -- pingSeeds
 
@@ -719,7 +722,8 @@ function addSeed(arg) {
 addSeed :: SeedInfo -> TeleHash ()
 addSeed args = do
   sw <- get
-  -- seed <- (swWhoKey sw) 
+  seed <- (swWhokey sw) (sParts args) "?" (Map.fromList (sKeys args))
+  logT $ "addSeed:" ++ show seed
   return ()
 
 -- ---------------------------------------------------------------------
