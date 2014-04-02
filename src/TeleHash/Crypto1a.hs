@@ -80,6 +80,17 @@ int crypt_keygen_1a(packet_t p)
 
 -}
 
+test_keygen :: IO (BU.ByteString,BU.ByteString)
+test_keygen = do
+  rng <- initRng
+  let ((pub,priv),_) = crypt_keygen_1a rng
+  return (pub,priv)
+
+initRng :: IO SystemRNG
+initRng = do
+  pool <- createEntropyPool
+  return $ cprgCreate pool
+
 -- ---------------------------------------------------------------------
 
 crypt_loadkey_1a :: Maybe HashContainer -> String -> Maybe String
