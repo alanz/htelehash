@@ -20,6 +20,7 @@ import Crypto.Random
 import Data.Aeson
 import Data.Bits
 import Data.Char
+import Data.IP
 import Data.List
 import Data.Maybe
 import Data.String.Utils
@@ -87,9 +88,9 @@ startSwitchThread = do
 run :: Chan Signal -> Chan Reply -> TeleHash ()
 run ch1 ch2 = do
   -- ch1 <- io (newChan)
-  _ <- io (forkIO (timer (10 * onesec) SignalPingSeeds ch1))
-  _ <- io (forkIO (timer (10 * onesec) SignalScanLines ch1))
-  _ <- io (forkIO (timer (30 * onesec) SignalTapTap ch1))
+  _ <- io (forkIO (timer (100 * onesec) SignalPingSeeds ch1))
+  _ <- io (forkIO (timer (100 * onesec) SignalScanLines ch1))
+  _ <- io (forkIO (timer (300 * onesec) SignalTapTap ch1))
 
   h <- gets swH
   _ <- io (forkIO (dolisten h ch1))
@@ -197,8 +198,9 @@ loadId anId = do
   logT $ "loadId:" ++ show anId
   sw <- get
   csids <- crypt_supported
-  hn <- crypt_loadkey_1a Nothing (id1a anId) (Just $ id1a_secret anId)
-  logT $ "loadId:got hn=" ++ show hn
+  Just hn <- crypt_loadkey_1a (id1a anId) (Just $ id1a_secret anId)
+  logT $ "loadId:got hn=" ++ show (hcHashName hn)
+  put $ sw {swParts = hcParts hn, swHashname = Just (hcHashName hn)}
   return ()
 
 {-
@@ -270,26 +272,38 @@ initialSeeds =
     { sId = "89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de"
     , sAdmin = "http://github.com/quartzjer"
     , sPaths =
-       [ Path { pType = PathType"ipv4"
-              , pIp = "208.68.164.253"
+       [ Path { pType = PathType "ipv4"
+              , pIp = Just "208.68.164.253"
               , pPort = 42424
               , pHttp = ""
               , pLastIn = Nothing
               , pLastOut = Nothing
+              , pRelay = Nothing
+              , pId = Nothing
+              , pPriority = Nothing
+              , pIsSeed = True
               }
        , Path { pType = PathType "ipv6"
-              , pIp = "2605:da00:5222:5269:230:48ff:fe35:6572"
+              , pIp = Just "2605:da00:5222:5269:230:48ff:fe35:6572"
               , pPort = 42424
               , pHttp = ""
               , pLastIn = Nothing
               , pLastOut = Nothing
+              , pRelay = Nothing
+              , pId = Nothing
+              , pPriority = Nothing
+              , pIsSeed = True
               }
        , Path { pType = PathType "http"
-              , pIp = ""
+              , pIp = Nothing
               , pPort = 42424
               , pHttp = "http://208.68.164.253:42424"
               , pLastIn = Nothing
               , pLastOut = Nothing
+              , pRelay = Nothing
+              , pId = Nothing
+              , pPriority = Nothing
+              , pIsSeed = True
               }
        ]
     , sParts =
@@ -359,6 +373,7 @@ initial_switch = do
       , swPaths = Map.empty
       , swBridgeCache = []
 
+      , swHashname = Nothing
       , swId = Map.empty
       , swCs = Map.empty
       , swKeys = Map.empty
@@ -722,14 +737,46 @@ function addSeed(arg) {
 addSeed :: SeedInfo -> TeleHash ()
 addSeed args = do
   sw <- get
-  seed <- (swWhokey sw) (sParts args) "?" (Map.fromList (sKeys args))
-  logT $ "addSeed:" ++ show seed
-  return ()
+  mseed <- (swWhokey sw) (sParts args) (Right (Map.fromList (sKeys args)))
+  logT $ "addSeed:" ++ show mseed
+  case mseed of
+    Nothing -> do
+      logT $ "invalid seed info:" ++ show args
+      return ()
+    Just seed -> do
+      forM_ (sPaths args) $ \path -> do
+        void $ pathGet seed path
+      sw' <- get
+      put $ sw' { swSeeds = (swSeeds sw') ++ [(hHashName seed)] }
+
 
 -- ---------------------------------------------------------------------
 
+-- | this creates a hashname identity object (or returns existing)
 whois :: HashName -> TeleHash (Maybe HashContainer)
-whois = undefined
+whois hn = do
+  logT $ "whois entered for:" ++ show hn
+  sw <- get
+
+  -- never return ourselves
+  if (fromMaybe (HN "") (swHashname sw)) == hn
+    then do
+      logT "whois called for self"
+      return Nothing
+    else do
+      -- if we already have it, return it
+      case Map.lookup hn (swAll sw) of
+        Just hc -> return (Just hc)
+        Nothing -> do
+          timeNow <- io getClockTime
+          let hc = mkHashContainer hn timeNow
+              hc' = hc {hBucket = dhash (fromJust $ swHashname sw) hn }
+          -- to create a new channels to this hashname
+
+              chanOut = if (head $ sort [fromJust $ swHashname sw,hn]) == (fromJust $ swHashname sw)
+                          then 2 else 1
+
+          return (Just $ hc' { hChanOut = chanOut })
 
 {-
 // this creates a hashname identity object (or returns existing)
@@ -1126,25 +1173,31 @@ function whokey(parts, key, keys)
 
 -}
 
-whokey :: Parts -> String -> Map.Map String String -> TeleHash (Maybe HashName)
-whokey parts key keys = do
+whokey :: Parts -> Either String (Map.Map String String) -> TeleHash (Maybe HashContainer)
+whokey parts keyVal = do
   sw <- get
   let mcsid = partsMatch (swParts sw) parts
-  case mcsid of
+  logT $ "whokey:mcsid=" ++ show mcsid
+  -- TODO: put this bit in the Maybe Monad
+  r <- case mcsid of
     Nothing -> return Nothing
     Just csid -> do
       mhn <- (swWhois sw) (parts2hn parts)
       case mhn of
         Nothing -> return Nothing
         Just hn -> do
-          let hn' = hn {hcParts = parts}
-              key' = case Map.lookup csid keys of
-                Nothing -> key
-                Just k -> k
-          mhn'' <- loadkey hn' csid key'
-          return undefined
-
--- WIP continue here
+          mhc <- case keyVal of
+            Left k -> loadkey csid k
+            Right keys ->
+              case Map.lookup csid keys of
+               Nothing -> return Nothing
+               Just k -> loadkey csid k
+          return (Just $ hn { hSelf = mhc })
+  case r of
+    Nothing -> do
+      logT $ "whokey err:" ++ show (parts,keyVal)
+      return Nothing
+    _ -> return r
 
 -- ---------------------------------------------------------------------
 
@@ -1748,6 +1801,152 @@ function pdecode(packet)
 
 -- ---------------------------------------------------------------------
 
+pathMatch :: Path -> [Path] -> Maybe Path
+pathMatch path1 paths = r
+  where
+    mtypes = filter (\p -> pType path1 == pType p) paths
+    m :: Path -> Path -> Maybe Path
+    m p1 p2
+      | pType p1 == PathType "relay"
+         && pRelay p1 == pRelay p2 = Just p2
+
+      | (pType p1 == PathType "ipv4" ||
+         pType p1 == PathType "ipv6")
+         && (pIp p1 == pIp p2)
+         && (pPort p1 == pPort p2)
+         = Just p2
+
+      | pType p1 == PathType "http"
+         && pHttp p1 == pHttp p2 = Just p2
+
+      | pType p1 == PathType "local"
+         && pId p1 == pId p2 = Just p2
+
+      -- webrtc always matches
+      | pType p1 == PathType "webrtc" = Just p2
+
+      | otherwise = Nothing
+
+    r = case catMaybes $ map (m path1) mtypes of
+          [] -> Nothing
+          xs -> Just $ head xs
+
+{-
+
+function pathMatch(path1, paths)
+{
+  var match;
+  if(!Array.isArray(paths)) return match;
+  paths.forEach(function(path2){
+    if(path2.type != path1.type) return;
+    switch(path1.type)
+    {
+    case "relay":
+      if(path1.relay == path2.relay) match = path2;
+    case "ipv4":
+    case "ipv6":
+      if(path1.ip == path2.ip && path1.port == path2.port) match = path2;
+      break;
+    case "http":
+      if(path1.http == path2.http) match = path2;
+      break;
+    case "local":
+      if(path1.id == path2.id) match = path2;
+      break;
+    case "webrtc":
+      match = path2; // always matches
+      break;
+    }
+  });
+  return match;
+}
+
+-}
+
+-- ---------------------------------------------------------------------
+{-
+
+// validate if a network path is acceptable to stop at
+function pathValid(path)
+{
+  if(!path || path.gone) return false;
+  if(path.type == "relay" && !path.relay.ended) return true; // active relays are always valid
+  if(!path.lastIn) return false; // all else must receive to be valid
+  if(Date.now() - path.lastIn < defaults.nat_timeout) return true; // received anything recently is good
+  return false;
+}
+
+-}
+
+-- ---------------------------------------------------------------------
+{-
+
+function partsMatch(parts1, parts2)
+{
+  if(typeof parts1 != "object" || typeof parts2 != "object") return false;
+  var ids = Object.keys(parts1).sort();
+  var csid;
+  while(csid = ids.pop()) if(parts2[csid]) return csid;
+  return false;
+}
+
+-}
+
+-- ---------------------------------------------------------------------
+
+isLocalPath :: Path -> Bool
+isLocalPath path
+  | pType path == PathType "bluetooth" = True
+  | (pType path == PathType "ipv4") ||
+    (pType path == PathType "ipv6") = isLocalIP (fromJust $ pIp path)
+  -- http?
+  | otherwise = False
+
+{-
+
+function isLocalPath(path)
+{
+  if(!path || !path.type) return false;
+  if(path.type == "bluetooth") return true;
+  if(["ipv4","ipv6"].indexOf(path.type) >= 0) return isLocalIP(path.ip);
+  // http?
+  return false;
+}
+
+-}
+
+-- ---------------------------------------------------------------------
+
+isLocalIP :: IP -> Bool
+isLocalIP ip = error $ "isLocalIP undefined"
+
+{-
+
+// return if an IP is local or public
+function isLocalIP(ip)
+{
+  // ipv6 ones
+  if(ip.indexOf(":") >= 0)
+  {
+    if(ip.indexOf("::") == 0) return true; // localhost
+    if(ip.indexOf("fc00") == 0) return true;
+    if(ip.indexOf("fe80") == 0) return true;
+    return false;
+  }
+
+  var parts = ip.split(".");
+  if(parts[0] == "0") return true;
+  if(parts[0] == "127") return true; // localhost
+  if(parts[0] == "10") return true;
+  if(parts[0] == "192" && parts[1] == "168") return true;
+  if(parts[0] == "172" && parts[1] >= 16 && parts[1] <= 31) return true;
+  if(parts[0] == "169" && parts[1] == "254") return true; // link local
+  return false;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
 {-
 
 function getkey(id, csid)
@@ -1776,11 +1975,14 @@ loadkeys = do
           case mpub of
             Nothing -> return ()
             Just pub -> do
-              mhc <- (csLoadkey cset) Nothing pub mpriv
+              mhc <- (csLoadkey cset) pub mpriv
               case mhc of
                 Just hc -> do
+                  timeNow <- io getClockTime
                   let keys = Map.insert csid (swId sw) (swKeys sw)
-                      allHc = Map.insert (hcHashName hc) hc (swAll sw)
+                      h = mkHashContainer (hcHashName hc) timeNow
+                      h' = h { hSelf = Just hc }
+                      allHc = Map.insert (hcHashName hc) h' (swAll sw)
                   put $ sw {swKeys = keys, swAll = allHc }
                 Nothing -> return ()
               return ()
@@ -1810,6 +2012,22 @@ function loadkeys(self)
 
 -- ---------------------------------------------------------------------
 
+mkHashContainer :: HashName -> ClockTime -> HashContainer
+mkHashContainer hn timeNow =
+  H { hHashName = hn
+    , hChans = []
+    , hSelf = Nothing
+    , hPaths = []
+    , hIsAlive = False
+    , hIsPublic = False
+    , hAt = timeNow
+    , hBucket = -1
+    , hChanOut = 0
+    , hIsSeed = False
+    }
+
+-- ---------------------------------------------------------------------
+
 {-
 function loadkey(self, id, csid, key)
 {
@@ -1818,17 +2036,16 @@ function loadkey(self, id, csid, key)
 }
 -}
 
-loadkey :: HashContainer -> String -> String -> TeleHash (Maybe HashContainer)
-loadkey id1 csid key = do
+loadkey :: String -> String -> TeleHash (Maybe HashCrypto)
+loadkey csid key = do
   sw <- get
-  let id1' = id1 { hcCsid = csid }
   let set = Map.lookup csid (swCSets sw)
   case set of
     Nothing -> do
       logT $ "missing CSet for " ++ csid
       return Nothing
     Just cs -> do
-      (csLoadkey cs) (Just id1') key Nothing
+      (csLoadkey cs) key Nothing
 
 
 -- ---------------------------------------------------------------------
@@ -1856,37 +2073,6 @@ function keysgen(cbDone,cbStep)
 keysgen :: () -> () -> IO ()
 keysgen cbDone cbStep = undefined
 
-
--- ---------------------------------------------------------------------
-
-isLocalIP :: String -> Bool
-isLocalIP = undefined
-
-{-
-// return if an IP is local or public
-function isLocalIP(ip)
-{
-  // ipv6 ones
-  if(ip.indexOf(":") >= 0)
-  {
-    if(ip.indexOf("::") == 0) return true; // localhost
-    if(ip.indexOf("fc00") == 0) return true;
-    if(ip.indexOf("fe80") == 0) return true;
-    return false;
-  }
-
-  var parts = ip.split(".");
-  if(parts[0] == "0") return true;
-  if(parts[0] == "127") return true; // localhost
-  if(parts[0] == "10") return true;
-  if(parts[0] == "192" && parts[1] == "168") return true;
-  if(parts[0] == "172" && parts[1] >= 16 && parts[1] <= 31) return true;
-  if(parts[0] == "169" && parts[1] == "254") return true; // link local
-  return false;
-}
-
--}
-
 -- ---------------------------------------------------------------------
 
 randomHEX :: Int -> TeleHash String
@@ -1894,7 +2080,7 @@ randomHEX len = do
   sw <- get
   let (bytes,newRNG) = cprgGenerate len (swRNG sw)
   put $ sw {swRNG = newRNG}
-  return $ BU.toString $ B16.encode bytes 
+  return $ BU.toString $ B16.encode bytes
 {-
 // return random bytes, in hex
 function randomHEX(len)
@@ -2087,6 +2273,63 @@ function linkMaint(self)
 }
 -}
 
+-- ---------------------------------------------------------------------
+
+validPathTypes :: Set.Set PathType
+validPathTypes
+   = Set.fromList
+     $ map (\pt -> PathType pt) ["ipv4","ipv6","http","relay","webrtc","local"]
+
+
+pathGet :: HashContainer -> Path -> TeleHash HashContainer
+pathGet hc path = do
+
+  if Set.notMember (pType path) validPathTypes
+    then do
+      logT $ "unknown path type:" ++ show (pType path)
+      return hc
+    else do
+      case pathMatch path (hPaths hc) of
+        Just p -> return hc
+        Nothing -> do
+          logT $ "adding new path:" ++ show (length $ hPaths hc,path)
+          -- always default to minimum priority
+          let path' = path { pPriority = Just (if pType path == PathType "relay" then (-1) else 0)}
+          return $ hc { hPaths = (hPaths hc) ++ [path']
+                      , hIsPublic = not $ isLocalPath path
+                      }
+{-
+
+  hn.pathGet = function(path)
+  {
+    if(["ipv4","ipv6","http","relay","webrtc","local"].indexOf(path.type) == -1)
+    {
+      warn("unknown path type", JSON.stringify(path));
+      return path;
+    }
+
+    var match = pathMatch(path, hn.paths);
+    if(match) return match;
+
+    // preserve original
+    if(!path.json) path.json = JSON.parse(JSON.stringify(path));
+
+    debug("adding new path",hn.paths.length,JSON.stringify(path.json));
+    info(hn.hashname,path.type,JSON.stringify(path.json));
+    hn.paths.push(path);
+
+    // always default to minimum priority
+    if(typeof path.priority != "number") path.priority = (path.type=="relay")?-1:0;
+
+    // track overall if they have a public IP network
+    if(!isLocalPath(path)) hn.isPublic = true;
+
+    return path;
+  }
+
+-}
+-- ---------------------------------------------------------------------
+
 -- every link that needs to be maintained, ping them
 linkMaint :: TeleHash ()
 linkMaint = do
@@ -2122,4 +2365,59 @@ seedMsg :: Bool -> Packet
 seedMsg = undefined
 
 
+-- ---------------------------------------------------------------------
+
+-- TODO: consider memoising this result, will be used a LOT
+-- TODO: check that the algorithm is implemented correctly
+--distanceTo :: Num a => Hash -> Hash -> a
+dhash :: HashName -> HashName -> HashDistance
+dhash (HN this) (HN h) = go 252 (reverse diffs)
+  where
+    go acc [] = acc
+    go _acc (-1:[]) = -1
+    go acc (-1:xs) = go (acc - 4) xs
+    go acc (x:_xs) = acc + x
+
+    diffs = map (\(a,b) -> sbtab !! (xor (digitToInt a) (digitToInt b))) $ zip this h
+    sbtab = [-1,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3]
+
+{-
+// XOR distance between two hex strings, high is furthest bit, 0 is closest bit, -1 is error
+function dhash(h1, h2) {
+  // convert to nibbles, easier to understand
+  var n1 = hex2nib(h1);
+  var n2 = hex2nib(h2);
+  if(!n1.length || !n2.length) return -1;
+  // compare nibbles
+  var sbtab = [-1,0,1,1,2,2,2,2,3,3,3,3,3,3,3,3];
+  var ret = 252;
+  for (var i = 0; i < n1.length; i++) {
+    if(!n2[i]) return ret;
+    var diff = n1[i] ^ n2[i];
+    if (diff) return ret + sbtab[diff];
+    ret -= 4;
+  }
+  return ret;
+}
+
+-- ---------------------------------------------------------------------
+
+// convert hex string to nibble array
+function hex2nib(hex)
+{
+  var ret = [];
+  for (var i = 0; i < hex.length / 2; i ++) {
+      var bite = parseInt(hex.substr(i * 2, 2), 16);
+      if (isNaN(bite)) return [];
+      ret[ret.length] = bite >> 4;
+      ret[ret.length] = bite & 0xf;
+  }
+  return ret;
+}
+
+
+
+-}
+
+-- ---------------------------------------------------------------------
 

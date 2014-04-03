@@ -4,8 +4,11 @@ module TeleHash.Utils
   , Switch(..)
   , PathId(..)
   , SeedInfo(..)
+  , Bucket(..)
+  , HashDistance
   , Path(..)
   , PathType(..)
+  , PathPriority
   , Telex(..)
   , Body(..)
   , Packet(..)
@@ -14,6 +17,7 @@ module TeleHash.Utils
   , unHash
   , HashName(..)
   , HashContainer(..)
+  , HashCrypto(..)
   , Parts(..)
   , Channel(..)
   , Line(..)
@@ -37,6 +41,7 @@ import Crypto.Random
 import Data.Aeson
 import Data.Bits
 import Data.Char
+import Data.IP
 import Data.List
 import Data.Maybe
 import Data.String.Utils
@@ -62,6 +67,7 @@ import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
 import qualified Crypto.Types.PubKey.ECDSA as ECDSA
+
 -- ---------------------------------------------------------------------
 
 -- The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
@@ -80,7 +86,7 @@ data Packet = Packet
 -- ---------------------------------------------------------------------
 
 type Channel = String
-
+type HashDistance = Int
 
 -- ---------------------------------------------------------------------
 
@@ -94,7 +100,22 @@ unHash (Hash str) = str
 data HashName = HN String
               deriving (Eq,Show,Ord)
 
-data HashContainer = HC
+data HashContainer = H
+  { hHashName :: HashName
+  , hChans :: [Channel]
+  , hSelf :: Maybe HashCrypto
+  , hPaths :: [Path]
+  , hIsAlive :: Bool
+  , hIsPublic :: Bool
+  , hIsSeed :: Bool
+  , hAt :: ClockTime
+  , hBucket :: HashDistance
+  , hChanOut :: Integer -- 2 for normal, 1 only for self
+  } deriving Show
+
+-- ---------------------------------------------------------------------
+
+data HashCrypto = HC
   { hcHashName :: HashName
   , hcHexName :: Hash
   , hcParts :: Parts
@@ -110,7 +131,7 @@ data PrivateKey = Private1a ECDSA.PrivateKey deriving Show
 -- ---------------------------------------------------------------------
 
 data CSet = CS
-  { csLoadkey :: Maybe HashContainer -> String -> Maybe String -> TeleHash (Maybe HashContainer)
+  { csLoadkey :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
 
   }
 
@@ -121,19 +142,29 @@ data CSet = CS
 data PathType = PathType String
               deriving (Show,Eq,Ord)
 
+type PathPriority = Int
+
 data Path = Path
       { pType    :: PathType
-      , pIp      :: String
-      , pPort    :: Int
-      , pHttp    :: String
+      , pIp      :: Maybe IP -- ipv4,ipv6
+      , pPort    :: Int    -- ipv4,ipv6
+      , pHttp    :: String -- http
+      , pRelay   :: Maybe Relay -- relay
+      , pId      :: Maybe HashName -- local
       , pLastIn  :: Maybe ClockTime
       , pLastOut :: Maybe ClockTime
+      , pPriority :: Maybe PathPriority
+      , pIsSeed :: Bool
       } deriving (Show,Eq)
 
 -- ---------------------------------------------------------------------
 
 data PathId = PId Int
             deriving (Ord,Eq,Show)
+
+-- ---------------------------------------------------------------------
+
+data Relay = Relay deriving (Show,Eq)
 
 -- ---------------------------------------------------------------------
 
@@ -176,7 +207,7 @@ data SeedInfo = SI
 data Switch = Switch
 
        { swH :: Maybe SocketHandle
-       , swSeeds :: [Seed]
+       , swSeeds :: [HashName]
        , swLocals :: [String]
        , swLines :: [String]
        , swBridges :: [String]
@@ -190,6 +221,7 @@ data Switch = Switch
        , swBridgeCache :: [String]
        , swNetworks :: Map.Map PathType (PathId,(PathType -> Packet -> Maybe To -> TeleHash ()))
 
+       , swHashname :: Maybe HashName
        , swId :: Map.Map String String
        , swCs :: Map.Map String (Map.Map String String)
        , swKeys :: Map.Map String (Map.Map String String)
@@ -219,7 +251,7 @@ data Switch = Switch
 
        --  map a hashname to an object, whois(hashname)
        , swWhois :: HashName -> TeleHash (Maybe HashContainer)
-       , swWhokey :: Parts -> String -> Map.Map String String -> TeleHash (Maybe HashName)
+       , swWhokey :: Parts -> Either String (Map.Map String String) -> TeleHash (Maybe HashContainer)
 
        , swStart :: String -> String -> String -> () -> IO ()
        , swOnline :: TeleHash () -> TeleHash ()
@@ -236,7 +268,7 @@ data Switch = Switch
        -- for modules
        , swPencode :: Telex -> Body -> Packet
        , swPdecode :: Packet -> (Telex,Body)
-       , swIsLocalIP :: String -> Bool
+       , swIsLocalIP :: IP -> Bool
        , swRandomHEX :: Int -> TeleHash String
        , swUriparse :: String -> String
        , swIsHashname :: String -> String

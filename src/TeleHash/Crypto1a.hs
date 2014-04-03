@@ -93,10 +93,9 @@ initRng = do
 
 -- ---------------------------------------------------------------------
 
-crypt_loadkey_1a :: Maybe HashContainer -> String -> Maybe String
-   -> TeleHash (Maybe HashContainer)
-crypt_loadkey_1a mhc pub mpriv = do
-  -- base64 decode it
+crypt_loadkey_1a :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
+crypt_loadkey_1a pub mpriv = do
+  -- base64 decode the public key
   let mbs = decode $ B8.pack pub
   case mbs of
     Left _err -> do
@@ -113,39 +112,31 @@ crypt_loadkey_1a mhc pub mpriv = do
               i2 = os2ip b2
           -- create the public key
               pubkey = PublicKey curve (Point i1 i2)
-              hc' = case mpriv of
-                Nothing -> mhc
-                Just priv -> hcp
+              privkey = case mpriv of
+                Nothing -> Nothing
+                Just priv -> pk
                   where
                     mbsp = decode $ B8.pack priv
-                    hcp = case mbsp of
-                      Left _err -> mhc
-                      Right bsp -> Just $ hcn {hcPrivate = Just $ Private1a privkey}
+                    pk = case mbsp of
+                      Left _err -> Nothing
+                      Right bsp -> Just $ Private1a privkey
                         where
                           i = os2ip bsp
                           privkey = PrivateKey curve i
-                          hexName = mkHashFromBS bs
-                          newParts = [("1a",unHash hexName)]
-                          hcn = case mhc of
-                            Just h  -> h  { hcHashName = parts2hn (hcParts h ++ newParts)
-                                          , hcHexName = hexName
-                                          , hcParts = (hcParts h ++ newParts)
-                                          , hcCsid = "1a"
-                                          , hcKey = pub
-                                          , hcPublic = Public1a pubkey
-                                          , hcPrivate = Just $ Private1a privkey
-                                          }
-                            Nothing -> HC { hcHashName = parts2hn newParts
-                                          , hcHexName = hexName
-                                          , hcParts = newParts
-                                          , hcCsid = "1a"
-                                          , hcKey = pub
-                                          , hcPublic = Public1a pubkey
-                                          , hcPrivate = Just $ Private1a privkey
-                                          }
 
-          logT $ "crypt_loadkey_1a:parts=" ++ show (hcParts $ fromJust hc')
-          return hc'
+              hexName = mkHashFromBS bs
+              newParts = [("1a",unHash hexName)]
+              hc = HC { hcHashName = parts2hn newParts
+                      , hcHexName = hexName
+                      , hcParts = newParts
+                      , hcCsid = "1a"
+                      , hcKey = pub
+                      , hcPublic = Public1a pubkey
+                      , hcPrivate = privkey
+                      }
+
+          logT $ "crypt_loadkey_1a:parts=" ++ show (hcParts $ hc)
+          return $ Just hc
 
 mkHashFromBS :: B8.ByteString -> Hash
 mkHashFromBS bs =

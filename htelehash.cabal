@@ -51,12 +51,16 @@ Library
                    , base64-bytestring
                    , utf8-string
                    , aeson
+                   , iproute
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:
                        -- TeleHash.TeleHash
                        -- TeleHash.Controller
                        TeleHash.Switch
+                       TeleHash.Utils
+                       TeleHash.Crypto1a
+                       TeleHash.Packet
                        -- TeleHash.Web
   --ghc-options:         -Wall
   ghc-options:         -Wall -fhpc
@@ -65,6 +69,13 @@ Library
 --     hs-source-dirs:    . src
 --     main-is:           main.hs
 --     ghc-options:  -Wall -fhpc
+
+
+executable             ping
+    hs-source-dirs:    . src
+    main-is:           ping.hs
+    -- ghc-options:  -Wall -fhpc
+    ghc-options:  -Wall
 
 -- test-suite             runtests
 --     type:

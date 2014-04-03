@@ -13,8 +13,6 @@ log from ping using this id
 *** secret key iollyIcHaGeD/JpUNn/7ef1QAzE= ***
 loaded hashname 7ecf6a5884d483fde2f6a027e33e6e1756efdb70925557c3e3f776b35329aef5
 
-            HN "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-
 
 From
 <https://github.com/telehash/telehash.org/blob/master/hashnames.md>
