@@ -82,10 +82,20 @@ data Body = Body
 -- ---------------------------------------------------------------------
 
 data Packet = Packet
+  { paId :: Maybe String
+  , paJs :: String
+  , paBody :: String
+  }
 
 -- ---------------------------------------------------------------------
 
-type Channel = String
+data Channel = Chan
+  { chType :: String
+  , chCallBack :: TeleHash ()
+  , chId :: Int
+  , chHashName :: HashName -- for convenience
+  }
+
 type HashDistance = Int
 
 -- ---------------------------------------------------------------------
@@ -111,7 +121,7 @@ data HashContainer = H
   , hAt :: ClockTime
   , hBucket :: HashDistance
   , hChanOut :: Integer -- 2 for normal, 1 only for self
-  } deriving Show
+  } -- deriving Show
 
 -- ---------------------------------------------------------------------
 

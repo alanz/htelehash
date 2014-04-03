@@ -1045,35 +1045,6 @@ function whois(hashname)
     return [hn.hashname,csid,hn.ip,hn.port].join(",");
   }
 
-  // request a new link to them
-  hn.link = function(callback)
-  {
-    if(!callback) callback = function(){}
-
-    var js = {seed:self.seed};
-    js.see = self.buckets[hn.bucket].sort(function(a,b){ return a.age - b.age }).filter(function(a){ return a.seed }).map(function(seed){ return seed.address(hn) }).slice(0,8);
-    // add some distant ones if none
-    if(js.see.length < 8) Object.keys(self.buckets).forEach(function(bucket){
-      if(js.see.length >= 8) return;
-      self.buckets[bucket].sort(function(a,b){ return a.age - b.age }).forEach(function(seed){
-        if(js.see.length >= 8 || !seed.seed || js.see.indexOf(seed.address(hn)) != -1) return;
-        js.see.push(seed.address(hn));
-      });
-    });
-
-    if(self.bridging || hn.bridging) js.bridges = Object.keys(self.networks).filter(function(type){return (["local","relay"].indexOf(type) >= 0)?false:true});
-
-    if(hn.linked)
-    {
-      hn.linked.send({js:js});
-      return callback();
-    }
-
-    hn.raw("link", {retry:3, js:js}, function(err, packet, chan){
-      inLink(err, packet, chan);
-      callback(packet.js.err);
-    });
-  }
 
   // send a simple lossy peer request, don't care about answer
   hn.peer = function(hashname, csid)
@@ -1343,8 +1314,397 @@ listen typ callback = undefined
 
 -}
 
-raw :: String -> () -> IO ()
-raw typ callback = undefined
+-- raw :: String -> () -> IO ()
+-- raw typ callback = undefined
+
+-- ---------------------------------------------------------------------
+
+-- create an unreliable channel
+raw :: HashContainer -> String -> Packet -> TeleHash () -> TeleHash Channel
+raw hn typ arg callback = do
+  sw <- get
+  let
+    (hn',chanId) = case paId arg of
+      Just i -> (hn,i)
+      Nothing -> (hn { hChanOut = (hChanOut hn) + 2},hChanOut hn)
+
+    chan = Chan { chType = typ
+                , chCallBack = callback
+                , chId = chanId
+                , chHashName = hHashName hn
+                }
+    hn2 = hn' { hChans = (hChans hn2) ++ [chan] }
+
+  logT "raw:must implement timeout"
+
+  -- debug("new unreliable channel",hn.hashname,chan.type,chan.id);
+  logT $ "new unreliable channel" ++ show (hHashName hn ,chType chan,chId chan)
+
+  WIP: carry on here with the send
+{-
+  // send optional initial packet with type set
+  if(arg.js)
+  {
+    arg.js.type = type;
+    chan.send(arg);
+    // retry if asked to, TODO use timeout for better time
+    if(arg.retry)
+    {
+      var at = 1000;
+      function retry(){
+        if(chan.ended || chan.recvAt) return; // means we're gone or received a packet
+        chan.send(arg);
+        if(at < 4000) at *= 2;
+        arg.retry--;
+        if(arg.retry) setTimeout(retry, at);
+      };
+      setTimeout(retry, at);
+    }
+  }
+-}
+  error "raw not implemented"
+
+{-
+
+// create an unreliable channel
+function raw(type, arg, callback)
+{
+  var hn = this;
+  var chan = {type:type, callback:callback};
+  chan.id = arg.id;
+  if(!chan.id)
+  {
+    chan.id = hn.chanOut;
+    hn.chanOut += 2;
+  }
+  hn.chans[chan.id] = chan;
+
+  // raw channels always timeout/expire after the last sent/received packet
+  if(!arg.timeout) arg.timeout = defaults.chan_timeout;
+  function timer()
+  {
+    if(chan.timer) clearTimeout(chan.timer);
+    chan.timer = setTimeout(function(){
+      chan.fail({js:{err:"timeout"}});
+    }, arg.timeout);
+  }
+  chan.timeout = function(timeout)
+  {
+    arg.timeout = timeout;
+    timer();
+  }
+
+  chan.hashname = hn.hashname; // for convenience
+
+  debug("new unreliable channel",hn.hashname,chan.type,chan.id);
+
+  // process packets at a raw level, very little to do
+  chan.receive = function(packet)
+  {
+    if(!hn.chans[chan.id]) return debug("dropping receive packet to dead channel",chan.id,packet.js)
+    // if err'd or ended, delete ourselves
+    if(packet.js.err || packet.js.end) chan.fail();
+    chan.last = packet.sender; // cache last received network
+    chan.recvAt = Date.now();
+    chan.callback(packet.js.err||packet.js.end, packet, chan);
+    timer();
+  }
+
+  // minimal wrapper to send raw packets
+  chan.send = function(packet)
+  {
+    if(!hn.chans[chan.id]) return debug("dropping send packet to dead channel",chan.id,packet.js);
+    if(!packet.js) packet.js = {};
+    packet.js.c = chan.id;
+    debug("SEND",chan.type,JSON.stringify(packet.js));
+    chan.sentAt = Date.now();
+    if(!packet.to && pathValid(chan.last)) packet.to = chan.last; // always send back to the last received for this channel
+    hn.send(packet);
+    // if err'd or ended, delete ourselves
+    if(packet.js.err || packet.js.end) chan.fail();
+    timer();
+  }
+
+  chan.fail = function(packet){
+    if(chan.ended) return; // prevent multiple calls
+    hn.chanDone(chan.id);
+    chan.ended = true;
+    if(packet)
+    {
+      packet.from = hn;
+      chan.callback(packet.js.err, packet, chan, function(){});
+    }
+  }
+
+  // send optional initial packet with type set
+  if(arg.js)
+  {
+    arg.js.type = type;
+    chan.send(arg);
+    // retry if asked to, TODO use timeout for better time
+    if(arg.retry)
+    {
+      var at = 1000;
+      function retry(){
+        if(chan.ended || chan.recvAt) return; // means we're gone or received a packet
+        chan.send(arg);
+        if(at < 4000) at *= 2;
+        arg.retry--;
+        if(arg.retry) setTimeout(retry, at);
+      };
+      setTimeout(retry, at);
+    }
+  }
+
+  return chan;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+{-
+// create a reliable channel with a friendlier interface
+function channel(type, arg, callback)
+{
+  var hn = this;
+  var chan = {inq:[], outq:[], outSeq:0, inDone:-1, outConfirmed:-1, lastAck:-1, callback:callback};
+  chan.id = arg.id;
+  if(!chan.id)
+  {
+    chan.id = hn.chanOut;
+    hn.chanOut += 2;
+  }
+  hn.chans[chan.id] = chan;
+  chan.timeout = arg.timeout || defaults.chan_timeout;
+  // app originating if not bare, be friendly w/ the type, don't double-underscore if they did already
+  if(!arg.bare && type.substr(0,1) !== "_") type = "_"+type;
+  chan.type = type; // save for debug
+  if(chan.type.substr(0,1) != "_") chan.safe = true; // means don't _ escape the json
+  chan.hashname = hn.hashname; // for convenience
+
+  debug("new channel",hn.hashname,chan.type,chan.id);
+
+  // used by app to change how it interfaces with the channel
+  chan.wrap = function(wrap)
+  {
+    if(!channelWraps[wrap]) return false;
+    return channelWraps[wrap](chan);
+  }
+
+  // called to do eventual cleanup
+  chan.done = function(){
+    if(chan.ended) return; // prevent multiple calls
+    chan.ended = true;
+    debug("channel done",chan.id);
+    hn.chanDone(chan.id);
+  };
+
+  // used to internally fail a channel, timeout or connection failure
+  chan.fail = function(packet){
+    if(chan.errored) return; // prevent multiple calls
+    chan.errored = packet;
+    packet.from = hn;
+    chan.callback(packet.js.err, packet, chan, function(){});
+    chan.done();
+  }
+
+  // simple convenience wrapper to end the channel
+  chan.end = function(){
+    chan.send({end:true});
+    chan.done();
+  };
+
+  // errors are hard-send-end
+  chan.err = function(err){
+    if(chan.errored) return;
+    chan.errored = {js:{err:err,c:chan.id}};
+    hn.send(chan.errored);
+    chan.done();
+  };
+
+  // process packets at a raw level, handle all miss/ack tracking and ordering
+  chan.receive = function(packet)
+  {
+    // if it's an incoming error, bail hard/fast
+    if(packet.js.err) return chan.fail(packet);
+
+    // in errored state, only/always reply with the error and drop
+    if(chan.errored) return chan.send(chan.errored);
+    chan.lastIn = Date.now();
+
+    // process any valid newer incoming ack/miss
+    var ack = parseInt(packet.js.ack);
+    if(ack > chan.outSeq) return warn("bad ack, dropping entirely",chan.outSeq,ack);
+    var miss = Array.isArray(packet.js.miss) ? packet.js.miss : [];
+    if(miss.length > 100) {
+      warn("too many misses", miss.length, chan.id, packet.from.hashname);
+      miss = miss.slice(0,100);
+    }
+    if(miss.length > 0 || ack > chan.lastAck)
+    {
+      debug("miss processing",ack,chan.lastAck,miss,chan.outq.length);
+      chan.lastAck = ack;
+      // rebuild outq, only keeping newer packets, resending any misses
+      var outq = chan.outq;
+      chan.outq = [];
+      outq.forEach(function(pold){
+        // packet acknowleged!
+        if(pold.js.seq <= ack) {
+          if(pold.callback) pold.callback();
+          return;
+        }
+        chan.outq.push(pold);
+        if(miss.indexOf(pold.js.seq) == -1) return;
+        // resend misses but not too frequently
+        if(Date.now() - pold.resentAt < 1000) return;
+        pold.resentAt = Date.now();
+        chan.ack(pold);
+      });
+    }
+
+    // don't process packets w/o a seq, no batteries included
+    var seq = packet.js.seq;
+    if(!(seq >= 0)) return;
+
+    // auto trigger an ack in case none were sent
+    if(!chan.acker) chan.acker = setTimeout(function(){ delete chan.acker; chan.ack();}, defaults.chan_autoack);
+
+    // drop duplicate packets, always force an ack
+    if(seq <= chan.inDone || chan.inq[seq-(chan.inDone+1)]) return chan.forceAck = true;
+
+    // drop if too far ahead, must ack
+    if(seq-chan.inDone > defaults.chan_inbuf)
+    {
+      warn("chan too far behind, dropping", seq, chan.inDone, chan.id, packet.from.hashname);
+      return chan.forceAck = true;
+    }
+
+    // stash this seq and process any in sequence, adjust for yacht-based array indicies
+    chan.inq[seq-(chan.inDone+1)] = packet;
+    debug("INQ",Object.keys(chan.inq),chan.inDone,chan.handling);
+    chan.handler();
+  }
+
+  // wrapper to deliver packets in series
+  chan.handler = function()
+  {
+    if(chan.handling) return;
+    var packet = chan.inq[0];
+    // always force an ack when there's misses yet
+    if(!packet && chan.inq.length > 0) chan.forceAck = true;
+    if(!packet) return;
+    chan.handling = true;
+    if(!chan.safe) packet.js = packet.js._ || {}; // unescape all content json
+    chan.callback(packet.js.end, packet, chan, function(ack){
+      // catch whenever it was ended to start cleanup
+      if(packet.js.end) chan.endIn = true;
+      if(chan.endOut && chan.endIn) chan.done();
+      chan.inq.shift();
+      chan.inDone++;
+      chan.handling = false;
+      if(ack) chan.ack(); // auto-ack functionality
+      chan.handler();
+    });
+  }
+
+  // resend the last sent packet if it wasn't acked
+  chan.resend = function()
+  {
+    if(chan.ended) return;
+    if(!chan.outq.length) return;
+    var lastpacket = chan.outq[chan.outq.length-1];
+    // timeout force-end the channel
+    if(Date.now() - lastpacket.sentAt > chan.timeout)
+    {
+      chan.fail({js:{err:"timeout"}});
+      return;
+    }
+    debug("channel resending");
+    chan.ack(lastpacket);
+    setTimeout(chan.resend, defaults.chan_resend); // recurse until chan_timeout
+  }
+
+  // add/create ack/miss values and send
+  chan.ack = function(packet)
+  {
+    if(!packet) debug("ACK CHECK",chan.id,chan.outConfirmed,chan.inDone);
+
+    // these are just empty "ack" requests
+    if(!packet)
+    {
+      // drop if no reason to ack so calling .ack() harmless when already ack'd
+      if(!chan.forceAck && chan.outConfirmed == chan.inDone) return;
+      packet = {js:{}};
+    }
+    chan.forceAck = false;
+
+    // confirm only what's been processed
+    if(chan.inDone >= 0) chan.outConfirmed = packet.js.ack = chan.inDone;
+
+    // calculate misses, if any
+    delete packet.js.miss; // when resending packets, make sure no old info slips through
+    if(chan.inq.length > 0)
+    {
+      packet.js.miss = [];
+      for(var i = 0; i < chan.inq.length; i++)
+      {
+        if(!chan.inq[i]) packet.js.miss.push(chan.inDone+i+1);
+      }
+    }
+
+    // now validate and send the packet
+    packet.js.c = chan.id;
+    debug("SEND",chan.type,JSON.stringify(packet.js));
+    hn.send(packet);
+
+    // catch whenever it was ended to start cleanup
+    if(packet.js.end) chan.endOut = true;
+    if(chan.endOut && chan.endIn) chan.done();
+  }
+
+  // send content reliably
+  chan.send = function(arg)
+  {
+    if(chan.ended) return warn("can't send to an ended channel");
+
+    // create a new packet from the arg
+    if(!arg) arg = {};
+    var packet = {};
+    packet.js = chan.safe ? arg.js : {_:arg.js};
+    if(arg.type) packet.js.type = arg.type;
+    if(arg.end) packet.js.end = arg.end;
+    packet.body = arg.body;
+    packet.callback = arg.callback;
+
+    // do durable stuff
+    packet.js.seq = chan.outSeq++;
+
+    // reset/update tracking stats
+    packet.sentAt = Date.now();
+    chan.outq.push(packet);
+
+    // add optional ack/miss and send
+    chan.ack(packet);
+
+    // to auto-resend if it isn't acked
+    if(chan.resender) clearTimeout(chan.resender);
+    chan.resender = setTimeout(chan.resend, defaults.chan_resend);
+    return chan;
+  }
+
+  // send optional initial packet with type set
+  if(arg.js)
+  {
+    arg.type = type;
+    chan.send(arg);
+  }
+
+  return chan;
+}
+
+
+-}
+
 
 -- ---------------------------------------------------------------------
 
@@ -1589,6 +1949,50 @@ function inLink(err, packet, chan)
 
 -}
 
+-- ---------------------------------------------------------------------
+
+link :: HashContainer -> TeleHash () -> TeleHash ()
+link hn cb = do
+  sw <- get
+
+  -- Set the JS see value to
+    -- sort the buckets by age
+    -- pull out the seed values
+    -- for each seed get the address associated with this hn
+    -- take the first 9 -- (0,8)
+
+{-
+  // request a new link to them
+  hn.link = function(callback)
+  {
+    if(!callback) callback = function(){}
+
+    var js = {seed:self.seed};
+    js.see = self.buckets[hn.bucket].sort(function(a,b){ return a.age - b.age }).filter(function(a){ return a.seed }).map(function(seed){ return seed.address(hn) }).slice(0,8);
+    // add some distant ones if none
+    if(js.see.length < 8) Object.keys(self.buckets).forEach(function(bucket){
+      if(js.see.length >= 8) return;
+      self.buckets[bucket].sort(function(a,b){ return a.age - b.age }).forEach(function(seed){
+        if(js.see.length >= 8 || !seed.seed || js.see.indexOf(seed.address(hn)) != -1) return;
+        js.see.push(seed.address(hn));
+      });
+    });
+
+    if(self.bridging || hn.bridging) js.bridges = Object.keys(self.networks).filter(function(type){return (["local","relay"].indexOf(type) >= 0)?false:true});
+
+    if(hn.linked)
+    {
+      hn.linked.send({js:js});
+      return callback();
+    }
+
+    hn.raw("link", {retry:3, js:js}, function(err, packet, chan){
+      inLink(err, packet, chan);
+      callback(packet.js.err);
+    });
+  }
+
+-}
 -- ---------------------------------------------------------------------
 
 seek :: String -> () -> IO ()
