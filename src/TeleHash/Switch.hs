@@ -100,6 +100,22 @@ run ch1 ch2 = do
   -- load the seeds, hardcoded for now
   mapM_ addSeed initialSeeds
 
+
+  -- -------------- this bit from ping.c -------------------------------
+  {-
+  // create/send a ping packet
+  c = chan_new(s, bucket_get(seeds, 0), "seek", 0);
+  p = chan_packet(c);
+  packet_set_str(p,"seek",s->id->hexname);
+  chan_send(c, p);
+  -}
+  sw <- get
+  let seed0 = head (swSeeds sw)
+  let Just hcs = Map.lookup seed0 (swAll sw)
+
+  xxxxxxxxxxxxxxxxxxxx
+  -- -------------- ping.c end -----------------------------------------
+
   -- Get the ball rolling immediately
   -- pingSeeds
 
