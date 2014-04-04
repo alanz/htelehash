@@ -52,6 +52,7 @@ Library
                    , utf8-string
                    , aeson
                    , iproute
+                   , binary
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:

@@ -32,10 +32,8 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 import TeleHash.Crypto1a
+import TeleHash.Packet
 import TeleHash.Utils
--- import Text.JSON
--- import Text.JSON.Generic
--- import Text.JSON.Types
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
@@ -360,6 +358,7 @@ initial_switch = do
   let
     sw = Switch
       { swH = Nothing
+      , swSender = doSendDgram
       , swSeeds = []
       , swLocals = []
       , swLines = []
@@ -618,7 +617,7 @@ deliver = undefined
     path.relay.send({body:msg});
   };
 -}
-relay :: PathType -> Packet -> Maybe To -> TeleHash ()
+relay :: PathType -> Telex -> Maybe To -> TeleHash ()
 relay path msg _ = undefined
 
 -- ---------------------------------------------------------------------
@@ -641,7 +640,7 @@ relay path msg _ = undefined
   };
 -}
 
-send :: PathType -> Packet -> Maybe To -> TeleHash ()
+send :: PathType -> Telex -> Maybe To -> TeleHash ()
 send mpath msg mto = do
   sw <- get
   let path = case mto of
@@ -1220,7 +1219,8 @@ online callback = do
       -- self.lanToken = randomHEX(16);
       token <- randomHEX 16
       setLanToken $ token
-      (swSend sw) (PathType "lan") (pencode Telex Body) Nothing
+      -- (swSend sw) (PathType "lan") (pencode Telex BL.empty) Nothing
+      error "call swSend"
 
       case (swSeeds sw) of
         [] -> do
@@ -1320,12 +1320,12 @@ listen typ callback = undefined
 -- ---------------------------------------------------------------------
 
 -- create an unreliable channel
-raw :: HashContainer -> String -> Packet -> TeleHash () -> TeleHash Channel
+raw :: HashContainer -> String -> Telex -> TeleHash () -> TeleHash Channel
 raw hn typ arg callback = do
   sw <- get
   let
-    (hn',chanId) = case paId arg of
-      Just i -> (hn,i)
+    (hn',chanId) = case tId arg of
+      Just i  -> (hn,hChanOut i)
       Nothing -> (hn { hChanOut = (hChanOut hn) + 2},hChanOut hn)
 
     chan = Chan { chType = typ
@@ -1340,7 +1340,11 @@ raw hn typ arg callback = do
   -- debug("new unreliable channel",hn.hashname,chan.type,chan.id);
   logT $ "new unreliable channel" ++ show (hHashName hn ,chType chan,chId chan)
 
-  WIP: carry on here with the send
+  case tType arg of
+    Nothing -> return ()
+    Just typ -> do
+      sendChanRaw chan arg
+  -- WIP: carry on here with the send
 {-
   // send optional initial packet with type set
   if(arg.js)
@@ -1410,21 +1414,6 @@ function raw(type, arg, callback)
     timer();
   }
 
-  // minimal wrapper to send raw packets
-  chan.send = function(packet)
-  {
-    if(!hn.chans[chan.id]) return debug("dropping send packet to dead channel",chan.id,packet.js);
-    if(!packet.js) packet.js = {};
-    packet.js.c = chan.id;
-    debug("SEND",chan.type,JSON.stringify(packet.js));
-    chan.sentAt = Date.now();
-    if(!packet.to && pathValid(chan.last)) packet.to = chan.last; // always send back to the last received for this channel
-    hn.send(packet);
-    // if err'd or ended, delete ourselves
-    if(packet.js.err || packet.js.end) chan.fail();
-    timer();
-  }
-
   chan.fail = function(packet){
     if(chan.ended) return; // prevent multiple calls
     hn.chanDone(chan.id);
@@ -1458,6 +1447,31 @@ function raw(type, arg, callback)
 
   return chan;
 }
+-}
+
+-- ---------------------------------------------------------------------
+
+sendChanRaw :: Channel -> Telex -> TeleHash ()
+sendChanRaw chan packet = do
+  error "sendChanRaw unimplemented"
+
+{-
+  // minimal wrapper to send raw packets
+  chan.send = function(packet)
+  {
+    if(!hn.chans[chan.id]) return debug("dropping send packet to dead channel",chan.id,packet.js);
+    if(!packet.js) packet.js = {};
+    packet.js.c = chan.id;
+    debug("SEND",chan.type,JSON.stringify(packet.js));
+    chan.sentAt = Date.now();
+    if(!packet.to && pathValid(chan.last)) packet.to = chan.last; // always send back to the last received for this channel
+    hn.send(packet);
+    // if err'd or ended, delete ourselves
+    if(packet.js.err || packet.js.end) chan.fail();
+    timer();
+  }
+
+
 -}
 
 -- ---------------------------------------------------------------------
@@ -1708,7 +1722,7 @@ function channel(type, arg, callback)
 
 -- ---------------------------------------------------------------------
 
-inPeer :: String -> Packet -> Channel -> IO ()
+inPeer :: String -> Telex -> Channel -> IO ()
 inPeer = undefined
 {-
 // be the middleman to help NAT hole punch
@@ -1748,7 +1762,7 @@ function inPeer(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
-inConnect :: String -> Packet -> Channel -> IO ()
+inConnect :: String -> Telex -> Channel -> IO ()
 inConnect = undefined
 
 {-
@@ -1784,7 +1798,7 @@ function inConnect(err, packet, chan)
 -}
 -- ---------------------------------------------------------------------
 
-inSeek :: String -> Packet -> Channel -> IO ()
+inSeek :: String -> Telex -> Channel -> IO ()
 inSeek = undefined
 {-
 
@@ -1828,7 +1842,7 @@ function inSeek(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
-inPath :: String -> Packet -> Channel -> IO ()
+inPath :: String -> Telex -> Channel -> IO ()
 inPath = undefined
 
 {-
@@ -1874,7 +1888,7 @@ function inPath(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
-inBridge :: String -> Packet -> Channel -> IO ()
+inBridge :: String -> Telex -> Channel -> IO ()
 inBridge = undefined
 
 {-
@@ -1908,7 +1922,7 @@ function inBridge(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
-inLink :: String -> Packet -> Channel -> IO ()
+inLink :: String -> Telex -> Channel -> IO ()
 inLink = undefined
 
 {-
@@ -1954,6 +1968,7 @@ function inLink(err, packet, chan)
 link :: HashContainer -> TeleHash () -> TeleHash ()
 link hn cb = do
   sw <- get
+  error $ "link unimplemented"
 
   -- Set the JS see value to
     -- sort the buckets by age
@@ -2098,7 +2113,7 @@ function seek(hn, callback)
 
 -- ---------------------------------------------------------------------
 
-bridge :: PathType -> Packet -> Maybe To -> TeleHash ()
+bridge :: PathType -> Telex -> Maybe To -> TeleHash ()
 bridge = undefined
 
 {-
@@ -2152,7 +2167,7 @@ function bridge(path, msg, to)
 
 -- ---------------------------------------------------------------------
 
-pencode :: Telex -> Body -> Packet
+pencode :: Telex -> Body -> Telex
 pencode = undefined
 
 {-
@@ -2765,7 +2780,7 @@ isTimeOut (TOD secs _picos) mt millis
 
 -- ---------------------------------------------------------------------
 
-seedMsg :: Bool -> Packet
+seedMsg :: Bool -> Telex
 seedMsg = undefined
 
 
@@ -2824,4 +2839,56 @@ function hex2nib(hex)
 -}
 
 -- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+
+{-
+sendTelex :: Telex -> TeleHash ()
+sendTelex msg = do
+  timeNow <- io getClockTime
+  res <- prepareTelex msg timeNow
+  case (res) of
+    Nothing -> return ()
+    Just (line,msgJson) -> do
+      -- console.log(["SEND[", telex._to, "]\t", msg].join(""));
+      logT ( "SEND[:" ++ (show $ teleTo msg) ++ "]\t" ++ (msgJson))
+
+      switch <- get
+      put switch {swCountTx = (swCountTx switch) + 1 }
+
+      addr <- io (addrFromHostPort (lineHost line) (linePort line))
+      --Just socketh <- gets swH
+      --io (sendDgram socketh msgJson addr)
+      sender <- gets swSender
+      sender msgJson addr
+
+      updateTelehashLine(line)
+-}
+
+-- ---------------------------------------------------------------------
+
+doNullSendDgram :: String -> NS.SockAddr -> TeleHash ()
+doNullSendDgram msgJson addr = do
+  --logT ("doNullSendDgram[" ++ msgJson ++ "] to " ++ (show addr))
+  logT ("doNullSendDgram" )
+
+-- ---------------------------------------------------------------------
+
+doSendDgram :: String -> NS.SockAddr -> TeleHash ()
+doSendDgram msgJson addr = do
+  Just socketh <- gets swH
+  io (sendDgram socketh msgJson addr)
+
+
+-- ---------------------------------------------------------------------
+
+sendDgram :: SocketHandle -> String -> NS.SockAddr -> IO ()
+sendDgram socketh msgJson addr =
+  sendstr msgJson
+    where
+      -- Send until everything is done
+      sendstr :: String -> IO ()
+      sendstr [] = return ()
+      sendstr omsg = do sent <- NS.sendTo (slSocket socketh) omsg addr
+                        sendstr (genericDrop sent omsg)
 

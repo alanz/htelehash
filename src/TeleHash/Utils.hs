@@ -1,3 +1,6 @@
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 module TeleHash.Utils
   (
    TeleHash
@@ -10,8 +13,6 @@ module TeleHash.Utils
   , PathType(..)
   , PathPriority
   , Telex(..)
-  , Body(..)
-  , Packet(..)
   , To(..)
   , Hash(..)
   , unHash
@@ -38,6 +39,7 @@ import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State
 import Crypto.Random
+import TeleHash.Packet
 import Data.Aeson
 import Data.Bits
 import Data.Char
@@ -76,25 +78,15 @@ type TeleHash = StateT Switch IO
 
 -- ---------------------------------------------------------------------
 
-data Telex = Telex
-data Body = Body
-
--- ---------------------------------------------------------------------
-
-data Packet = Packet
-  { paId :: Maybe String
-  , paJs :: String
-  , paBody :: String
-  }
-
--- ---------------------------------------------------------------------
-
 data Channel = Chan
   { chType :: String
   , chCallBack :: TeleHash ()
   , chId :: Int
   , chHashName :: HashName -- for convenience
-  }
+  } deriving Show
+
+instance Show (TeleHash ()) where
+  show _ = "TeleHash ()"
 
 type HashDistance = Int
 
@@ -120,8 +112,8 @@ data HashContainer = H
   , hIsSeed :: Bool
   , hAt :: ClockTime
   , hBucket :: HashDistance
-  , hChanOut :: Integer -- 2 for normal, 1 only for self
-  } -- deriving Show
+  , hChanOut :: Int -- 2 for normal, 1 only for self
+  } deriving Show
 
 -- ---------------------------------------------------------------------
 
@@ -144,8 +136,6 @@ data CSet = CS
   { csLoadkey :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
 
   }
-
-
 
 -- ---------------------------------------------------------------------
 
@@ -183,6 +173,14 @@ data To = To { pathOut :: PathType -> PathType
 
 -- ---------------------------------------------------------------------
 
+data Telex = Telex { tPacket :: Packet
+                   , tId   :: Maybe HashContainer
+                   , tType :: Maybe String
+                   , tPath :: Maybe Path
+                   } -- deriving Show
+
+-- ---------------------------------------------------------------------
+
 type Bucket = [Line]
 data Line = Line { lineAge :: ClockTime
                  , lineSeed :: String
@@ -217,6 +215,8 @@ data SeedInfo = SI
 data Switch = Switch
 
        { swH :: Maybe SocketHandle
+       , swSender :: (String -> SockAddr -> TeleHash ())
+
        , swSeeds :: [HashName]
        , swLocals :: [String]
        , swLines :: [String]
@@ -226,10 +226,10 @@ data Switch = Switch
        , swBuckets :: [Bucket]
        , swCapacity :: [String]
        , swRels :: [String]
-       , swRaws :: Map.Map String (String -> Packet -> Channel -> IO ())
+       , swRaws :: Map.Map String (String -> Telex -> Channel -> IO ())
        , swPaths :: Map.Map PathId Path
        , swBridgeCache :: [String]
-       , swNetworks :: Map.Map PathType (PathId,(PathType -> Packet -> Maybe To -> TeleHash ()))
+       , swNetworks :: Map.Map PathType (PathId,(PathType -> Telex -> Maybe To -> TeleHash ()))
 
        , swHashname :: Maybe HashName
        , swId :: Map.Map String String
@@ -253,7 +253,7 @@ data Switch = Switch
 
        -- outgoing packets to the network
        , swDeliver :: String -> () -> ()
-       , swSend    :: PathType -> Packet -> Maybe To -> TeleHash ()
+       , swSend    :: PathType -> Telex -> Maybe To -> TeleHash ()
        , swPathSet :: Path -> IO ()
 
        -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
@@ -269,14 +269,14 @@ data Switch = Switch
        , swListen :: String -> () -> IO ()
 
        -- advanced usage only
-       , swRaw :: String -> () -> IO ()
+       , swRaw :: HashContainer -> String -> Telex -> TeleHash () -> TeleHash Channel
 
        -- primarily internal, to seek/connect to a hashname
        , swSeek :: String -> () -> IO ()
-       , swBridge :: PathType -> Packet -> Maybe To -> TeleHash ()
+       , swBridge :: PathType -> Telex -> Maybe To -> TeleHash ()
 
        -- for modules
-       , swPencode :: Telex -> Body -> Packet
+       , swPencode :: Telex -> Body -> Telex
        , swPdecode :: Packet -> (Telex,Body)
        , swIsLocalIP :: IP -> Bool
        , swRandomHEX :: Int -> TeleHash String
