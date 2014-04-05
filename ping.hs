@@ -18,6 +18,14 @@ main = do
 
   threadDelay 3000000
 
+{-
+
+We want to send a packet with the following json on it
+
+  {"type":"seek","c":0,"seek":"89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de"}
+
+
+-}
 
 -- ---------------------------------------------------------------------
 {-

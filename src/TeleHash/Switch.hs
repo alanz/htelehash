@@ -100,6 +100,7 @@ run ch1 ch2 = do
   -- load the seeds, hardcoded for now
   mapM_ addSeed initialSeeds
 
+  online nullCb
 
   -- -------------- this bit from ping.c -------------------------------
   {-
@@ -113,7 +114,7 @@ run ch1 ch2 = do
   let seed0 = head (swSeeds sw)
   let Just hcs = Map.lookup seed0 (swAll sw)
 
-  xxxxxxxxxxxxxxxxxxxx
+  -- xxxxxxxxxxxxxxxxxxxx
   -- -------------- ping.c end -----------------------------------------
 
   -- Get the ball rolling immediately
@@ -767,6 +768,7 @@ addSeed args = do
 
 -- ---------------------------------------------------------------------
 
+
 -- | this creates a hashname identity object (or returns existing)
 whois :: HashName -> TeleHash (Maybe HashContainer)
 whois hn = do
@@ -784,7 +786,8 @@ whois hn = do
         Just hc -> return (Just hc)
         Nothing -> do
           timeNow <- io getClockTime
-          let hc = mkHashContainer hn timeNow
+          randomHexVal <- randomHEX 16
+          let hc = mkHashContainer hn timeNow randomHexVal
               hc' = hc {hBucket = dhash (fromJust $ swHashname sw) hn }
           -- to create a new channels to this hashname
 
@@ -1224,7 +1227,7 @@ start hashname typ arg cb = undefined
 
 -- ---------------------------------------------------------------------
 
-online :: TeleHash () -> TeleHash ()
+online :: CallBack -> TeleHash ()
 online callback = do
   sw <- get
   if swWaits sw /= []
@@ -1235,20 +1238,23 @@ online callback = do
       -- self.lanToken = randomHEX(16);
       token <- randomHEX 16
       setLanToken $ token
+
+      -- TODO: send the lan packet too
       -- (swSend sw) (PathType "lan") (pencode Telex BL.empty) Nothing
-      error "call swSend"
+      -- error "call swSend"
 
       case (swSeeds sw) of
         [] -> do
           logT "no seeds"
           callback
-        dones -> do
+        seeds -> do
           let
             -- safely callback only once or when all seeds return
             done = undefined
-          -- forM dones $ \ seed -> do
-            -- fn = do undefined
-            -- (sLink seed) fn
+          forM seeds $ \ seed -> do
+            let fn = nullCb
+            Just hcSeed <- whois seed
+            link hcSeed fn
           return undefined
 -- WIP here
 {-
@@ -1335,8 +1341,43 @@ listen typ callback = undefined
 
 -- ---------------------------------------------------------------------
 
+{-
+-- from the c version
+
+chan_t chan_new(switch_t s, hn_t to, char *type, uint32_t id)
+{
+  chan_t c;
+  if(!s || !to || !type) return NULL;
+
+  // use new id if none given
+  if(!to->chanOut) chan_reset(s, to);
+  if(!id)
+  {
+    id = to->chanOut;
+    to->chanOut += 2;
+  }
+
+  DEBUG_PRINTF("channel new %d %s",id,type);
+  c = malloc(sizeof (struct chan_struct));
+  memset(c,0,sizeof (struct chan_struct));
+  c->type = strdup(type);
+  c->s = s;
+  c->to = to;
+  c->state = STARTING;
+  c->id = id;
+  util_hex((unsigned char*)&(s->uid),4,(unsigned char*)c->uid); // switch-wide unique id
+  s->uid++;
+  util_hex((unsigned char*)&(c->id),4,(unsigned char*)c->hexid);
+  if(!to->chans) to->chans = xht_new(17);
+  xht_set(to->chans,(char*)c->hexid,c);
+  xht_set(s->index,(char*)c->uid,c);
+  return c;
+}
+
+-}
+
 -- create an unreliable channel
-raw :: HashContainer -> String -> Telex -> TeleHash () -> TeleHash Channel
+raw :: HashContainer -> String -> Telex -> CallBack -> TeleHash Channel
 raw hn typ arg callback = do
   sw <- get
   let
@@ -1981,16 +2022,23 @@ function inLink(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
-link :: HashContainer -> TeleHash () -> TeleHash ()
+-- |Request a new link to the given HashContainer
+-- TODO: perhaps pass in HashName, and do whois here
+link :: HashContainer -> CallBack -> TeleHash ()
 link hn cb = do
   sw <- get
   error $ "link unimplemented"
 
-  -- Set the JS see value to
-    -- sort the buckets by age
-    -- pull out the seed values
-    -- for each seed get the address associated with this hn
-    -- take the first 9 -- (0,8)
+  -- TODO:
+    -- Set the JS 'see' value to
+      -- sort the buckets by age
+      -- pull out the seed values
+      -- for each seed get the address associated with this hn
+      -- take the first 9 -- (0,8)
+
+  -- TODO: sort out relay/bridge
+
+  -- TOOO: handle case when already linked
 
 {-
   // request a new link to them
@@ -2414,8 +2462,9 @@ loadkeys = do
               case mhc of
                 Just hc -> do
                   timeNow <- io getClockTime
+                  randomHexVal <- randomHEX 16
                   let keys = Map.insert csid (swId sw) (swKeys sw)
-                      h = mkHashContainer (hcHashName hc) timeNow
+                      h = mkHashContainer (hcHashName hc) timeNow randomHexVal
                       h' = h { hSelf = Just hc }
                       allHc = Map.insert (hcHashName hc) h' (swAll sw)
                   put $ sw {swKeys = keys, swAll = allHc }
@@ -2447,8 +2496,8 @@ function loadkeys(self)
 
 -- ---------------------------------------------------------------------
 
-mkHashContainer :: HashName -> ClockTime -> HashContainer
-mkHashContainer hn timeNow =
+mkHashContainer :: HashName -> ClockTime -> String -> HashContainer
+mkHashContainer hn timeNow randomHexVal =
   H { hHashName = hn
     , hChans = []
     , hSelf = Nothing
@@ -2459,6 +2508,9 @@ mkHashContainer hn timeNow =
     , hBucket = -1
     , hChanOut = 0
     , hIsSeed = False
+
+    , hLineOut = randomHexVal
+    , hLineIV = 0
     }
 
 -- ---------------------------------------------------------------------

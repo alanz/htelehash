@@ -21,11 +21,14 @@ module TeleHash.Utils
   , HashCrypto(..)
   , Parts(..)
   , Channel(..)
+  , ChannelId(..)
   , Line(..)
   , CSet(..)
   , PublicKey(..)
   , PrivateKey(..)
   , SocketHandle(..)
+  , CallBack
+  , nullCb
   , parts2hn
   , io
   , logT
@@ -47,6 +50,7 @@ import Data.IP
 import Data.List
 import Data.Maybe
 import Data.String.Utils
+import Data.Word
 import Network.BSD
 import Network.Socket
 import qualified Network.Socket as NS
@@ -80,15 +84,26 @@ type TeleHash = StateT Switch IO
 
 data Channel = Chan
   { chType :: String
-  , chCallBack :: TeleHash ()
-  , chId :: Int
+  , chCallBack :: CallBack
+  , chId :: ChannelId
   , chHashName :: HashName -- for convenience
   } deriving Show
 
-instance Show (TeleHash ()) where
-  show _ = "TeleHash ()"
+instance Show (CallBack) where
+  show _ = "CallBack"
 
 type HashDistance = Int
+
+-- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)
+data ChannelId = CID Int deriving (Eq,Show)
+
+instance Num ChannelId where
+  (CID a) + (CID b) = CID (a + b)
+  (CID _) * (CID _) = error "cannot multiply ChannelIds"
+  (CID a) - (CID b) = CID (a - b)
+  abs (CID a) = CID (abs a)
+  signum (CID a) = CID (signum a)
+  fromInteger i = CID (fromIntegral i)
 
 -- ---------------------------------------------------------------------
 
@@ -104,19 +119,35 @@ data HashName = HN String
 
 data HashContainer = H
   { hHashName :: HashName
-  , hChans :: [Channel]
-  , hSelf :: Maybe HashCrypto
-  , hPaths :: [Path]
-  , hIsAlive :: Bool
+  , hChans    :: [Channel]
+  , hSelf     :: Maybe HashCrypto
+  , hPaths    :: [Path]
+  , hIsAlive  :: Bool
   , hIsPublic :: Bool
-  , hIsSeed :: Bool
-  , hAt :: ClockTime
-  , hBucket :: HashDistance
-  , hChanOut :: Int -- 2 for normal, 1 only for self
+  , hIsSeed   :: Bool
+  , hAt       :: ClockTime
+  , hBucket   :: HashDistance
+  , hChanOut  :: ChannelId
+  , hLineOut  :: String -- randomHEX 16 output. Make it a type
+
+  , hLineIV :: Word32 -- crypto 1a IV value
+  -- , hEncKey :: Maybe String
+  -- , hDecKey :: Maybe String
   } deriving Show
 
 -- ---------------------------------------------------------------------
+{-
+ypedef struct crypt_struct
+{
+  char csidHex[3], *part;
+  int isprivate, lined, keylen;
+  unsigned long atOut, atIn;
+  unsigned char lineOut[16], lineIn[16], lineHex[33];
+  unsigned char *key, csid;
+  void *cs; // for CS usage
+} *crypt_t;
 
+-}
 data HashCrypto = HC
   { hcHashName :: HashName
   , hcHexName :: Hash
@@ -193,9 +224,11 @@ data Line = Line { lineAge :: ClockTime
 
 -- ---------------------------------------------------------------------
 
+{-
 data Seed = Seed { sAlive :: Bool
-                 , sLink :: TeleHash () ->TeleHash ()
+                 , sLink :: CallBack ->TeleHash ()
                  }
+-}
 
 -- ---------------------------------------------------------------------
 
@@ -265,12 +298,12 @@ data Switch = Switch
        , swWhokey :: Parts -> Either String (Map.Map String String) -> TeleHash (Maybe HashContainer)
 
        , swStart :: String -> String -> String -> () -> IO ()
-       , swOnline :: TeleHash () -> TeleHash ()
+       , swOnline :: CallBack -> TeleHash ()
        , swIsOnline :: Bool
        , swListen :: String -> () -> IO ()
 
        -- advanced usage only
-       , swRaw :: HashContainer -> String -> Telex -> TeleHash () -> TeleHash Channel
+       , swRaw :: HashContainer -> String -> Telex -> CallBack -> TeleHash Channel
 
        -- primarily internal, to seek/connect to a hashname
        , swSeek :: String -> () -> IO ()
@@ -296,6 +329,13 @@ data Switch = Switch
        -- , swCountTx :: Int
        -- , swCountRx :: Int
        }
+
+-- ---------------------------------------------------------------------
+
+type CallBack = TeleHash ()
+
+nullCb :: TeleHash ()
+nullCb = return ()
 
 -- ---------------------------------------------------------------------
 

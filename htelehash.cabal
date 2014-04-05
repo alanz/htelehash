@@ -53,6 +53,7 @@ Library
                    , aeson
                    , iproute
                    , binary
+                   , cipher-aes
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:
