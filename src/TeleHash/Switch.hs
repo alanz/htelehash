@@ -100,6 +100,7 @@ run ch1 ch2 = do
 
   -- load the seeds, hardcoded for now
   mapM_ addSeed initialSeeds
+  logT $ "loading seeds done"
 
   -- online nullCb
 
@@ -122,7 +123,10 @@ run ch1 ch2 = do
                        ,("c","0")
                        ,("seek",unHN $ hHashName hcs)
                        ]
+                  , tTo = Nothing
+                  , tPacket = Nothing
                   }
+  AZ carry on here: use send, not raw
   c <- raw hcs "seek" msg nullCb
   logT $ "sending msg returned :" ++ show c
   -- xxxxxxxxxxxxxxxxxxxx
@@ -645,7 +649,7 @@ deliver = (assert False undefined)
     path.relay.send({body:msg});
   };
 -}
-relay :: PathType -> Telex -> Maybe To -> TeleHash ()
+relay :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
 relay path msg _ = (assert False undefined)
 
 -- ---------------------------------------------------------------------
@@ -668,18 +672,18 @@ relay path msg _ = (assert False undefined)
   };
 -}
 
-send :: PathType -> Telex -> Maybe To -> TeleHash ()
+send :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
 send mpath msg mto = do
   sw <- get
-  let path = case mto of
-       Just to -> (pathOut to) mpath
-       Nothing -> mpath
+  path <- case mto of
+    Just to -> hnPathOut to mpath
+    Nothing -> return mpath
     -- if(!path) return debug("send called w/ no valid network, dropping");
     -- debug("<<<<",Date(),msg.length,[path.type,path.ip,path.port,path.id].join(","),to&&to.hashname);
   logT $ "<<<<"
   -- try to send it via a supported network
   -- if(self.networks[path.type]) self.networks[path.type](path,msg,to);
-  mpid <- case Map.lookup path (swNetworks sw) of
+  mpid <- case Map.lookup (pType path) (swNetworks sw) of
     Nothing -> return Nothing
     Just (pid,sender) -> do
       sender path msg mto
@@ -839,54 +843,6 @@ function whois(hashname)
   hn.start = channel;
   hn.raw = raw;
 
-  hn.pathGet = function(path)
-  {
-    if(["ipv4","ipv6","http","relay","webrtc","local"].indexOf(path.type) == -1)
-    {
-      warn("unknown path type", JSON.stringify(path));
-      return path;
-    }
-
-    var match = pathMatch(path, hn.paths);
-    if(match) return match;
-
-    // preserve original
-    if(!path.json) path.json = JSON.parse(JSON.stringify(path));
-
-    debug("adding new path",hn.paths.length,JSON.stringify(path.json));
-    info(hn.hashname,path.type,JSON.stringify(path.json));
-    hn.paths.push(path);
-
-    // always default to minimum priority
-    if(typeof path.priority != "number") path.priority = (path.type=="relay")?-1:0;
-
-    // track overall if they have a public IP network
-    if(!isLocalPath(path)) hn.isPublic = true;
-
-    return path;
-  }
-
-  hn.pathOut = function(path)
-  {
-    if(!path) return false;
-    path = hn.pathGet(path);
-    if(path.type == "relay" && path.relay.ended) return hn.pathEnd(path);
-    path.lastOut = Date.now();
-    if(!pathValid(hn.to) && pathValid(path)) hn.to = path;
-    return path;
-  }
-
-  hn.pathEnd = function(path)
-  {
-    if(path.seed) return false; // never remove a seed-path
-    if(hn.to == path) hn.to = false;
-    path.gone = true;
-    var index = hn.paths.indexOf(path);
-    if(index >= 0) hn.paths.splice(index,1);
-    debug("PATH END",JSON.stringify(path.json));
-    return false;
-  }
-
   // manage network information consistently, called on all validated incoming packets
   hn.pathIn = function(path)
   {
@@ -933,74 +889,6 @@ function whois(hashname)
     return path;
   }
 
-  // try to send a packet to a hashname, doing whatever is possible/necessary
-  hn.send = function(packet){
-    // if there's a line, try sending it via a valid network path!
-    if(hn.lineIn)
-    {
-      debug("line sending",hn.hashname,hn.lineIn);
-      var lined = packet.msg || self.CSets[hn.csid].lineize(hn, packet);
-      hn.sentAt = Date.now();
-
-      // directed packets are preferred, just dump and done
-      if(packet.to) return self.send(packet.to, lined, hn);
-
-      // send to the default best path
-      if(hn.to) self.send(hn.to, lined, hn);
-
-      // if it was good, we're done, if not fall through
-      if(pathValid(hn.to)) return;
-    }
-
-    // we've fallen through, either no line, or no valid paths
-    debug("alive failthrough",hn.sendSeek,Object.keys(hn.vias||{}));
-    hn.alive = false;
-    hn.lastPacket = packet; // will be resent if/when an open is received
-
-    // always send to all known paths, increase resiliency
-    hn.paths.forEach(function(path){
-      self.send(path, hn.open(), hn);
-    });
-
-    // also try using any via informtion to create a new line
-    function vias()
-    {
-      if(!hn.vias) return;
-      hn.sentOpen = false; // whenever we send a peer, we'll always need to resend any open regardless
-      // try to connect vias
-      var todo = hn.vias;
-      delete hn.vias; // never use more than once
-      Object.keys(todo).forEach(function(via){
-        var address = todo[via].split(",");
-        if(address.length <= 1) return;
-        if(address.length == 4 && address[2].split(".").length == 4 && parseInt(address[3]) > 0)
-        {
-          // NAT hole punching
-          var path = {type:"ipv4",ip:address[2],port:parseInt(address[3])};
-          self.send(path,pencode());
-          // if possibly behind the same NAT, set flag to allow/ask to relay a local path
-          if(self.nat && address[2] == (self.paths.pub4 && self.paths.pub4.ip)) hn.isLocal = true;
-        }
-        // send the peer request
-        self.whois(via).peer(hn.hashname, address[1]);
-      });
-    }
-
-    // if there's via information, just try that
-    if(hn.vias) return vias();
-
-
-    // never too fast, worst case is to try to seek again
-    if(!hn.sendSeek || (Date.now() - hn.sendSeek) > 5000)
-    {
-      hn.sendSeek = Date.now();
-      self.seek(hn, function(err){
-        if(!hn.lastPacket) return; // packet was already sent elsewise
-        vias(); // process any new vias
-      });
-    }
-
-  }
 
   // handle all incoming line packets
   hn.receive = function(packet)
@@ -1154,6 +1042,226 @@ function whois(hashname)
 -}
 
 -- ---------------------------------------------------------------------
+
+hnPathOut :: HashContainer -> Path -> TeleHash Path
+hnPathOut hn path = do
+  path' <- hnPathGet hn path
+  if (pType path' == PathType "relay")
+     && isJust (pRelay path') && chEnded (fromJust (pRelay path'))
+    then hnPathEnd hn path'
+    else do
+      timeNow <- io getClockTime
+      let path'' = path' { pLastOut = Just timeNow }
+          hn' = if (not $ pathValid (hTo hn)) &&
+                   (pathValid (Just path''))
+                  then hn { hTo = Just path''}
+                  else hn
+      putHN hn'
+      return path''
+{-
+  hn.pathOut = function(path)
+  {
+    if(!path) return false;
+    path = hn.pathGet(path);
+    if(path.type == "relay" && path.relay.ended) return hn.pathEnd(path);
+    path.lastOut = Date.now();
+    if(!pathValid(hn.to) && pathValid(path)) hn.to = path;
+    return path;
+  }
+
+-}
+
+-- ---------------------------------------------------------------------
+
+hnPathEnd :: HashContainer -> Path -> TeleHash Path
+hnPathEnd = assert False undefined
+{-
+  hn.pathEnd = function(path)
+  {
+    if(path.seed) return false; // never remove a seed-path
+    if(hn.to == path) hn.to = false;
+    path.gone = true;
+    var index = hn.paths.indexOf(path);
+    if(index >= 0) hn.paths.splice(index,1);
+    debug("PATH END",JSON.stringify(path.json));
+    return false;
+  }
+
+
+-}
+-- ---------------------------------------------------------------------
+
+hnPathGet :: HashContainer -> Path -> TeleHash Path
+hnPathGet = assert False undefined
+{-
+  hn.pathGet = function(path)
+  {
+    if(["ipv4","ipv6","http","relay","webrtc","local"].indexOf(path.type) == -1)
+    {
+      warn("unknown path type", JSON.stringify(path));
+      return path;
+    }
+
+    var match = pathMatch(path, hn.paths);
+    if(match) return match;
+
+    // preserve original
+    if(!path.json) path.json = JSON.parse(JSON.stringify(path));
+
+    debug("adding new path",hn.paths.length,JSON.stringify(path.json));
+    info(hn.hashname,path.type,JSON.stringify(path.json));
+    hn.paths.push(path);
+
+    // always default to minimum priority
+    if(typeof path.priority != "number") path.priority = (path.type=="relay")?-1:0;
+
+    // track overall if they have a public IP network
+    if(!isLocalPath(path)) hn.isPublic = true;
+
+    return path;
+  }
+
+-}
+-- ---------------------------------------------------------------------
+
+-- | Try to send the packet, return True on success
+hnSend :: HashContainer -> Telex -> TeleHash Bool
+hnSend hn packet = do
+  sw <- get
+  -- try to send a packet to a hashname, doing whatever is possible/necessary
+  case hLineIn hn of
+    Just lineIn -> do
+      logT $ "line sending " ++ show (hHashName hn, lineIn)
+      timeNow <- io getClockTime
+      -- TODO: dispatch this via CSets
+      let (hn',lined) = crypt_lineize_1a hn (telexToPacket packet)
+      -- directed packets are preferred, just dump and done
+      case tTo packet of
+        Just to -> (swSend sw) to (packet { tPacket = Just lined}) (Just hn')
+    Nothing -> do
+      -- we've fallen through, either no line, or no valid paths
+      logT $ "alive failthrough" ++ show (hSendSeek hn, Map.keys (hVias hn))
+      let hn' = hn { hIsAlive = False
+                   , hLastPacket = Just packet -- will be resent if/when an open is received
+                   }
+      putHN hn'
+
+      -- always send to all known paths, increase resiliency
+      mp <- hnOpen hn'
+      case mp of
+        Nothing -> do
+          logT $ "hnSend: hnOpen returned Nothing"
+          return ()
+        Just lpacket -> do
+          logT $ "hnSend: hnOpen returned " ++ show lpacket
+          forM_ (hPaths hn') $ \path -> do
+            (swSend sw) path lpacket (Just hn)
+
+      assert False undefined
+  return False
+{-
+  // try to send a packet to a hashname, doing whatever is possible/necessary
+  hn.send = function(packet){
+    // if there's a line, try sending it via a valid network path!
+    if(hn.lineIn)
+    {
+      debug("line sending",hn.hashname,hn.lineIn);
+      var lined = packet.msg || self.CSets[hn.csid].lineize(hn, packet);
+      hn.sentAt = Date.now();
+
+      // directed packets are preferred, just dump and done
+      if(packet.to) return self.send(packet.to, lined, hn);
+
+      // send to the default best path
+      if(hn.to) self.send(hn.to, lined, hn);
+
+      // if it was good, we're done, if not fall through
+      if(pathValid(hn.to)) return;
+    }
+
+    // we've fallen through, either no line, or no valid paths
+    debug("alive failthrough",hn.sendSeek,Object.keys(hn.vias||{}));
+    hn.alive = false;
+    hn.lastPacket = packet; // will be resent if/when an open is received
+
+    // always send to all known paths, increase resiliency
+    hn.paths.forEach(function(path){
+      self.send(path, hn.open(), hn);
+    });
+
+    // also try using any via informtion to create a new line
+    function vias()
+    {
+      if(!hn.vias) return;
+      hn.sentOpen = false; // whenever we send a peer, we'll always need to resend any open regardless
+      // try to connect vias
+      var todo = hn.vias;
+      delete hn.vias; // never use more than once
+      Object.keys(todo).forEach(function(via){
+        var address = todo[via].split(",");
+        if(address.length <= 1) return;
+        if(address.length == 4 && address[2].split(".").length == 4 && parseInt(address[3]) > 0)
+        {
+          // NAT hole punching
+          var path = {type:"ipv4",ip:address[2],port:parseInt(address[3])};
+          self.send(path,pencode());
+          // if possibly behind the same NAT, set flag to allow/ask to relay a local path
+          if(self.nat && address[2] == (self.paths.pub4 && self.paths.pub4.ip)) hn.isLocal = true;
+        }
+        // send the peer request
+        self.whois(via).peer(hn.hashname, address[1]);
+      });
+    }
+
+    // if there's via information, just try that
+    if(hn.vias) return vias();
+
+
+    // never too fast, worst case is to try to seek again
+    if(!hn.sendSeek || (Date.now() - hn.sendSeek) > 5000)
+    {
+      hn.sendSeek = Date.now();
+      self.seek(hn, function(err){
+        if(!hn.lastPacket) return; // packet was already sent elsewise
+        vias(); // process any new vias
+      });
+    }
+
+  }
+
+-}
+
+-- ---------------------------------------------------------------------
+
+-- |return the current open packet
+hnOpen :: HashContainer -> TeleHash (Maybe Telex)
+hnOpen hn = do
+  case hParts hn of
+    Nothing -> return Nothing
+    _ -> if isJust (hOpened hn)
+           then return $ hOpened hn
+           else do
+             op <- openize hn
+             putHN $ hn { hOpened = op}
+             return op
+{-
+  // return the current open packet
+  hn.open = function()
+  {
+    if(!hn.parts) return false; // can't open if no key
+    if(hn.opened) return hn.opened;
+    hn.opened = openize(self,hn);
+    return hn.opened;
+  }
+-}
+-- ---------------------------------------------------------------------
+
+telexToPacket :: Telex -> Packet
+telexToPacket telex =
+  case (Map.toList $ tJson telex) of
+    [] -> newPacket
+    js -> newPacket
+-- ---------------------------------------------------------------------
 {-
 function whokey(parts, key, keys)
 {
@@ -1195,12 +1303,15 @@ whokey parts keyVal = do
               case Map.lookup csid keys of
                Nothing -> return Nothing
                Just k -> loadkey csid k
-          return (Just $ hn { hSelf = mhc })
+          return (Just $ hn { hSelf = mhc, hCsid = Just csid })
   case r of
     Nothing -> do
       logT $ "whokey err:" ++ show (parts,keyVal)
       return Nothing
-    _ -> return r
+    Just hn -> do
+      let hn' = hn {hParts = Just parts}
+      putHN hn'
+      return (Just hn')
 
 -- ---------------------------------------------------------------------
 
@@ -1342,6 +1453,54 @@ listen :: String -> () -> IO ()
 listen typ callback = (assert False undefined)
 
 -- ---------------------------------------------------------------------
+
+openize :: HashContainer -> TeleHash (Maybe Telex)
+openize to = do
+  case hCsid to of
+    Nothing -> do
+      logT $ "can't open without key"
+      return Nothing
+    Just _ -> do
+      lineOut <- randomHEX 16
+      timeNow <- io getClockTime
+      assert False undefined
+
+{-
+function openize(self, to)
+{
+  if(!to.csid)
+  {
+    console.log("can't open w/ no key");
+    return undefined;
+  }
+  if(!to.lineOut) to.lineOut = randomHEX(16);
+  if(!to.lineAt) to.lineAt = Date.now();
+  var inner = {}
+  inner.at = to.lineAt; // always the same for the generated line id/key
+  inner.to = to.hashname;
+  inner.from = self.parts;
+  inner.line = to.lineOut;
+  return self.CSets[to.csid].openize(self, to, inner);
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+{-
+function deopenize(self, open)
+{
+//  console.log("DEOPEN",open.body.length);
+  var ret;
+  var csid = open.head.charCodeAt().toString(16);
+  if(!self.CSets[csid]) return {err:"unknown CSID of "+csid};
+  try{ret = self.CSets[csid].deopenize(self, open);}catch(E){return {err:E};}
+  ret.csid = csid;
+  return ret;
+}
+
+
+-}
+-- ---------------------------------------------------------------------
 {-
   self.raw = function(type, callback){
     if(typeof type != "string" || typeof callback != "function") return warn("invalid arguments to raw");
@@ -1403,8 +1562,11 @@ raw hn typ arg callback = do
                 , chCallBack = callback
                 , chId = chanId
                 , chHashName = hHashName hn
+                , chLast = Nothing
+                , chSentAt = Nothing
+                , chEnded = False
                 }
-    hn2 = hn' { hChans = (hChans hn2) ++ [chan] }
+    hn2 = hn' { hChans = Map.insert chanId chan (hChans hn') }
 
   logT "raw:must implement timeout"
 
@@ -1414,7 +1576,7 @@ raw hn typ arg callback = do
   case tType arg of
     Nothing -> return ()
     Just typ -> do
-      sendChanRaw chan arg
+      sendChanRaw hn2 chan arg
   -- WIP: carry on here with the send
 {-
   // send optional initial packet with type set
@@ -1522,9 +1684,35 @@ function raw(type, arg, callback)
 
 -- ---------------------------------------------------------------------
 
-sendChanRaw :: Channel -> Telex -> TeleHash ()
-sendChanRaw chan packet = do
-  error "sendChanRaw unimplemented"
+-- | minimal wrapper to send raw packets
+sendChanRaw :: HashContainer -> Channel -> Telex -> TeleHash ()
+sendChanRaw hn chan packet = do
+  logT $ "sendChanRaw entered for " ++ show (chId chan,hChans hn)
+  sw <- get
+  case Map.lookup (chId chan) (hChans hn) of
+    Nothing -> do
+      logT $ "dropping send packet to dead channel " ++ show (chId chan,packet)
+    Just ch -> do
+      logT $ "sendChanRaw got chan"
+      let js = Map.insert "c" (show (chId chan)) (tJson packet)
+      logT $ "SEND " ++ show (chType chan,js)
+      timeNow <- io getClockTime
+      -- TODO: break out the storing/updating into separate API calls
+      let ch' = ch { chSentAt = Just timeNow }
+          hn'= hn { hChans = Map.insert (chId chan) ch' (hChans hn) }
+      put $ sw { swAll = Map.insert (hHashName hn) hn' (swAll sw) }
+      let packet' =
+           case tTo packet of
+             Just _ -> packet
+             Nothing -> -- always send back to the last received for this channel
+                        if pathValid (chLast ch')
+                          then packet { tTo = chLast ch' }
+                          else packet
+      sentChan <- hnSend hn packet'
+      if sentChan
+        then return ()
+        else chanFail ch'
+      chanTimer ch'
 
 {-
   // minimal wrapper to send raw packets
@@ -1544,6 +1732,18 @@ sendChanRaw chan packet = do
 
 
 -}
+
+-- ---------------------------------------------------------------------
+
+
+chanFail :: Channel -> TeleHash ()
+chanFail = assert False undefined
+
+chanTimer :: Channel -> TeleHash ()
+chanTimer = assert False undefined
+
+
+pathValid = assert False undefined
 
 -- ---------------------------------------------------------------------
 
@@ -2195,7 +2395,7 @@ function seek(hn, callback)
 
 -- ---------------------------------------------------------------------
 
-bridge :: PathType -> Telex -> Maybe To -> TeleHash ()
+bridge :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
 bridge = (assert False undefined)
 
 {-
@@ -2517,7 +2717,7 @@ function loadkeys(self)
 mkHashContainer :: HashName -> ClockTime -> String -> HashContainer
 mkHashContainer hn timeNow randomHexVal =
   H { hHashName = hn
-    , hChans = []
+    , hChans = Map.empty
     , hSelf = Nothing
     , hPaths = []
     , hIsAlive = False
@@ -2526,6 +2726,14 @@ mkHashContainer hn timeNow randomHexVal =
     , hBucket = -1
     , hChanOut = 0
     , hIsSeed = False
+    , hTo = Nothing
+    , hLineIn = Nothing
+    , hSendSeek = Nothing
+    , hVias = Map.empty
+    , hLastPacket = Nothing
+    , hParts = Nothing
+    , hOpened = Nothing
+    , hCsid = Nothing
 
     , hLineOut = randomHexVal
     , hLineIV = 0
@@ -2853,7 +3061,7 @@ linkMaint = do
           -- if (timeNow - (lineSentat hn) < ((linkTimer defaults) `div` 2))
           if isTimeOut timeNow (lineSentat hn) ((linkTimer defaults) `div` 2)
             then return () -- we sent to them recently
-            else send (pType $ fromJust $ lineLinked hn) (seedMsg (swSeed sw)) Nothing
+            else send (fromJust $ lineLinked hn) (seedMsg (swSeed sw)) Nothing
   return ()
 
 -- ---------------------------------------------------------------------
@@ -2977,4 +3185,20 @@ sendDgram socketh msgJson addr =
       sendstr [] = return ()
       sendstr omsg = do sent <- NS.sendTo (slSocket socketh) omsg addr
                         sendstr (genericDrop sent omsg)
+
+
+-- ---------------------------------------------------------------------
+-- Utility
+
+-- | get current state of the given HashContainer
+getHN :: HashName -> TeleHash (Maybe HashContainer)
+getHN hashName = do
+  sw <- get
+  return $ Map.lookup hashName (swAll sw)
+
+-- | update the stored state of the given HashContainer
+putHN :: HashContainer -> TeleHash ()
+putHN hn = do
+  sw <- get
+  put $ sw { swAll = Map.insert (hHashName hn) hn (swAll sw)}
 

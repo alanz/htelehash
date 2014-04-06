@@ -20,6 +20,7 @@ module TeleHash.Crypto1a
 -}
 
 
+import Control.Exception
 import Crypto.PubKey.ECC.ECDSA
 import Crypto.PubKey.ECC.Generate
 import Crypto.Random
@@ -194,7 +195,7 @@ crypt_lineize_1a to packet = r
     ivPrefix = BL.pack $ take 12 (repeat (0::Word8))
     iv = BL.append ivPrefix (Binary.encode (hLineIV to))
 
-    r = undefined
+    r = assert False undefined
 
 {-
 exports.lineize = function(to, packet)

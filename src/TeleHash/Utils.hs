@@ -13,7 +13,6 @@ module TeleHash.Utils
   , PathType(..)
   , PathPriority
   , Telex(..)
-  , To(..)
   , Hash(..)
   , unHash
   , HashName(..)
@@ -83,31 +82,6 @@ type TeleHash = StateT Switch IO
 
 -- ---------------------------------------------------------------------
 
-data Channel = Chan
-  { chType :: String
-  , chCallBack :: CallBack
-  , chId :: ChannelId
-  , chHashName :: HashName -- for convenience
-  } deriving Show
-
-instance Show (CallBack) where
-  show _ = "CallBack"
-
-type HashDistance = Int
-
--- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)
-data ChannelId = CID Int deriving (Eq,Show)
-
-instance Num ChannelId where
-  (CID a) + (CID b) = CID (a + b)
-  (CID _) * (CID _) = error "cannot multiply ChannelIds"
-  (CID a) - (CID b) = CID (a - b)
-  abs (CID a) = CID (abs a)
-  signum (CID a) = CID (signum a)
-  fromInteger i = CID (fromIntegral i)
-
--- ---------------------------------------------------------------------
-
 newtype Hash = Hash String
              deriving (Eq,Show,Ord)
 unHash :: Hash -> String
@@ -121,17 +95,25 @@ unHN :: HashName -> String
 unHN (HN s) = s
 
 data HashContainer = H
-  { hHashName :: HashName
-  , hChans    :: [Channel]
-  , hSelf     :: Maybe HashCrypto
-  , hPaths    :: [Path]
-  , hIsAlive  :: Bool
-  , hIsPublic :: Bool
-  , hIsSeed   :: Bool
-  , hAt       :: ClockTime
-  , hBucket   :: HashDistance
-  , hChanOut  :: ChannelId
-  , hLineOut  :: String -- randomHEX 16 output. Make it a type
+  { hHashName   :: HashName
+  , hChans      :: Map.Map ChannelId Channel
+  , hSelf       :: Maybe HashCrypto
+  , hPaths      :: [Path]
+  , hTo         :: Maybe Path
+  , hIsAlive    :: Bool
+  , hIsPublic   :: Bool
+  , hIsSeed     :: Bool
+  , hAt         :: ClockTime
+  , hBucket     :: HashDistance
+  , hChanOut    :: ChannelId
+  , hLineOut    :: String -- randomHEX 16 output. Make it a type
+  , hLineIn     :: Maybe Line -- not sure of type atm
+  , hSendSeek   :: Maybe ClockTime
+  , hVias       :: Map.Map HashName String
+  , hLastPacket :: Maybe Telex
+  , hParts      :: Maybe Parts
+  , hOpened     :: Maybe Telex
+  , hCsid       :: Maybe String
 
   , hLineIV :: Word32 -- crypto 1a IV value
   -- , hEncKey :: Maybe String
@@ -183,7 +165,7 @@ data Path = Path
       , pIp      :: Maybe IP -- ipv4,ipv6
       , pPort    :: Int    -- ipv4,ipv6
       , pHttp    :: String -- http
-      , pRelay   :: Maybe Relay -- relay
+      , pRelay   :: Maybe Channel -- relay
       , pId      :: Maybe HashName -- local
       , pLastIn  :: Maybe ClockTime
       , pLastOut :: Maybe ClockTime
@@ -202,17 +184,45 @@ data Relay = Relay deriving (Show,Eq)
 
 -- ---------------------------------------------------------------------
 
-data To = To { pathOut :: PathType -> PathType
-             }
-
--- ---------------------------------------------------------------------
-
 -- a Telex gets packed to/from a Packet
 data Telex = Telex { tId   :: Maybe HashContainer
                    , tType :: Maybe String
                    , tPath :: Maybe Path
+                   , tTo   :: Maybe Path -- Do we need both of these? Need to clarify the type of this one first
                    , tJson :: Map.Map String String
-                   } -- deriving Show
+                   , tPacket :: Maybe Packet
+                   } deriving Show
+
+-- ---------------------------------------------------------------------
+
+data Channel = Chan
+  { chType     :: String
+  , chCallBack :: CallBack
+  , chId       :: ChannelId
+  , chHashName :: HashName -- for convenience
+  , chLast     :: Maybe Path
+  , chSentAt   :: Maybe ClockTime
+  , chEnded    :: Bool
+  } deriving (Show,Eq)
+
+instance Show (CallBack) where
+  show _ = "CallBack"
+
+instance Eq CallBack where
+  _ == _ = True
+
+type HashDistance = Int
+
+-- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)
+data ChannelId = CID Int deriving (Eq,Show,Ord)
+
+instance Num ChannelId where
+  (CID a) + (CID b) = CID (a + b)
+  (CID _) * (CID _) = error "cannot multiply ChannelIds"
+  (CID a) - (CID b) = CID (a - b)
+  abs (CID a) = CID (abs a)
+  signum (CID a) = CID (signum a)
+  fromInteger i = CID (fromIntegral i)
 
 -- ---------------------------------------------------------------------
 
@@ -267,7 +277,7 @@ data Switch = Switch
        , swRaws :: Map.Map String (String -> Telex -> Channel -> IO ())
        , swPaths :: Map.Map PathId Path
        , swBridgeCache :: [String]
-       , swNetworks :: Map.Map PathType (PathId,(PathType -> Telex -> Maybe To -> TeleHash ()))
+       , swNetworks :: Map.Map PathType (PathId,(Path -> Telex -> Maybe HashContainer -> TeleHash ()))
 
        , swHashname :: Maybe HashName
        , swId :: Map.Map String String
@@ -291,7 +301,7 @@ data Switch = Switch
 
        -- outgoing packets to the network
        , swDeliver :: String -> () -> ()
-       , swSend    :: PathType -> Telex -> Maybe To -> TeleHash ()
+       , swSend    :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
        , swPathSet :: Path -> IO ()
 
        -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
@@ -311,7 +321,8 @@ data Switch = Switch
 
        -- primarily internal, to seek/connect to a hashname
        , swSeek :: String -> () -> IO ()
-       , swBridge :: PathType -> Telex -> Maybe To -> TeleHash ()
+
+       , swBridge :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
 
        -- for modules
        , swPencode :: Telex -> Body -> Telex

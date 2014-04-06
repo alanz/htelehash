@@ -3,6 +3,7 @@ module TeleHash.Packet
     Packet(..)
   , Head (..)
   , Body(..)
+  , newPacket
   ) where
 
 import Data.Binary
