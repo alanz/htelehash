@@ -92,3 +92,15 @@ Received line packet 235 {"type":"ipv4","ip":"208.68.164.253","port":42424}
 channel new 55 path
 
 ```
+
+
+
+
+
+
+
+
+------------------------
+
+https://stackoverflow.com/questions/4702325/best-way-to-convert-between-char-and-word8
+

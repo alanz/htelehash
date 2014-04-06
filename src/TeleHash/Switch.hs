@@ -40,7 +40,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.UTF8 as BU
+-- import qualified Data.ByteString.UTF8 as BU
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -125,8 +125,27 @@ run ch1 ch2 = do
                        ]
                   , tTo = Nothing
                   , tPacket = Nothing
+                  , tAt = Nothing
+                  , tToHash = Nothing
+                  , tFrom = Nothing
+                  , tLine = Nothing
                   }
-  AZ carry on here: use send, not raw
+  let path = Path { pType = PathType "ipv4"
+                  , pIp = Just "208.68.164.253"
+                  , pPort = 42424
+                  , pHttp = ""
+                  , pLastIn = Nothing
+                  , pLastOut = Nothing
+                  , pRelay = Nothing
+                  , pId = Nothing
+                  , pPriority = Nothing
+                  , pIsSeed = True
+                  }
+  -- AZ carry on here: use send, not raw
+  packet <- telexToPacket msg
+  -- let (hcs',lined) = crypt_lineize_1a hcs packet
+  -- send path lined Nothing
+
   c <- raw hcs "seek" msg nullCb
   logT $ "sending msg returned :" ++ show c
   -- xxxxxxxxxxxxxxxxxxxx
@@ -294,6 +313,7 @@ testSeeds = do
 data Msg = Msg String
 
 relayPid = PId 1
+ipv4Pid  = PId 2
 
 
 initialSeeds :: [SeedInfo]
@@ -427,7 +447,8 @@ initial_switch = do
 
       -- outgoing packets to the network
       , swDeliver = deliver
-      , swNetworks = Map.fromList [(PathType "relay", (relayPid,relay))]
+      , swNetworks = Map.fromList [(PathType "relay", (relayPid,relay))
+                                  ,(PathType "ipv4", (ipv4Pid,ipv4Send))]
       , swSend = send
       , swPathSet = pathset
 
@@ -672,6 +693,7 @@ relay path msg _ = (assert False undefined)
   };
 -}
 
+-- | Do the send, where the Telex has a fully lineized packet in it
 send :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
 send mpath msg mto = do
   sw <- get
@@ -1134,10 +1156,11 @@ hnSend hn packet = do
       logT $ "line sending " ++ show (hHashName hn, lineIn)
       timeNow <- io getClockTime
       -- TODO: dispatch this via CSets
-      let (hn',lined) = crypt_lineize_1a hn (telexToPacket packet)
+      msg <- telexToPacket packet
+      let (hn',lined) = crypt_lineize_1a hn msg
       -- directed packets are preferred, just dump and done
       case tTo packet of
-        Just to -> (swSend sw) to (packet { tPacket = Just lined}) (Just hn')
+        Just to -> (swSend sw) to lined (Just hn')
     Nothing -> do
       -- we've fallen through, either no line, or no valid paths
       logT $ "alive failthrough" ++ show (hSendSeek hn, Map.keys (hVias hn))
@@ -1256,11 +1279,15 @@ hnOpen hn = do
 -}
 -- ---------------------------------------------------------------------
 
-telexToPacket :: Telex -> Packet
-telexToPacket telex =
+telexToPacket :: Telex -> TeleHash Telex
+telexToPacket telex = do
   case (Map.toList $ tJson telex) of
-    [] -> newPacket
-    js -> newPacket
+    [] -> return $ telex { tPacket = Just newPacket}
+    js -> do
+      logT $ "telexToPacket: encoded js=" ++ show (encode (tJson telex))
+      let packet = newPacket { paHead = HeadJson (encode (tJson telex)) }
+      return $ telex { tPacket = Just packet}
+
 -- ---------------------------------------------------------------------
 {-
 function whokey(parts, key, keys)
@@ -1456,6 +1483,7 @@ listen typ callback = (assert False undefined)
 
 openize :: HashContainer -> TeleHash (Maybe Telex)
 openize to = do
+  sw <- get
   case hCsid to of
     Nothing -> do
       logT $ "can't open without key"
@@ -1463,6 +1491,20 @@ openize to = do
     Just _ -> do
       lineOut <- randomHEX 16
       timeNow <- io getClockTime
+      let inner = Telex
+            { tId = Nothing
+            , tType = Nothing
+            , tPath = Nothing
+            , tTo = Nothing
+            , tJson = Map.empty
+            , tPacket = Nothing
+
+            , tAt = hLineAt to
+            , tToHash = Just (hHashName to)
+            , tFrom = Just (swParts sw)
+            , tLine = Just (hLineOut to)
+            }
+      crypt_openize_1a to inner
       assert False undefined
 
 {-
@@ -2449,8 +2491,10 @@ function bridge(path, msg, to)
 
 -- ---------------------------------------------------------------------
 
+-- |This should return the ByteString, ready for encryption
 pencode :: Telex -> Body -> Telex
 pencode = (assert False undefined)
+
 
 {-
 // encode a packet
@@ -2728,6 +2772,7 @@ mkHashContainer hn timeNow randomHexVal =
     , hIsSeed = False
     , hTo = Nothing
     , hLineIn = Nothing
+    , hLineAt = Nothing
     , hSendSeek = Nothing
     , hVias = Map.empty
     , hLastPacket = Nothing
@@ -2737,6 +2782,8 @@ mkHashContainer hn timeNow randomHexVal =
 
     , hLineOut = randomHexVal
     , hLineIV = 0
+    , hEncKey = Nothing
+    , hDecKey = Nothing
     }
 
 -- ---------------------------------------------------------------------
@@ -2793,7 +2840,8 @@ randomHEX len = do
   sw <- get
   let (bytes,newRNG) = cprgGenerate len (swRNG sw)
   put $ sw {swRNG = newRNG}
-  return $ BU.toString $ B16.encode bytes
+  -- return $ BU.toString $ B16.encode bytes
+  return $ BC.unpack $ B16.encode bytes
 {-
 // return random bytes, in hex
 function randomHEX(len)
@@ -3133,6 +3181,13 @@ function hex2nib(hex)
 -}
 
 -- ---------------------------------------------------------------------
+
+-- | Send the body of the packet in the telex. It is already encrypted
+-- TODO: make the types explicitly represent the lineized packet
+ipv4Send :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
+ipv4Send path msg _ = do
+  logT $ "ipv4Send:" ++ show (path,msg)
+  assert False undefined
 
 -- ---------------------------------------------------------------------
 

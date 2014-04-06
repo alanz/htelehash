@@ -8,8 +8,10 @@ module TeleHash.Packet
 
 import Data.Binary
 import Data.Binary.Get
+import TeleHash.Convert
 
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Char8 as BC
 
 
 {-
@@ -42,7 +44,7 @@ any app-specific usage.
 
  -}
 
-type Body = BL.ByteString
+type Body = BC.ByteString
 
 data Packet = Packet { paHead :: Head
                      , paBody :: Body
@@ -51,7 +53,7 @@ data Packet = Packet { paHead :: Head
 
 newPacket :: Packet
 newPacket = Packet { paHead = HeadEmpty
-                   , paBody = BL.empty
+                   , paBody = BC.empty
                    }
 
 -- ---------------------------------------------------------------------
@@ -63,7 +65,7 @@ instance Binary Packet where
   get = do h  <- get
            pb <- getRemainingLazyByteString
 
-           return (newPacket { paHead = h, paBody = pb})
+           return (newPacket { paHead = h, paBody = lbsTocbs pb})
 
 -- ---------------------------------------------------------------------
 
@@ -148,10 +150,10 @@ testp1 = do
   let p1b = BL.pack p1
   let p@(Packet h b) = decode p1b :: Packet
   putStrLn $ show p
-  putStrLn $ show (BL.length b)
+  putStrLn $ show (BC.length b)
 
 testp2 = do
   let p1b = BL.pack p2
   let p@(Packet h b) = decode p1b :: Packet
   putStrLn $ show p
-  putStrLn $ show (BL.length b)
+  putStrLn $ show (BC.length b)

@@ -49,11 +49,14 @@ Library
                    , cryptohash
                    , base16-bytestring
                    , base64-bytestring
-                   , utf8-string
+                   -- , utf8-string
                    , aeson
                    , iproute
                    , binary
                    , cipher-aes
+                   -- , byteable
+                   , bytestring
+                   -- , tls
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:

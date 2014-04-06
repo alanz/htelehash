@@ -32,6 +32,11 @@ module TeleHash.Utils
   , parts2hn
   , io
   , logT
+
+  , ghead
+  , glast
+  , gtail
+  , gfromJust
   ) where
 
 
@@ -66,7 +71,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.ByteString.UTF8 as BU
+-- import qualified Data.ByteString.UTF8 as BU
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -107,7 +112,8 @@ data HashContainer = H
   , hBucket     :: HashDistance
   , hChanOut    :: ChannelId
   , hLineOut    :: String -- randomHEX 16 output. Make it a type
-  , hLineIn     :: Maybe Line -- not sure of type atm
+  , hLineAt     :: Maybe ClockTime
+  , hLineIn     :: Maybe BC.ByteString
   , hSendSeek   :: Maybe ClockTime
   , hVias       :: Map.Map HashName String
   , hLastPacket :: Maybe Telex
@@ -116,8 +122,8 @@ data HashContainer = H
   , hCsid       :: Maybe String
 
   , hLineIV :: Word32 -- crypto 1a IV value
-  -- , hEncKey :: Maybe String
-  -- , hDecKey :: Maybe String
+  , hEncKey :: Maybe BC.ByteString
+  , hDecKey :: Maybe BC.ByteString
   } deriving Show
 
 -- ---------------------------------------------------------------------
@@ -191,6 +197,12 @@ data Telex = Telex { tId   :: Maybe HashContainer
                    , tTo   :: Maybe Path -- Do we need both of these? Need to clarify the type of this one first
                    , tJson :: Map.Map String String
                    , tPacket :: Maybe Packet
+
+                   -- openize stuff, used in 'inner'
+                   , tAt   :: Maybe ClockTime
+                   , tToHash  :: Maybe HashName
+                   , tFrom :: Maybe Parts
+                   , tLine :: Maybe String -- lineOut
                    } deriving Show
 
 -- ---------------------------------------------------------------------
@@ -377,7 +389,7 @@ parts2hn parts = HN r
 
     bsfinal = foldl' (\acc cur -> SHA256.hash (BC.append acc cur)) BC.empty vals
 
-    r = BU.toString $ B16.encode bsfinal
+    r = BC.unpack $ B16.encode bsfinal
 
 -- testParts2hn = parts2hn (sParts $ head initialSeeds)
 
@@ -405,4 +417,23 @@ io :: IO a -> TeleHash a
 io = liftIO
 
 -- ---------------------------------------------------------------------
+
+ghead :: String -> [a] -> a
+ghead  info []    = error $ "ghead "++info++" []"
+ghead _info (h:_) = h
+
+glast :: String -> [a] -> a
+glast  info []    = error $ "glast " ++ info ++ " []"
+glast _info h     = last h
+
+gtail :: String -> [a] -> [a]
+gtail  info []   = error $ "gtail " ++ info ++ " []"
+gtail _info h    = tail h
+
+gfromJust :: [Char] -> Maybe a -> a
+gfromJust _info (Just h) = h
+gfromJust  info Nothing = error $ "gfromJust " ++ info ++ " Nothing"
+
+-- ---------------------------------------------------------------------
+
 
