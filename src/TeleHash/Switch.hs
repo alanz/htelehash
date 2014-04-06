@@ -27,6 +27,7 @@ import Data.String.Utils
 import Data.Typeable
 import Network.BSD
 import Prelude hiding (id, (.), head, either, catch)
+import System.Environment
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
@@ -59,7 +60,7 @@ runSwitch = bracket initialize disconnect loop
     loop (ch1,ch2,st) = catch (runStateT (run ch1 ch2) st) (exc)
 
     exc :: SomeException -> IO ((),Switch)
-    exc _e = return ((),undefined)
+    exc _e = return ((),(assert False undefined))
 
 -- ---------------------------------------------------------------------
 --
@@ -100,7 +101,7 @@ run ch1 ch2 = do
   -- load the seeds, hardcoded for now
   mapM_ addSeed initialSeeds
 
-  online nullCb
+  -- online nullCb
 
   -- -------------- this bit from ping.c -------------------------------
   {-
@@ -113,7 +114,17 @@ run ch1 ch2 = do
   sw <- get
   let seed0 = head (swSeeds sw)
   let Just hcs = Map.lookup seed0 (swAll sw)
-
+  let msg = Telex { tId = Nothing
+                  , tType = Just "seek"
+                  , tPath = Nothing
+                  , tJson = Map.fromList
+                       [("type","seek")
+                       ,("c","0")
+                       ,("seek",unHN $ hHashName hcs)
+                       ]
+                  }
+  c <- raw hcs "seek" msg nullCb
+  logT $ "sending msg returned :" ++ show c
   -- xxxxxxxxxxxxxxxxxxxx
   -- -------------- ping.c end -----------------------------------------
 
@@ -501,12 +512,12 @@ crypt_supported = do
 -}
 
 load :: String -> Bool
-load s = undefined
+load s = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 
 receive :: Packet -> Path -> IO ()
-receive = undefined
+receive = (assert False undefined)
 {-
 // self.receive, raw incoming udp data
 function receive(msg, path)
@@ -625,7 +636,7 @@ function receive(msg, path)
 -}
 
 deliver :: String -> () -> ()
-deliver = undefined
+deliver = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 {-
@@ -635,7 +646,7 @@ deliver = undefined
   };
 -}
 relay :: PathType -> Telex -> Maybe To -> TeleHash ()
-relay path msg _ = undefined
+relay path msg _ = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 
@@ -731,7 +742,7 @@ send mpath msg mto = do
 -}
 
 pathset :: Path -> IO ()
-pathset path = undefined
+pathset path = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 
@@ -770,6 +781,7 @@ addSeed args = do
 
 
 -- | this creates a hashname identity object (or returns existing)
+-- If it creates a new one, this is inserted into the index
 whois :: HashName -> TeleHash (Maybe HashContainer)
 whois hn = do
   logT $ "whois entered for:" ++ show hn
@@ -793,8 +805,10 @@ whois hn = do
 
               chanOut = if (head $ sort [fromJust $ swHashname sw,hn]) == (fromJust $ swHashname sw)
                           then 2 else 1
-
-          return (Just $ hc' { hChanOut = chanOut })
+              hc'' = hc' { hChanOut = chanOut }
+              swAll' = Map.insert hn hc'' (swAll sw)
+          put $ sw {swAll = swAll'}
+          return $ Just hc''
 
 {-
 // this creates a hashname identity object (or returns existing)
@@ -1006,7 +1020,7 @@ function whois(hashname)
 
     // start a channel if one doesn't exist, check either reliable or unreliable types
     var listening = {};
-    if(typeof packet.js.seq == "undefined") listening = self.raws;
+    if(typeof packet.js.seq == "(assert False undefined)") listening = self.raws;
     if(packet.js.seq === 0) listening = self.rels;
     if(!listening[packet.js.type])
     {
@@ -1223,7 +1237,7 @@ partsMatch parts1 parts2 = r
 
 -}
 start :: String -> String -> String -> () -> IO ()
-start hashname typ arg cb = undefined
+start hashname typ arg cb = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 
@@ -1250,12 +1264,12 @@ online callback = do
         seeds -> do
           let
             -- safely callback only once or when all seeds return
-            done = undefined
+            done = (assert False undefined)
           forM seeds $ \ seed -> do
             let fn = nullCb
             Just hcSeed <- whois seed
             link hcSeed fn
-          return undefined
+          return (assert False undefined)
 -- WIP here
 {-
 
@@ -1325,7 +1339,7 @@ setLanToken v = do
 -}
 
 listen :: String -> () -> IO ()
-listen typ callback = undefined
+listen typ callback = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 {-
@@ -1337,7 +1351,7 @@ listen typ callback = undefined
 -}
 
 -- raw :: String -> () -> IO ()
--- raw typ callback = undefined
+-- raw typ callback = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 
@@ -1780,7 +1794,7 @@ function channel(type, arg, callback)
 -- ---------------------------------------------------------------------
 
 inPeer :: String -> Telex -> Channel -> IO ()
-inPeer = undefined
+inPeer = (assert False undefined)
 {-
 // be the middleman to help NAT hole punch
 function inPeer(err, packet, chan)
@@ -1820,7 +1834,7 @@ function inPeer(err, packet, chan)
 -- ---------------------------------------------------------------------
 
 inConnect :: String -> Telex -> Channel -> IO ()
-inConnect = undefined
+inConnect = (assert False undefined)
 
 {-
 // someone's trying to connect to us, send an open to them
@@ -1856,7 +1870,7 @@ function inConnect(err, packet, chan)
 -- ---------------------------------------------------------------------
 
 inSeek :: String -> Telex -> Channel -> IO ()
-inSeek = undefined
+inSeek = (assert False undefined)
 {-
 
 // return a see to anyone closer
@@ -1900,7 +1914,7 @@ function inSeek(err, packet, chan)
 -- ---------------------------------------------------------------------
 
 inPath :: String -> Telex -> Channel -> IO ()
-inPath = undefined
+inPath = (assert False undefined)
 
 {-
 // update/respond to network state
@@ -1946,7 +1960,7 @@ function inPath(err, packet, chan)
 -- ---------------------------------------------------------------------
 
 inBridge :: String -> Telex -> Channel -> IO ()
-inBridge = undefined
+inBridge = (assert False undefined)
 
 {-
 // handle any bridge requests, if allowed
@@ -1980,7 +1994,7 @@ function inBridge(err, packet, chan)
 -- ---------------------------------------------------------------------
 
 inLink :: String -> Telex -> Channel -> IO ()
-inLink = undefined
+inLink = (assert False undefined)
 
 {-
 
@@ -2027,7 +2041,6 @@ function inLink(err, packet, chan)
 link :: HashContainer -> CallBack -> TeleHash ()
 link hn cb = do
   sw <- get
-  error $ "link unimplemented"
 
   -- TODO:
     -- Set the JS 'see' value to
@@ -2039,6 +2052,11 @@ link hn cb = do
   -- TODO: sort out relay/bridge
 
   -- TOOO: handle case when already linked
+
+  let msg = (assert False undefined)
+  c <- raw hn "link" msg nullCb
+  logT $ "link: raw returned c=" ++ show c
+  return ()
 
 {-
   // request a new link to them
@@ -2075,7 +2093,7 @@ link hn cb = do
 -- ---------------------------------------------------------------------
 
 seek :: String -> () -> IO ()
-seek = undefined
+seek = (assert False undefined)
 
 {-
 // seek the dht for this hashname
@@ -2178,7 +2196,7 @@ function seek(hn, callback)
 -- ---------------------------------------------------------------------
 
 bridge :: PathType -> Telex -> Maybe To -> TeleHash ()
-bridge = undefined
+bridge = (assert False undefined)
 
 {-
 // try finding a bridge
@@ -2232,7 +2250,7 @@ function bridge(path, msg, to)
 -- ---------------------------------------------------------------------
 
 pencode :: Telex -> Body -> Telex
-pencode = undefined
+pencode = (assert False undefined)
 
 {-
 // encode a packet
@@ -2250,13 +2268,13 @@ function pencode(js, body)
 -- ---------------------------------------------------------------------
 
 pdecode :: Packet -> (Telex,Body)
-pdecode = undefined
+pdecode = (assert False undefined)
 
 {-
 // packet decoding
 function pdecode(packet)
 {
-  if(!packet) return undefined;
+  if(!packet) return (assert False undefined);
   var buf = (typeof packet == "string") ? new Buffer(packet, "binary") : packet;
 
   // read and validate the json length
@@ -2558,7 +2576,7 @@ function keysgen(cbDone,cbStep)
 }
 -}
 keysgen :: () -> () -> IO ()
-keysgen cbDone cbStep = undefined
+keysgen cbDone cbStep = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 
@@ -2579,7 +2597,7 @@ function randomHEX(len)
 -- ---------------------------------------------------------------------
 
 uriparse :: String -> String
-uriparse = undefined
+uriparse = (assert False undefined)
 
 {-
 var urllib = require("url");
@@ -2606,7 +2624,7 @@ function uriparse(uri)
 -- ---------------------------------------------------------------------
 
 isHashName :: String -> String
-isHashName = undefined
+isHashName = (assert False undefined)
 
 {-
   self.isHashname = function(hex){return isHEX(hex, 64)};
@@ -2647,7 +2665,7 @@ self.raw(type, callback)
 -}
 
 channelWraps :: IO ()
-channelWraps = undefined
+channelWraps = (assert False undefined)
 
 {-
 // these are called once a reliable channel is started both ways to add custom functions for the app
@@ -2684,7 +2702,7 @@ var channelWraps = {
 -- ---------------------------------------------------------------------
 
 wait :: Bool -> IO ()
-wait = undefined
+wait = (assert False undefined)
 
 {-
   self.wait = function(bool){
@@ -2849,7 +2867,7 @@ isTimeOut (TOD secs _picos) mt millis
 -- ---------------------------------------------------------------------
 
 seedMsg :: Bool -> Telex
-seedMsg = undefined
+seedMsg = (assert False undefined)
 
 
 -- ---------------------------------------------------------------------

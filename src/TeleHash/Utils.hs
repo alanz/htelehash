@@ -17,6 +17,7 @@ module TeleHash.Utils
   , Hash(..)
   , unHash
   , HashName(..)
+  , unHN
   , HashContainer(..)
   , HashCrypto(..)
   , Parts(..)
@@ -116,6 +117,8 @@ unHash (Hash str) = str
 
 data HashName = HN String
               deriving (Eq,Show,Ord)
+unHN :: HashName -> String
+unHN (HN s) = s
 
 data HashContainer = H
   { hHashName :: HashName
@@ -204,10 +207,11 @@ data To = To { pathOut :: PathType -> PathType
 
 -- ---------------------------------------------------------------------
 
-data Telex = Telex { tPacket :: Packet
-                   , tId   :: Maybe HashContainer
+-- a Telex gets packed to/from a Packet
+data Telex = Telex { tId   :: Maybe HashContainer
                    , tType :: Maybe String
                    , tPath :: Maybe Path
+                   , tJson :: Map.Map String String
                    } -- deriving Show
 
 -- ---------------------------------------------------------------------
