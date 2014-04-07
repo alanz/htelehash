@@ -38,9 +38,9 @@ import TeleHash.Utils
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
--- import qualified Data.ByteString.UTF8 as BU
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -97,6 +97,8 @@ run ch1 ch2 = do
   -- load the id
   loadId testId
   logT $ "loading id done"
+
+  -- error "done for now"
 
   -- load the seeds, hardcoded for now
   mapM_ addSeed initialSeeds
@@ -242,15 +244,6 @@ timer timeoutVal signalValue channel  = forever $
 
 -- API
 
-loadId :: Id -> TeleHash ()
-loadId anId = do
-  logT $ "loadId:" ++ show anId
-  sw <- get
-  csids <- crypt_supported
-  Just hn <- crypt_loadkey_1a (id1a anId) (Just $ id1a_secret anId)
-  logT $ "loadId:got hn=" ++ show (hcHashName hn)
-  put $ sw {swParts = hcParts hn, swHashname = Just (hcHashName hn)}
-  return ()
 
 {-
 int switch_init(switch_t s, packet_t keys)
@@ -281,20 +274,6 @@ loaded hashname 7ecf6a5884d483fde2f6a027e33e6e1756efdb70925557c3e3f776b35329aef5
 
 
 -}
-
--- ---------------------------------------------------------------------
-
-data Id = Id { id1a :: String
-             , id1a_secret :: String
-             } deriving Show
-
-
-instance FromJSON Id where
-     parseJSON (Object v) = Id <$>
-                            v .: "1a" <*>
-                            v .: "1a_secret"
-     -- A non-Object value is of the wrong type, so fail.
-     parseJSON _          = mzero
 
 testId :: Id
 testId = r
@@ -426,13 +405,14 @@ initial_switch = do
 
       , swHashname = Nothing
       , swId = Map.empty
+      , swIdCrypto = Nothing
       , swCs = Map.empty
       , swKeys = Map.empty
 
       , swCSets = Map.fromList [("1a",cset_1a)]
       , swParts = []
 
-      , swLoad = load
+      , swLoad = loadId
       , swMake = keysgen
 
       -- configure defaults
@@ -536,8 +516,113 @@ crypt_supported = do
   }
 -}
 
-load :: String -> Bool
-load s = (assert False undefined)
+loadId :: Id -> TeleHash ()
+loadId anId = do
+  logT $ "loadId:" ++ show anId
+  sw <- get
+  -- put $ sw { swParts = [("1a",id1a anId),("1a_secret",id1a_secret anId)] }
+  put $ sw { swId = Map.fromList [("1a",id1a anId),("1a_secret",id1a_secret anId)]
+           , swParts = [("1a",id1a anId)]
+           }
+
+  loadkeys
+
+  sw' <- get
+  when (Map.size (swCs sw') == 0) $ logT "missing cipher sets"
+  let hashName = parts2hn (swParts sw')
+  put $ sw' { swHashname = Just hashName }
+
+
+-- These three are set in crypto 1a loadkey
+{-
+id.key = bs
+id.public
+id.private
+-}
+
+{-
+  csids <- crypt_supported
+  Just hn <- crypt_loadkey_1a (id1a anId) (Just $ id1a_secret anId)
+  logT $ "loadId:got hn=" ++ show (hcHashName hn)
+  put $ sw {swParts = hcParts hn, swHashname = Just (hcHashName hn)}
+  return ()
+-}
+
+loadIdOld :: Id -> TeleHash ()
+loadIdOld anId = do
+  logT $ "loadId:" ++ show anId
+  sw <- get
+  csids <- crypt_supported
+  Just hn <- crypt_loadkey_1a (id1a anId) (Just $ id1a_secret anId)
+  logT $ "loadId:got hn=" ++ show (hcHashName hn)
+  put $ sw {swParts = hcParts hn, swHashname = Just (hcHashName hn)}
+  return ()
+
+
+-- ---------------------------------------------------------------------
+
+loadkeys :: TeleHash ()
+loadkeys = do
+  sw <- get
+  put $ sw { swCs = Map.empty, swKeys = Map.empty }
+
+  logT $ "loadkeys:swId=" ++ show (swId sw)
+
+  let
+    doOne (csid,v) = do
+      sw <- get
+      let cs' = Map.delete csid (swCs sw)
+      put sw {swCs = cs'}
+
+      case Map.lookup csid (swCSets sw) of
+        Nothing -> logT $ csid ++ " not supported"
+
+        Just cset -> do
+          let mpub = Map.lookup csid (swId sw)
+              mpriv = Map.lookup (csid ++ "_secret") (swId sw)
+          case mpub of
+            Nothing -> return ()
+            Just pub -> do
+              mhc <- (csLoadkey cset) pub mpriv
+              case mhc of
+                Just hc -> do
+                  -- timeNow <- io getClockTime
+                  -- randomHexVal <- randomHEX 16
+                  let keys = Map.insert csid pub (swKeys sw)
+                      -- h = mkHashContainer (hcHashName hc) timeNow randomHexVal
+                      -- h' = h { hSelf = Just hc }
+                      -- allHc = Map.insert (hcHashName hc) h' (swAll sw)
+                  -- put $ sw {swKeys = keys, swAll = allHc }
+                  put $ sw { swKeys = keys
+                           , swIdCrypto = Just hc
+                           , swCs = Map.insert csid hc (swCs sw)
+                            }
+                Nothing -> return ()
+              return ()
+      return ()
+
+  mapM_ doOne (swParts sw)
+  sw' <- get
+
+  logT $ "loadkeys: (swKeys,swCs)=" ++ show (swKeys sw',swCs sw')
+
+  return ()
+
+{-
+function loadkeys(self)
+{
+  self.cs = {};
+  self.keys = {};
+  var err = false;
+  Object.keys(self.parts).forEach(function(csid){
+    self.cs[csid] = {};
+    if(!self.CSets[csid]) err = csid+" not supported";
+    err = err||self.CSets[csid].loadkey(self.cs[csid], self.id[csid], self.id[csid+"_secret"]);
+    self.keys[csid] = self.id[csid];
+  });
+  return err;
+}
+-}
 
 -- ---------------------------------------------------------------------
 
@@ -1489,7 +1574,6 @@ openize to = do
       logT $ "can't open without key"
       return Nothing
     Just _ -> do
-      lineOut <- randomHEX 16
       timeNow <- io getClockTime
       let inner = Telex
             { tId = Nothing
@@ -1504,7 +1588,12 @@ openize to = do
             , tFrom = Just (swParts sw)
             , tLine = Just (hLineOut to)
             }
-      crypt_openize_1a to inner
+      let
+        to2 = if hLineAt to == Nothing
+                then to {hLineAt = Just timeNow }
+                else to
+      putHN to2
+      crypt_openize_1a to2 inner
       assert False undefined
 
 {-
@@ -1524,6 +1613,8 @@ function openize(self, to)
   inner.line = to.lineOut;
   return self.CSets[to.csid].openize(self, to, inner);
 }
+
+
 -}
 
 -- ---------------------------------------------------------------------
@@ -2698,64 +2789,7 @@ function getkey(id, csid)
 {
   return id.cs && id.cs[csid] && id.cs[csid].key;
 }
--}
--- ---------------------------------------------------------------------
-
-loadkeys :: TeleHash ()
-loadkeys = do
-  sw <- get
-  put $ sw { swCs = Map.empty, swKeys = Map.empty }
-
-  let
-    doOne (csid,v) = do
-      sw <- get
-      let cs' = Map.insert csid Map.empty (swCs sw)
-      put sw {swCs = cs'}
-
-      case Map.lookup csid (swCSets sw) of
-        Nothing -> logT $ csid ++ " not supported"
-        Just cset -> do
-          let mpub = Map.lookup csid (swId sw)
-              mpriv = Map.lookup (csid ++ "_secret") (swId sw)
-          case mpub of
-            Nothing -> return ()
-            Just pub -> do
-              mhc <- (csLoadkey cset) pub mpriv
-              case mhc of
-                Just hc -> do
-                  timeNow <- io getClockTime
-                  randomHexVal <- randomHEX 16
-                  let keys = Map.insert csid (swId sw) (swKeys sw)
-                      h = mkHashContainer (hcHashName hc) timeNow randomHexVal
-                      h' = h { hSelf = Just hc }
-                      allHc = Map.insert (hcHashName hc) h' (swAll sw)
-                  put $ sw {swKeys = keys, swAll = allHc }
-                Nothing -> return ()
-              return ()
-      return ()
-      -- sw {swCs
--- WIP carry on here xxxxxx
-  mapM_ doOne (swParts sw)
-
-
-  return ()
-
-{-
-function loadkeys(self)
-{
-  self.cs = {};
-  self.keys = {};
-  var err = false;
-  Object.keys(self.parts).forEach(function(csid){
-    self.cs[csid] = {};
-    if(!self.CSets[csid]) err = csid+" not supported";
-    err = err||self.CSets[csid].loadkey(self.cs[csid], self.id[csid], self.id[csid+"_secret"]);
-    self.keys[csid] = self.id[csid];
-  });
-  return err;
-}
--}
-
+-} 
 -- ---------------------------------------------------------------------
 
 mkHashContainer :: HashName -> ClockTime -> String -> HashContainer
@@ -2784,6 +2818,7 @@ mkHashContainer hn timeNow randomHexVal =
     , hLineIV = 0
     , hEncKey = Nothing
     , hDecKey = Nothing
+    , hEcc = Nothing
     }
 
 -- ---------------------------------------------------------------------

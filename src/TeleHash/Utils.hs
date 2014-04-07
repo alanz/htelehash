@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module TeleHash.Utils
   (
@@ -26,6 +27,7 @@ module TeleHash.Utils
   , CSet(..)
   , PublicKey(..)
   , PrivateKey(..)
+  , Id(..)
   , SocketHandle(..)
   , CallBack
   , nullCb
@@ -67,6 +69,7 @@ import System.Time
 
 
 import qualified Crypto.Hash.SHA256 as SHA256
+import qualified Crypto.PubKey.DH as DH
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
@@ -124,6 +127,7 @@ data HashContainer = H
   , hLineIV :: Word32 -- crypto 1a IV value
   , hEncKey :: Maybe BC.ByteString
   , hDecKey :: Maybe BC.ByteString
+  , hEcc    :: Maybe (DH.PublicNumber,DH.PrivateNumber)
   } deriving Show
 
 -- ---------------------------------------------------------------------
@@ -141,12 +145,13 @@ ypedef struct crypt_struct
 -}
 data HashCrypto = HC
   { hcHashName :: HashName
-  , hcHexName :: Hash
-  , hcParts :: Parts
-  , hcCsid :: String
-  , hcKey :: String
-  , hcPublic :: PublicKey
-  , hcPrivate :: Maybe PrivateKey
+  , hcHexName  :: Hash
+  , hcParts    :: Parts
+  , hcCsid     :: String
+  , hcKey      :: String
+  , hcPublic   :: PublicKey
+  , hcPrivate  :: Maybe PrivateKey
+  -- , hcEccKeys  :: Maybe (DH.PublicNumber,DH.PrivateNumber)
   } deriving Show
 
 data PublicKey = Public1a ECDSA.PublicKey deriving Show
@@ -198,6 +203,7 @@ data Telex = Telex { tId   :: Maybe HashContainer
                    , tJson :: Map.Map String String
                    , tPacket :: Maybe Packet
 
+                   -- TODO: break Inner out into its own type
                    -- openize stuff, used in 'inner'
                    , tAt   :: Maybe ClockTime
                    , tToHash  :: Maybe HashName
@@ -272,6 +278,20 @@ data SeedInfo = SI
 
 -- ---------------------------------------------------------------------
 
+data Id = Id { id1a :: String
+             , id1a_secret :: String
+             } deriving Show
+
+
+instance FromJSON Id where
+     parseJSON (Object v) = Id <$>
+                            v .: "1a" <*>
+                            v .: "1a_secret"
+     -- A non-Object value is of the wrong type, so fail.
+     parseJSON _          = mzero
+
+-- ---------------------------------------------------------------------
+
 data Switch = Switch
 
        { swH :: Maybe SocketHandle
@@ -292,15 +312,20 @@ data Switch = Switch
        , swNetworks :: Map.Map PathType (PathId,(Path -> Telex -> Maybe HashContainer -> TeleHash ()))
 
        , swHashname :: Maybe HashName
+
        , swId :: Map.Map String String
-       , swCs :: Map.Map String (Map.Map String String)
-       , swKeys :: Map.Map String (Map.Map String String)
+       , swIdCrypto :: Maybe HashCrypto
+
+       -- , swCs :: Map.Map String (Map.Map String String)
+       , swCs :: Map.Map String HashCrypto
+
+       , swKeys :: Map.Map String String
 
        , swCSets :: Map.Map String CSet
        , swParts :: Parts -- ++AZ++ TODO: this should be a packet
 
 
-       , swLoad :: String -> Bool -- load function
+       , swLoad :: Id -> TeleHash ()
        , swMake :: () -> () -> IO ()
 
        , swNat :: Bool

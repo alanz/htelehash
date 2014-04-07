@@ -23,8 +23,8 @@ module TeleHash.Crypto1a
 
 
 import Control.Exception
+import Control.Monad.State
 import Crypto.MAC.HMAC
-import Crypto.PubKey.DH
 import Crypto.PubKey.ECC.ECDSA
 import Crypto.PubKey.ECC.Generate
 import Crypto.Random
@@ -38,14 +38,15 @@ import Crypto.Cipher.AES
 import TeleHash.Convert
 import TeleHash.Packet
 import TeleHash.Utils
-import qualified Crypto.Hash.SHA256 as SHA256
+
 import qualified Crypto.Hash.SHA1 as SHA1
+import qualified Crypto.Hash.SHA256 as SHA256
+import qualified Crypto.PubKey.DH as DH
+import qualified Data.Binary as Binary
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
--- import qualified Data.Digest.Pure.SHA as SHA
-import qualified Data.Binary as Binary
 
 
 curve = getCurveByName SEC_p160r1
@@ -106,6 +107,7 @@ initRng = do
 
 crypt_loadkey_1a :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
 crypt_loadkey_1a pub mpriv = do
+  logT $ "crypt_loadkey_1a for:" ++ show (pub,mpriv)
   -- base64 decode the public key
   let mbs = decode $ BC.pack pub
   case mbs of
@@ -169,14 +171,23 @@ mkHashFromB64 str =
 -- ---------------------------------------------------------------------
 
 crypt_openize_1a :: HashContainer -> Telex -> TeleHash (Maybe Telex)
-crypt_openize_1a = assert False undefined
+crypt_openize_1a to inner = do
+  sw <- get
+  let (params,g1) = DH.generateParams (swRNG sw) 128 2
+  (eccPub,eccPriv,to') <- case hEcc to of
+    Just (pub,priv) -> return (pub,priv,to)
+    Nothing -> do
+      let (priv ,g2) = DH.generatePrivate g1 params
+      let pub = DH.calculatePublic params priv
+      put $ sw { swRNG = g2}
+      return (pub, priv,to { hEcc = Just (pub,priv)})
 
-{-
-  use
-
-getShared :: Params -> PrivateNumber -> PublicNumber -> SharedKey
-    generate a shared key using our private number and the other party public number 
--}
+  sw' <- get
+  -- let ourCrypto = gfromJust "crypt_openize_1a" (hSelf id1)
+  --     (_,ourPriv) = gfromJust "crypt_openize_1a.2" (hEcc id1)
+  -- let secret = DH.getShared params ourPriv eccPub
+  -- logT $ "crypt_openize_1a:secret=" ++ show secret
+  assert False undefined
 
 {-
 exports.openize = function(id, to, inner)
@@ -202,6 +213,60 @@ if(!to.ecc) to.ecc = new crypto.ecc.ECKey(crypto.ecc.ECCurves.secp160r1);
   var body = Buffer.concat([hmac,macd]);
   return self.pencode(0x1a, body);
 },
+-}
+
+{-
+  use
+
+getShared :: Params -> PrivateNumber -> PublicNumber -> SharedKey
+    generate a shared key using our private number and the other party public number 
+
+generateParams :: CPRG g => g -> Int -> Integer -> (Params, g)
+generateParams rng bits generator
+
+  generate params from a specific generator (2 or 5 are common values)
+  we generate a safe prime (a prime number of the form 2p+1 where p is
+  also prime)
+
+-}
+
+
+
+{-
+// create a new open packet
+packet_t crypt_openize_1a(crypt_t self, crypt_t c, packet_t inner)
+{
+  unsigned char secret[ECC_BYTES], iv[16], block[16];
+  packet_t open;
+  aes_context ctx;
+  int inner_len;
+  size_t off = 0;
+  crypt_1a_t cs = (crypt_1a_t)c->cs, scs = (crypt_1a_t)self->cs;
+
+  open = packet_chain(inner);
+  packet_json(open,&(self->csid),1);
+  inner_len = packet_len(inner);
+  packet_body(open,NULL,20+40+inner_len);
+
+  // copy in the line public key
+  memcpy(open->body+20, cs->line_public, 40);
+
+  // get the shared secret to create the iv+key for the open aes
+  if(!ecdh_shared_secret(cs->id_public, cs->line_private, secret)) return packet_free(open);
+  memset(iv,0,16);
+  iv[15] = 1;
+
+  // encrypt the inner
+  aes_setkey_enc(&ctx,secret,128);
+  aes_crypt_ctr(&ctx,inner_len,&off,iv,block,packet_raw(inner),open->body+20+40);
+
+  // generate secret for hmac
+  if(!ecdh_shared_secret(cs->id_public, scs->id_private, secret)) return packet_free(open);
+  sha1_hmac(secret,ECC_BYTES,open->body+20,40+inner_len,open->body);
+
+  return open;
+}
+
 -}
 -- ---------------------------------------------------------------------
 
