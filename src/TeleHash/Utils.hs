@@ -39,6 +39,9 @@ module TeleHash.Utils
   , glast
   , gtail
   , gfromJust
+
+  , putHN
+  , getHN
   ) where
 
 
@@ -127,12 +130,13 @@ data HashContainer = H
   , hLineIV :: Word32 -- crypto 1a IV value
   , hEncKey :: Maybe BC.ByteString
   , hDecKey :: Maybe BC.ByteString
-  , hEcc    :: Maybe (DH.PublicNumber,DH.PrivateNumber)
+  , hEcc    :: Maybe (PublicKey,PrivateKey) -- our DH ECC key for
+                                            -- communicating with this remote
   } deriving Show
 
 -- ---------------------------------------------------------------------
 {-
-ypedef struct crypt_struct
+typedef struct crypt_struct
 {
   char csidHex[3], *part;
   int isprivate, lined, keylen;
@@ -461,4 +465,19 @@ gfromJust  info Nothing = error $ "gfromJust " ++ info ++ " Nothing"
 
 -- ---------------------------------------------------------------------
 
+
+-- ---------------------------------------------------------------------
+-- Utility
+
+-- | get current state of the given HashContainer
+getHN :: HashName -> TeleHash (Maybe HashContainer)
+getHN hashName = do
+  sw <- get
+  return $ Map.lookup hashName (swAll sw)
+
+-- | update the stored state of the given HashContainer
+putHN :: HashContainer -> TeleHash ()
+putHN hn = do
+  sw <- get
+  put $ sw { swAll = Map.insert (hHashName hn) hn (swAll sw)}
 

@@ -28,7 +28,6 @@ import Crypto.MAC.HMAC
 import Crypto.PubKey.ECC.ECDSA
 import Crypto.PubKey.ECC.Generate
 import Crypto.Random
-import Crypto.Types.PubKey.ECC
 import Data.ByteString.Base64
 import Data.List
 import Data.Maybe
@@ -42,14 +41,17 @@ import TeleHash.Utils
 import qualified Crypto.Hash.SHA1 as SHA1
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
+import qualified Crypto.PubKey.ECC.Prim as ECC
+import qualified Crypto.Types.PubKey.DH as DH
+import qualified Crypto.Types.PubKey.ECC as ECC
 import qualified Data.Binary as Binary
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Map as Map
 
-
-curve = getCurveByName SEC_p160r1
+curve = ECC.getCurveByName ECC.SEC_p160r1
 
 -- ---------------------------------------------------------------------
 
@@ -124,7 +126,7 @@ crypt_loadkey_1a pub mpriv = do
               i1 = os2ip b1
               i2 = os2ip b2
           -- create the public key
-              pubkey = PublicKey curve (Point i1 i2)
+              pubkey = PublicKey curve (ECC.Point i1 i2)
               privkey = case mpriv of
                 Nothing -> Nothing
                 Just priv -> pk
@@ -172,22 +174,77 @@ mkHashFromB64 str =
 
 crypt_openize_1a :: HashContainer -> Telex -> TeleHash (Maybe Telex)
 crypt_openize_1a to inner = do
-  sw <- get
-  let (params,g1) = DH.generateParams (swRNG sw) 128 2
-  (eccPub,eccPriv,to') <- case hEcc to of
-    Just (pub,priv) -> return (pub,priv,to)
-    Nothing -> do
-      let (priv ,g2) = DH.generatePrivate g1 params
-      let pub = DH.calculatePublic params priv
-      put $ sw { swRNG = g2}
-      return (pub, priv,to { hEcc = Just (pub,priv)})
 
-  sw' <- get
-  -- let ourCrypto = gfromJust "crypt_openize_1a" (hSelf id1)
-  --     (_,ourPriv) = gfromJust "crypt_openize_1a.2" (hEcc id1)
-  -- let secret = DH.getShared params ourPriv eccPub
+{-
+From https://en.wikipedia.org/wiki/Elliptic_curve_Diffie%E2%80%93Hellman
+
+Key establishment protocol
+
+The following example will illustrate how a key establishment is made.
+Suppose Alice wants to establish a shared key with Bob, but the only
+channel available for them may be eavesdropped by a third party.
+Initially, the domain parameters (that is, (p,a,b,G,n,h) in the prime
+case or (m,f(x),a,b,G,n,h) in the binary case) must be agreed upon.
+Also, each party must have a key pair suitable for elliptic curve
+cryptography, consisting of a private key d (a randomly selected
+integer in the interval [1, n-1]) and a public key Q (where Q = d G,
+that is, the result of adding G together d times).
+
+Let Alice's key pair be (d_A, Q_A)
+  and Bob's key pair be (d_B, Q_B).
+
+Each party must have the other party's public key (an exchange must
+occur).
+
+Alice computes (x_k, y_k) = d_A Q_B.
+
+  Bob computes (x_k, y_k) = d_B Q_A.
+
+The shared secret is x_k (the x coordinate of the point).
+
+Most standardized protocols based on ECDH derived a symmetric key
+from x_k using some hash-based key derivation function.
+
+Note: 1. the domain parameters are the agreed curve, i.e. SEC_p160r1
+      2. d is a scalar, Q a point
+      3. multiplication is as defined for ECC
+-}
+
+
+  -- We user our public id, and the line private id
+  -- our credentials are in (swIdCrypto sw)
+  -- the line credentials are in (hEcc to)
+  sw <- get
+  linePriv <- case (hEcc to) of
+    Nothing -> do
+      let ((pub,priv) ,g') = generate (swRNG sw) curve
+      put $ sw { swRNG = g' } -- must come before next line, else update lost
+      putHN $ to { hEcc = Just (Public1a pub,Private1a priv) }
+      let (PrivateKey _ lp) = priv
+      return lp
+    Just (_pub, Private1a (PrivateKey _ lp)) -> return lp
+
+  let ourCrypto = gfromJust "crypt_openize_1a" (swIdCrypto sw)
+      Public1a (PublicKey _ pub) = hcPublic ourCrypto
+
+  -- if(!ecdh_shared_secret(cs->id_public, cs->line_private, secret)) return packet_free(open);
+  let (ECC.Point sharedX _Y) = ECC.pointMul curve linePriv pub
+
+  -- let hc = gfromJust "crypt_openize_1a" $ Map.lookup "1a" (swCs sw)
+  -- logT $ "crypt_openize_1a:hc=" ++ show hc
+
+  -- get the shared secret to create the iv+key for the open aes
+
+  -- We need our public key, the line private key to generate the secret
+
+  logT $ "crypt_openize_1a:(sharedX)=" ++ show (sharedX)
+  error "stop now"
+  -- let xx = expSafe
+  -- let secret = DH.getShared params eccPriv ourPub
   -- logT $ "crypt_openize_1a:secret=" ++ show secret
   assert False undefined
+
+
 
 {-
 exports.openize = function(id, to, inner)
@@ -214,22 +271,6 @@ if(!to.ecc) to.ecc = new crypto.ecc.ECKey(crypto.ecc.ECCurves.secp160r1);
   return self.pencode(0x1a, body);
 },
 -}
-
-{-
-  use
-
-getShared :: Params -> PrivateNumber -> PublicNumber -> SharedKey
-    generate a shared key using our private number and the other party public number 
-
-generateParams :: CPRG g => g -> Int -> Integer -> (Params, g)
-generateParams rng bits generator
-
-  generate params from a specific generator (2 or 5 are common values)
-  we generate a safe prime (a prime number of the form 2p+1 where p is
-  also prime)
-
--}
-
 
 
 {-
@@ -502,7 +543,7 @@ exports.loadkey = function(id, pub, priv)
 
 main = do
   g <- initRNG
-  let ((pub,priv) ,g') = generate g (getCurveByName SEC_p160r1)
+  let ((pub,priv) ,g') = generate g (ECC.getCurveByName ECC.SEC_p160r1)
   let (PublicKey _ pubk) = pub
   let (PrivateKey _ privk) = priv
   putStrLn $ "pub=" ++ show pubk
@@ -542,11 +583,12 @@ initRNG = do
 
 -- ---------------------------------------------------------------------
 
-pointTow8s :: Point -> B.ByteString
-pointTow8s PointO = B.empty
-pointTow8s (Point i1 i2)= B.append i1_20 i2_20
+pointTow8s :: ECC.Point -> B.ByteString
+pointTow8s ECC.PointO = B.empty
+pointTow8s (ECC.Point i1 i2)= B.append i1_20 i2_20
   where
     (Just i1_20) = i2ospOf 20 i1
     (Just i2_20) = i2ospOf 20 i2
+
 
 

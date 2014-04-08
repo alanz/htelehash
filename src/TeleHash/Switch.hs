@@ -2789,7 +2789,7 @@ function getkey(id, csid)
 {
   return id.cs && id.cs[csid] && id.cs[csid].key;
 }
--} 
+-}
 -- ---------------------------------------------------------------------
 
 mkHashContainer :: HashName -> ClockTime -> String -> HashContainer
@@ -3276,19 +3276,4 @@ sendDgram socketh msgJson addr =
       sendstr omsg = do sent <- NS.sendTo (slSocket socketh) omsg addr
                         sendstr (genericDrop sent omsg)
 
-
--- ---------------------------------------------------------------------
--- Utility
-
--- | get current state of the given HashContainer
-getHN :: HashName -> TeleHash (Maybe HashContainer)
-getHN hashName = do
-  sw <- get
-  return $ Map.lookup hashName (swAll sw)
-
--- | update the stored state of the given HashContainer
-putHN :: HashContainer -> TeleHash ()
-putHN hn = do
-  sw <- get
-  put $ sw { swAll = Map.insert (hHashName hn) hn (swAll sw)}
 
