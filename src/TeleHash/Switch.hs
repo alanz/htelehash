@@ -755,7 +755,7 @@ deliver = (assert False undefined)
     path.relay.send({body:msg});
   };
 -}
-relay :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
+relay :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 relay path msg _ = (assert False undefined)
 
 -- ---------------------------------------------------------------------
@@ -779,7 +779,7 @@ relay path msg _ = (assert False undefined)
 -}
 
 -- | Do the send, where the Telex has a fully lineized packet in it
-send :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
+send :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 send mpath msg mto = do
   sw <- get
   path <- case mto of
@@ -1342,7 +1342,7 @@ hnSend hn packet = do
 -- ---------------------------------------------------------------------
 
 -- |return the current open packet
-hnOpen :: HashContainer -> TeleHash (Maybe Telex)
+hnOpen :: HashContainer -> TeleHash (Maybe LinePacket)
 hnOpen hn = do
   case hParts hn of
     Nothing -> return Nothing
@@ -1566,7 +1566,7 @@ listen typ callback = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 
-openize :: HashContainer -> TeleHash (Maybe Telex)
+openize :: HashContainer -> TeleHash (Maybe LinePacket)
 openize to = do
   sw <- get
   case hCsid to of
@@ -1593,8 +1593,9 @@ openize to = do
                 then to {hLineAt = Just timeNow }
                 else to
       putHN to2
-      crypt_openize_1a to2 inner
-      assert False undefined
+      lp <- crypt_openize_1a to2 inner
+      return (Just lp)
+
 
 {-
 function openize(self, to)
@@ -2528,7 +2529,7 @@ function seek(hn, callback)
 
 -- ---------------------------------------------------------------------
 
-bridge :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
+bridge :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 bridge = (assert False undefined)
 
 {-
@@ -2582,6 +2583,7 @@ function bridge(path, msg, to)
 
 -- ---------------------------------------------------------------------
 
+-- |Encode the packet into a bytestring
 -- |This should return the ByteString, ready for encryption
 pencode :: Telex -> Body -> Telex
 pencode = (assert False undefined)
@@ -3157,7 +3159,7 @@ isTimeOut (TOD secs _picos) mt millis
 
 -- ---------------------------------------------------------------------
 
-seedMsg :: Bool -> Telex
+seedMsg :: Bool -> LinePacket
 seedMsg = (assert False undefined)
 
 
@@ -3219,7 +3221,7 @@ function hex2nib(hex)
 
 -- | Send the body of the packet in the telex. It is already encrypted
 -- TODO: make the types explicitly represent the lineized packet
-ipv4Send :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
+ipv4Send :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 ipv4Send path msg _ = do
   logT $ "ipv4Send:" ++ show (path,msg)
   assert False undefined

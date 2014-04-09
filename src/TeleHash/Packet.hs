@@ -4,6 +4,7 @@ module TeleHash.Packet
   , Head (..)
   , Body(..)
   , newPacket
+  , LinePacket(..)
   ) where
 
 import Data.Binary
@@ -88,6 +89,11 @@ instance Binary Head where
 
 -- ---------------------------------------------------------------------
 
+data LinePacket = LP BC.ByteString
+                deriving Show
+
+-- ---------------------------------------------------------------------
+
 {-
 
 Examples
@@ -103,7 +109,7 @@ p1 =
  [
  0x00, 0x01,   -- head length = 1 (BE 16 bit)
 
- 0x1a,         -- Single byte head means startup, using crypto "1a"
+ 0x1a,         -- Single byte head means 'open' packet, using crypto "1a"
 
  0x70, 0xf0, 0xd6, 0x5a, 0xc1, 0xae, 0xae, 0x58, 0xe4, 0xaf, 0x0e, 0x58, 0x27,
  0xa4, 0x4b, 0x4b, 0x0b, 0x0d, 0x39, 0x41, 0x15, 0x97, 0xb6, 0x35, 0x55, 0xf0, 0xf0, 0x99, 0x48,

@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module TeleHash.Crypto1a
   (
     cset_1a
@@ -172,7 +173,7 @@ mkHashFromB64 str =
 
 -- ---------------------------------------------------------------------
 
-crypt_openize_1a :: HashContainer -> Telex -> TeleHash (Maybe Telex)
+crypt_openize_1a :: HashContainer -> Telex -> TeleHash LinePacket
 crypt_openize_1a to inner = do
 
 {-
@@ -211,38 +212,52 @@ Note: 1. the domain parameters are the agreed curve, i.e. SEC_p160r1
 -}
 
 
-  -- We user our public id, and the line private id
-  -- our credentials are in (swIdCrypto sw)
-  -- the line credentials are in (hEcc to)
+  -- get the shared secret to create the iv+key for the open aes
+
+    -- We user our public id, and the line private id
+    -- our credentials are in (swIdCrypto sw)
+    -- the line credentials are in (hEcc to)
   sw <- get
-  linePriv <- case (hEcc to) of
+  (linePub,linePriv) <- case (hEcc to) of
     Nothing -> do
       let ((pub,priv) ,g') = generate (swRNG sw) curve
       put $ sw { swRNG = g' } -- must come before next line, else update lost
       putHN $ to { hEcc = Just (Public1a pub,Private1a priv) }
+      let (PublicKey _ lpub) = pub
       let (PrivateKey _ lp) = priv
-      return lp
-    Just (_pub, Private1a (PrivateKey _ lp)) -> return lp
+      return (lpub,lp)
+    Just (Public1a (PublicKey _ lpub), Private1a (PrivateKey _ lp)) -> return (lpub,lp)
 
   let ourCrypto = gfromJust "crypt_openize_1a" (swIdCrypto sw)
       Public1a (PublicKey _ pub) = hcPublic ourCrypto
+      Private1a (PrivateKey _ ourPriv) = gfromJust "crypt_openize_1a.2" $ hcPrivate ourCrypto
 
-  -- if(!ecdh_shared_secret(cs->id_public, cs->line_private, secret)) return packet_free(open);
   let (ECC.Point sharedX _Y) = ECC.pointMul curve linePriv pub
 
-  -- let hc = gfromJust "crypt_openize_1a" $ Map.lookup "1a" (swCs sw)
-  -- logT $ "crypt_openize_1a:hc=" ++ show hc
-
-  -- get the shared secret to create the iv+key for the open aes
-
-  -- We need our public key, the line private key to generate the secret
-
   logT $ "crypt_openize_1a:(sharedX)=" ++ show (sharedX)
-  error "stop now"
-  -- let xx = expSafe
-  -- let secret = DH.getShared params eccPriv ourPub
-  -- logT $ "crypt_openize_1a:secret=" ++ show secret
-  assert False undefined
+
+  --  encrypt the inner
+  let (Just longkey) = i2ospOf 20 sharedX
+      key = BC.take 16 longkey
+      innerPacket = Packet (HeadByte 0x1a) key
+      body = lbsTocbs $ Binary.encode innerPacket
+      Just iv = i2ospOf 16 1
+      cbody = encryptCTR (initAES key) iv body
+
+  -- prepend the line public key and hmac it
+  -- var secret = id.cs["1a"].private.deriveSharedSecret(to.public);
+  let (ECC.Point secretX _Y) = ECC.pointMul curve ourPriv linePub
+      Just secretMac = i2ospOf 20 secretX
+      macd = BC.append (pointTow8s linePub) cbody
+      hmacVal = hmac SHA1.hash 64 secretMac macd
+
+  -- create final body
+  let bodyFinal = BC.append hmacVal macd
+      body = lbsTocbs $ Binary.encode $ Packet (HeadByte 0x1a) bodyFinal
+
+  return (LP body)
+  -- error "stop now"
+
 
 
 
@@ -334,7 +349,7 @@ using that key with the IV the channel packet can be
 encrypted/decrypted.
 
 -}
-crypt_lineize_1a :: HashContainer -> Telex -> (HashContainer,Telex)
+crypt_lineize_1a :: HashContainer -> Telex -> (HashContainer,LinePacket)
 crypt_lineize_1a to packet = r
   where
     -- TODO: look at using ByteString.Builder for performance, and
@@ -356,7 +371,7 @@ crypt_lineize_1a to packet = r
     final = foldl' BC.append BC.empty [(gfromJust "crypt_lineize_1a.2" $ hLineIn to),h,iv,cbody]
     fc = packet { tPacket = Just (Packet HeadEmpty final) }
 
-    r = (to,fc)
+    r = (to,assert False undefined)
 
 {-
 exports.lineize = function(to, packet)
@@ -592,3 +607,20 @@ pointTow8s (ECC.Point i1 i2)= B.append i1_20 i2_20
 
 
 
+-- ---------------------------------------------------------------------
+{-
+From https://en.wikipedia.org/wiki/Hash-based_message_authentication_code
+
+HMAC_MD5("", "") = 0x74e6f7298a9c2d168935f58c001bad88
+HMAC_SHA1("", "") = 0xfbdb1d1b18aa6c08324b7d64b71fb76370690e1d
+HMAC_SHA256("", "") = 0xb613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad
+
+Here are some non-empty HMAC values, assuming 8-bit ASCII or UTF-8 encoding:
+
+HMAC_MD5("key", "The quick brown fox jumps over the lazy dog") = 0x80070713463e7749b90c2dc24911e275
+HMAC_SHA1("key", "The quick brown fox jumps over the lazy dog") = 0xde7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9
+HMAC_SHA256("key", "The quick brown fox jumps over the lazy dog") = 0xf7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8
+-}
+
+t1 = B16.encode $ hmac SHA1.hash 64 BC.empty BC.empty
+t2 = B16.encode $ hmac SHA1.hash 64 "key" "The quick brown fox jumps over the lazy dog"

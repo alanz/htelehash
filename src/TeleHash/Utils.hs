@@ -77,7 +77,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
--- import qualified Data.ByteString.UTF8 as BU
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -124,7 +123,7 @@ data HashContainer = H
   , hVias       :: Map.Map HashName String
   , hLastPacket :: Maybe Telex
   , hParts      :: Maybe Parts
-  , hOpened     :: Maybe Telex
+  , hOpened     :: Maybe LinePacket
   , hCsid       :: Maybe String
 
   , hLineIV :: Word32 -- crypto 1a IV value
@@ -313,7 +312,7 @@ data Switch = Switch
        , swRaws :: Map.Map String (String -> Telex -> Channel -> IO ())
        , swPaths :: Map.Map PathId Path
        , swBridgeCache :: [String]
-       , swNetworks :: Map.Map PathType (PathId,(Path -> Telex -> Maybe HashContainer -> TeleHash ()))
+       , swNetworks :: Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashContainer -> TeleHash ()))
 
        , swHashname :: Maybe HashName
 
@@ -342,7 +341,7 @@ data Switch = Switch
 
        -- outgoing packets to the network
        , swDeliver :: String -> () -> ()
-       , swSend    :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
+       , swSend    :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
        , swPathSet :: Path -> IO ()
 
        -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
@@ -363,7 +362,7 @@ data Switch = Switch
        -- primarily internal, to seek/connect to a hashname
        , swSeek :: String -> () -> IO ()
 
-       , swBridge :: Path -> Telex -> Maybe HashContainer -> TeleHash ()
+       , swBridge :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 
        -- for modules
        , swPencode :: Telex -> Body -> Telex
