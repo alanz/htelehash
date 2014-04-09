@@ -19,6 +19,7 @@ import Control.Monad.State
 import Crypto.Random
 import Data.Aeson
 import Data.Bits
+import Data.ByteString.Internal (w2c)
 import Data.Char
 import Data.IP
 import Data.List
@@ -32,10 +33,12 @@ import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
+import TeleHash.Convert
 import TeleHash.Crypto1a
 import TeleHash.Packet
 import TeleHash.Utils
 import qualified Crypto.Hash.SHA256 as SHA256
+import qualified Data.Binary as Binary
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Base64 as B64
@@ -98,7 +101,9 @@ run ch1 ch2 = do
   loadId testId
   logT $ "loading id done"
 
-  -- error "done for now"
+  crypt_deopenize_1a (Binary.decode $ BL.pack p1)
+
+  error "done for now"
 
   -- load the seeds, hardcoded for now
   mapM_ addSeed initialSeeds
@@ -125,6 +130,7 @@ run ch1 ch2 = do
                        ,("c","0")
                        ,("seek",unHN $ hHashName hcs)
                        ]
+                  , tCsid = Just "1a"
                   , tTo = Nothing
                   , tPacket = Nothing
                   , tAt = Nothing
@@ -413,6 +419,7 @@ initial_switch = do
 
       , swCSets = Map.fromList [("1a",cset_1a)]
       , swParts = []
+
 
       , swLoad = loadId
       , swMake = keysgen
@@ -1560,6 +1567,7 @@ openize to = do
             , tTo = Nothing
             , tJson = Map.empty
             , tPacket = Nothing
+            , tCsid = Nothing
 
             , tAt = hLineAt to
             , tToHash = Just (hHashName to)
@@ -1591,6 +1599,50 @@ function openize(self, to)
   inner.from = self.parts;
   inner.line = to.lineOut;
   return self.CSets[to.csid].openize(self, to, inner);
+}
+
+
+-}
+
+-- ---------------------------------------------------------------------
+
+deopenize :: LinePacket -> TeleHash (Maybe Telex)
+deopenize lp = do
+  logT $ "deopenize :" ++ show (BL.length $ unLP lp)
+
+  -- TODO: add exception handler to this
+  let p = fromLinePacket lp
+
+  case paHead p of
+    HeadEmpty  -> return Nothing
+    HeadJson _ -> return Nothing
+    HeadByte csHex -> do
+      sw <- get
+      let csid = BC.unpack $ B16.encode (BC.pack [w2c csHex])
+      logT $ "deopenize got cs:" ++ csid
+      case Map.lookup csid (swCSets sw) of
+        Nothing -> return Nothing
+        Just cs -> do
+          mt <- (csDeopenize cs) p
+          case mt of
+            Nothing -> return Nothing
+            Just t -> do
+             let t' = t { tCsid = Just csid }
+             return $ Just t'
+      return Nothing
+
+
+{-
+
+function deopenize(self, open)
+{
+//  console.log("DEOPEN",open.body.length);
+  var ret;
+  var csid = open.head.charCodeAt().toString(16);
+  if(!self.CSets[csid]) return {err:"unknown CSID of "+csid};
+  try{ret = self.CSets[csid].deopenize(self, open);}catch(E){return {err:E};}
+  ret.csid = csid;
+  return ret;
 }
 
 
@@ -3256,7 +3308,7 @@ doNullSendDgram msgJson addr = do
 doSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
 doSendDgram (LP msgJson) addr = do
   Just socketh <- gets swH
-  io (sendDgram socketh msgJson addr)
+  io (sendDgram socketh (lbsTocbs msgJson) addr)
 
 
 -- ---------------------------------------------------------------------

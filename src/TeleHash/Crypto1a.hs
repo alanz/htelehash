@@ -6,6 +6,7 @@ module TeleHash.Crypto1a
   , crypt_keygen_1a
   , crypt_loadkey_1a
   , crypt_openize_1a
+  , crypt_deopenize_1a
   , crypt_openline_1a
   , crypt_lineize_1a
   ) where
@@ -57,8 +58,9 @@ curve = ECC.getCurveByName ECC.SEC_p160r1
 -- ---------------------------------------------------------------------
 
 cset_1a = CS
-  {
-  csLoadkey = crypt_loadkey_1a
+  { csLoadkey = crypt_loadkey_1a
+  , csOpenize = crypt_openize_1a
+  , csDeopenize = crypt_deopenize_1a
   }
 -- ---------------------------------------------------------------------
 
@@ -122,12 +124,9 @@ crypt_loadkey_1a pub mpriv = do
         then do logT $ "invalid public key wrong len:" ++ pub
                 return Nothing
         else do
-          -- convert the ByteString into a pair of Integer
-          let (b1,b2) = B.splitAt 20 bs
-              i1 = os2ip b1
-              i2 = os2ip b2
-          -- create the public key
-              pubkey = PublicKey curve (ECC.Point i1 i2)
+          let
+            -- create the public key
+              pubkey = PublicKey curve (bsToPoint bs)
               privkey = case mpriv of
                 Nothing -> Nothing
                 Just priv -> pk
@@ -253,9 +252,9 @@ Note: 1. the domain parameters are the agreed curve, i.e. SEC_p160r1
 
   -- create final body
   let bodyFinal = BC.append hmacVal macd
-      body = lbsTocbs $ Binary.encode $ Packet (HeadByte 0x1a) bodyFinal
+      body = toLinePacket $ Packet (HeadByte 0x1a) bodyFinal
 
-  return (LP body)
+  return body
   -- error "stop now"
 
 
@@ -324,6 +323,106 @@ packet_t crypt_openize_1a(crypt_t self, crypt_t c, packet_t inner)
 }
 
 -}
+
+-- ---------------------------------------------------------------------
+
+crypt_deopenize_1a :: Packet -> TeleHash (Maybe Telex)
+crypt_deopenize_1a open = do
+  if BC.length (paBody open) <= 60
+    then do
+      logT $ "crypt_deopenize_1a:body length too short:" ++ show (BC.length $ paBody open)
+      return Nothing
+    else do
+      sw <- get
+      let
+        mac1  = B16.encode $ BC.take 20 (paBody open)
+        pubBs = BC.take 40 $ BC.drop 20 (paBody open)
+        cbody = BC.drop 60 (paBody open)
+
+
+        linePubPoint = (bsToPoint pubBs)
+        linePub = PublicKey curve linePubPoint
+
+      logT $ "crypt_deopenize_1a:mac1=" ++ show (mac1)
+      logT $ "crypt_deopenize_1a:pubBs=" ++ show (B16.encode pubBs)
+      logT $ "crypt_deopenize_1a:cbody=" ++ show (B16.encode cbody)
+
+      logT $ "crypt_deopenize_1a:pubBs b64=" ++ show (encode pubBs)
+
+
+      -- derive shared secret
+      -- var secret = id.cs["1a"].private.deriveSharedSecret(ret.linepub);
+      let ourCrypto = gfromJust "crypt_deopenize_1a" (swIdCrypto sw)
+          Public1a (PublicKey _ pub) = hcPublic ourCrypto
+          Private1a (PrivateKey _ ourPriv) = gfromJust "crypt_deopenize_1a.2" $ hcPrivate ourCrypto
+
+      let (ECC.Point sharedX _Y) = ECC.pointMul curve ourPriv linePubPoint
+          (Just longkey) = i2ospOf 20 sharedX
+          key = BC.take 16 longkey
+          Just iv = i2ospOf 16 1
+
+      logT $ "crypt_deopenize_1a:(sharedX,key)=" ++ show (sharedX,key)
+
+      -- aes-128 decipher the inner
+      let body = decryptCTR (initAES key) iv cbody
+          inner = fromLinePacket (LP $ cbsTolbs body)
+
+      logT $ "crypt_deopenize_1a:inner=" ++ show inner
+      let HeadJson js = paHead inner
+      logT $ "crypt_deopenize_1a:inner json=" ++ show (B16.encode $ lbsTocbs js)
+      return $ assert False undefined
+  assert False undefined
+
+{-
+
+exports.deopenize = function(id, open)
+{
+  var ret = {verify:false};
+  if(!open.body) return ret;
+
+  var mac1 = open.body.slice(0,20).toString("hex");
+  var pub = open.body.slice(20,60);
+  var cbody = open.body.slice(60);
+
+  try{
+    ret.linepub = new crypto.ecc.ECKey(crypto.ecc.ECCurves.secp160r1, Buffer.concat([new Buffer("04","hex"),pub]), true);
+  }catch(E){
+    console.log("ecc err",E);
+  }
+  if(!ret.linepub) return ret;
+
+  var secret = id.cs["1a"].private.deriveSharedSecret(ret.linepub);
+  var key = secret.slice(0,16);
+  var iv = new Buffer("00000000000000000000000000000001","hex");
+
+  // aes-128 decipher the inner
+  var body = crypto.aes(false, key, iv, cbody);
+  var inner = self.pdecode(body);
+  if(!inner) return ret;
+
+  // verify+load inner key info
+  var epub = new crypto.ecc.ECKey(crypto.ecc.ECCurves.secp160r1, Buffer.concat([new Buffer("04","hex"),inner.body]), true);
+  if(!epub) return ret;
+  ret.key = inner.body;
+  if(typeof inner.js.from != "object" || !inner.js.from["1a"]) return ret;
+  if(crypto.createHash("sha1").update(inner.body).digest("hex") != inner.js.from["1a"]) return ret;
+
+  // verify the hmac
+  var secret = id.cs["1a"].private.deriveSharedSecret(epub);
+  var mac2 = crypto.createHmac('sha1', secret).update(open.body.slice(20)).digest("hex");
+  if(mac2 != mac1) return ret;
+
+  // all good, cache+return
+  ret.verify = true;
+  ret.js = inner.js;
+  return ret;
+},
+
+
+-}
+
+
+
 -- ---------------------------------------------------------------------
 
 {-
@@ -605,6 +704,14 @@ pointTow8s (ECC.Point i1 i2)= B.append i1_20 i2_20
     (Just i1_20) = i2ospOf 20 i1
     (Just i2_20) = i2ospOf 20 i2
 
+-- ---------------------------------------------------------------------
+
+bsToPoint :: BC.ByteString -> ECC.Point
+bsToPoint bs = (ECC.Point i1 i2)
+  where
+    (b1,b2) = B.splitAt 20 bs
+    i1 = os2ip b1
+    i2 = os2ip b2
 
 
 -- ---------------------------------------------------------------------

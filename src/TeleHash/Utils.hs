@@ -164,7 +164,8 @@ data PrivateKey = Private1a ECDSA.PrivateKey deriving Show
 
 data CSet = CS
   { csLoadkey :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
-
+  , csOpenize  :: HashContainer -> Telex -> TeleHash LinePacket
+  , csDeopenize :: Packet -> TeleHash (Maybe Telex)
   }
 
 -- ---------------------------------------------------------------------
@@ -205,6 +206,7 @@ data Telex = Telex { tId   :: Maybe HashContainer
                    , tTo   :: Maybe Path -- Do we need both of these? Need to clarify the type of this one first
                    , tJson :: Map.Map String String
                    , tPacket :: Maybe Packet
+                   , tCsid :: Maybe String
 
                    -- TODO: break Inner out into its own type
                    -- openize stuff, used in 'inner'
