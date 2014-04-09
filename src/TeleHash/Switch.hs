@@ -166,7 +166,7 @@ run ch1 ch2 = do
       -- SignalPingSeeds      -> pingSeeds
       -- SignalScanLines      -> scanlines timeNow
       -- SignalTapTap         -> taptap timeNow
-      -- SignalMsgRx msg addr -> recvTelex msg addr
+      SignalMsgRx msg addr -> recvTelex msg addr
       -- External commands
       SignalGetSwitch      -> do
         sw <- getSwitch
@@ -219,12 +219,12 @@ dolisten Nothing _ = return ()
 dolisten (Just h) channel = forever $ do
     (msg,rinfo) <- (SB.recvFrom (slSocket h) 1000)
 
-    -- (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
-    (writeChan channel (SignalMsgRx (BC.unpack msg) rinfo))
+    (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
+    (writeChan channel (SignalMsgRx msg rinfo))
 
 -- ---------------------------------------------------------------------
 
-data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx String NS.SockAddr |
+data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx BC.ByteString NS.SockAddr |
               SignalGetSwitch
               deriving (Typeable, Show, Eq)
 
@@ -312,6 +312,7 @@ initialSeeds =
               , pPriority = Nothing
               , pIsSeed = True
               }
+{-
        , Path { pType = PathType "ipv6"
               , pIp = Just "2605:da00:5222:5269:230:48ff:fe35:6572"
               , pPort = 42424
@@ -334,6 +335,7 @@ initialSeeds =
               , pPriority = Nothing
               , pIsSeed = True
               }
+-}
        ]
     , sParts =
         [("2a", "beb07e8864786e1d3d70b0f537e96fb719ca2bbb4a2a3791ca45e215e2f67c9a")
@@ -781,6 +783,7 @@ relay path msg _ = (assert False undefined)
 -- | Do the send, where the Telex has a fully lineized packet in it
 send :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 send mpath msg mto = do
+  logT $ "send entered for path:" ++ show mpath
   sw <- get
   path <- case mto of
     Just to -> hnPathOut to mpath
@@ -789,17 +792,19 @@ send mpath msg mto = do
     -- debug("<<<<",Date(),msg.length,[path.type,path.ip,path.port,path.id].join(","),to&&to.hashname);
   logT $ "<<<<"
   -- try to send it via a supported network
-  -- if(self.networks[path.type]) self.networks[path.type](path,msg,to);
+  -- if(self.networks[path.type])
+     -- self.networks[path.type](path,msg,to);
+  logT $ "send:path=" ++ show path
   mpid <- case Map.lookup (pType path) (swNetworks sw) of
     Nothing -> return Nothing
     Just (pid,sender) -> do
       sender path msg mto
       return $ Just pid
 
-
+  logT $ "send: must still update stats, and bridge if necessary"
+{-
   case mpid of
     Nothing -> do
-       -- debug("send called w/ no valid network, dropping");
        logT "send called w/ no valid network, dropping"
        return ()
     Just pid -> do
@@ -815,6 +820,7 @@ send mpath msg mto = do
            (swBridge sw') path msg mto
          else
            return ()
+-}
 
 {-
     if(to) path = to.pathOut(path);
@@ -874,16 +880,17 @@ function addSeed(arg) {
 
 addSeed :: SeedInfo -> TeleHash ()
 addSeed args = do
+  logT $ "addSeed:args=" ++ show args
   sw <- get
   mseed <- (swWhokey sw) (sParts args) (Right (Map.fromList (sKeys args)))
-  logT $ "addSeed:" ++ show mseed
+  logT $ "addSeed:mseed=" ++ show mseed
   case mseed of
     Nothing -> do
       logT $ "invalid seed info:" ++ show args
       return ()
     Just seed -> do
       forM_ (sPaths args) $ \path -> do
-        void $ pathGet seed path
+        void $ hnPathGet seed path
       sw' <- get
       put $ sw' { swSeeds = (swSeeds sw') ++ [(hHashName seed)] }
 
@@ -1198,39 +1205,6 @@ hnPathEnd = assert False undefined
 -}
 -- ---------------------------------------------------------------------
 
-hnPathGet :: HashContainer -> Path -> TeleHash Path
-hnPathGet = assert False undefined
-{-
-  hn.pathGet = function(path)
-  {
-    if(["ipv4","ipv6","http","relay","webrtc","local"].indexOf(path.type) == -1)
-    {
-      warn("unknown path type", JSON.stringify(path));
-      return path;
-    }
-
-    var match = pathMatch(path, hn.paths);
-    if(match) return match;
-
-    // preserve original
-    if(!path.json) path.json = JSON.parse(JSON.stringify(path));
-
-    debug("adding new path",hn.paths.length,JSON.stringify(path.json));
-    info(hn.hashname,path.type,JSON.stringify(path.json));
-    hn.paths.push(path);
-
-    // always default to minimum priority
-    if(typeof path.priority != "number") path.priority = (path.type=="relay")?-1:0;
-
-    // track overall if they have a public IP network
-    if(!isLocalPath(path)) hn.isPublic = true;
-
-    return path;
-  }
-
--}
--- ---------------------------------------------------------------------
-
 -- | Try to send the packet, return True on success
 hnSend :: HashContainer -> Telex -> TeleHash Bool
 hnSend hn packet = do
@@ -1245,7 +1219,8 @@ hnSend hn packet = do
       let (hn',lined) = crypt_lineize_1a hn msg
       -- directed packets are preferred, just dump and done
       case tTo packet of
-        Just to -> (swSend sw) to lined (Just hn')
+        Just to -> do (swSend sw) to lined (Just hn')
+                      return True
     Nothing -> do
       -- we've fallen through, either no line, or no valid paths
       logT $ "alive failthrough" ++ show (hSendSeek hn, Map.keys (hVias hn))
@@ -1259,14 +1234,17 @@ hnSend hn packet = do
       case mp of
         Nothing -> do
           logT $ "hnSend: hnOpen returned Nothing"
-          return ()
+          return False
         Just lpacket -> do
           logT $ "hnSend: hnOpen returned " ++ show lpacket
           forM_ (hPaths hn') $ \path -> do
             (swSend sw) path lpacket (Just hn)
+          return True
 
-      assert False undefined
-  return False
+      logT $ "hnSend: must still do send using vias, and retry backoff"
+      return True
+
+  -- return False
 {-
   // try to send a packet to a hashname, doing whatever is possible/necessary
   hn.send = function(packet){
@@ -1733,7 +1711,15 @@ raw hn typ arg callback = do
     }
   }
 -}
-  error "raw not implemented"
+  logT "raw not implemented"
+  return $ Chan { chType = typ
+                , chCallBack = callback
+                , chId = chanId
+                , chHashName = hHashName hn
+                , chLast = Nothing
+                , chSentAt = Nothing
+                , chEnded = False
+                }
 
 {-
 
@@ -1874,7 +1860,9 @@ chanFail :: Channel -> TeleHash ()
 chanFail = assert False undefined
 
 chanTimer :: Channel -> TeleHash ()
-chanTimer = assert False undefined
+chanTimer chan = do
+  logT $ "chanTimer unimplemented"
+  return ()
 
 
 pathValid = assert False undefined
@@ -3079,23 +3067,25 @@ validPathTypes
      $ map (\pt -> PathType pt) ["ipv4","ipv6","http","relay","webrtc","local"]
 
 
-pathGet :: HashContainer -> Path -> TeleHash HashContainer
-pathGet hc path = do
+-- hnPathGet :: HashContainer -> Path -> TeleHash HashContainer
+hnPathGet :: HashContainer -> Path -> TeleHash Path
+hnPathGet hc path = do
 
   if Set.notMember (pType path) validPathTypes
     then do
       logT $ "unknown path type:" ++ show (pType path)
-      return hc
+      return path
     else do
       case pathMatch path (hPaths hc) of
-        Just p -> return hc
+        Just p -> return path
         Nothing -> do
           logT $ "adding new path:" ++ show (length $ hPaths hc,path)
           -- always default to minimum priority
           let path' = path { pPriority = Just (if pType path == PathType "relay" then (-1) else 0)}
-          return $ hc { hPaths = (hPaths hc) ++ [path']
-                      , hIsPublic = not $ isLocalPath path
-                      }
+          putHN $ hc { hPaths = (hPaths hc) ++ [path']
+                     , hIsPublic = not $ isLocalPath path
+                     }
+          return path'
 {-
 
   hn.pathGet = function(path)
@@ -3220,11 +3210,14 @@ function hex2nib(hex)
 -- ---------------------------------------------------------------------
 
 -- | Send the body of the packet in the telex. It is already encrypted
--- TODO: make the types explicitly represent the lineized packet
 ipv4Send :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 ipv4Send path msg _ = do
   logT $ "ipv4Send:" ++ show (path,msg)
-  assert False undefined
+  addr <- io (addrFromHostPort (show $ gfromJust "ipv4Send" $ pIp path) (show $ pPort path))
+
+  sender <- gets swSender
+  sender msg addr
+
 
 -- ---------------------------------------------------------------------
 
@@ -3253,21 +3246,33 @@ sendTelex msg = do
 
 -- ---------------------------------------------------------------------
 
-doNullSendDgram :: String -> NS.SockAddr -> TeleHash ()
+doNullSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
 doNullSendDgram msgJson addr = do
   --logT ("doNullSendDgram[" ++ msgJson ++ "] to " ++ (show addr))
   logT ("doNullSendDgram" )
 
 -- ---------------------------------------------------------------------
 
-doSendDgram :: String -> NS.SockAddr -> TeleHash ()
-doSendDgram msgJson addr = do
+doSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
+doSendDgram (LP msgJson) addr = do
   Just socketh <- gets swH
   io (sendDgram socketh msgJson addr)
 
 
 -- ---------------------------------------------------------------------
 
+sendDgram :: SocketHandle -> BC.ByteString -> NS.SockAddr -> IO ()
+sendDgram socketh msgJson addr =
+  sendstr msgJson
+    where
+      -- Send until everything is done
+      sendstr :: BC.ByteString -> IO ()
+      sendstr omsg
+        | BC.length omsg == 0  = return ()
+        | otherwise = do sent <- SB.sendTo (slSocket socketh) omsg addr
+                         sendstr (BC.drop sent omsg)
+
+{-
 sendDgram :: SocketHandle -> String -> NS.SockAddr -> IO ()
 sendDgram socketh msgJson addr =
   sendstr msgJson
@@ -3278,4 +3283,91 @@ sendDgram socketh msgJson addr =
       sendstr omsg = do sent <- NS.sendTo (slSocket socketh) omsg addr
                         sendstr (genericDrop sent omsg)
 
+-}
 
+-- ---------------------------------------------------------------------
+
+resolve :: String -> String -> IO (NS.AddrInfo,String,String)
+resolve hostname port = do
+  -- Look up the hostname and port.  Either raises an exception
+  -- or returns a nonempty list.  First element in that list
+  -- is supposed to be the best option.
+  addrinfos <- NS.getAddrInfo Nothing (Just hostname) (Just port)
+  let serveraddr = head addrinfos
+
+  (Just resolvedhost,Just servicename) <- (NS.getNameInfo [NS.NI_NUMERICHOST] True True (NS.addrAddress serveraddr))
+  --putStrLn $ "resolve:" ++ (show hostname) ++ " " ++ (show servicename)
+
+  --return (serveraddr,port)
+  return (serveraddr,resolvedhost,servicename)
+
+-- ---------------------------------------------------------------------
+
+addrFromHostPort :: String -> String -> IO NS.SockAddr
+addrFromHostPort hostname port = do
+  (serveraddr,_,_) <- resolve hostname port
+  return (NS.addrAddress serveraddr)
+
+-- ---------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+
+-- Dispatch incoming raw messages
+
+recvTelex :: BC.ByteString -> NS.SockAddr -> TeleHash ()
+recvTelex msg rinfo = do
+    logT ( ("recvTelex:" ++  (show (msg))))
+
+{-
+    switch' <- get
+    put switch' { swCountRx = (swCountRx switch') + 1 }
+    -- switch <- get
+    -- seedsIndex <- gets swSeedsIndex
+
+    (Just hostIP,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
+    let
+      remoteipp = IPP (hostIP ++ ":" ++ port)
+
+    timeNow <- io getClockTime
+    --console.log(["RECV from ", remoteipp, ": ", JSON.stringify(telex)].join(""));
+    logT ("RECV from " ++ (show remoteipp) ++ ":"++ msg
+                  ++ " at " ++ (show timeNow))
+    let
+      maybeRxTelex = parseTelex msg
+
+    case maybeRxTelex of
+      Just rxTelex -> handleRxTelex rxTelex remoteipp timeNow
+      Nothing -> return ()
+-}
+
+{-
+handleRxTelex :: Telex -> IPP -> ClockTime -> TeleHash ()
+handleRxTelex rxTelex remoteipp timeNow = do
+    isOnline <- checkOnline rxTelex remoteipp timeNow
+    case isOnline of
+      False -> return ()
+      True -> do
+        -- // if this is a switch we know, check a few things
+        line <- getOrCreateLine remoteipp timeNow
+        let lstat = checkLine line rxTelex timeNow
+        case lstat of
+          Left reason -> do
+            logT ( "\tLINE FAIL[" ++ reason ++ ", " ++ (show (lineIpp line, lineEnd line)))
+            myNop
+          Right line' -> do
+            -- // we're valid at this point, line or otherwise, track bytes
+            let diff = (lineBsent line') - (teleBr rxTelex)
+            -- console.log(["\tBR ", line.ipp, " [", line.br, " += ",br, "] DIFF ", (line.bsent - t._br)].join(""));
+            logT ("\tBR " ++ (show $ lineIpp line') ++ " [" ++ (show $ lineBr line') ++ " += " ++ (show $ teleMsgLength rxTelex) ++ "] DIFF " ++
+                  (show (diff, (lineBsent line') , (teleBr rxTelex))))
+                   -- (show $ ((lineBsent line') , (teleBr rxTelex)) ))
+
+            logT ( "\tLINE STATUS " ++ (getLineStatus rxTelex))
+            updateTelehashLine line'
+            processCommands rxTelex remoteipp line'
+            processSignals  rxTelex remoteipp line'
+
+        tapSignals (hasSignals rxTelex) rxTelex
+
+        return ()
+-}

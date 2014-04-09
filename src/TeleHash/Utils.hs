@@ -298,7 +298,7 @@ instance FromJSON Id where
 data Switch = Switch
 
        { swH :: Maybe SocketHandle
-       , swSender :: (String -> SockAddr -> TeleHash ())
+       , swSender :: (LinePacket -> SockAddr -> TeleHash ())
 
        , swSeeds :: [HashName]
        , swLocals :: [String]
