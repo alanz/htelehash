@@ -101,9 +101,9 @@ run ch1 ch2 = do
   loadId testId
   logT $ "loading id done"
 
-  crypt_deopenize_1a (Binary.decode $ BL.pack p1)
+  -- crypt_deopenize_1a (Binary.decode $ BL.pack p1)
 
-  error "done for now"
+  -- error "done for now"
 
   -- load the seeds, hardcoded for now
   mapM_ addSeed initialSeeds
@@ -1560,6 +1560,11 @@ openize to = do
       return Nothing
     Just _ -> do
       timeNow <- io getClockTime
+      let
+        to2 = if hLineAt to == Nothing
+                then to {hLineAt = Just timeNow }
+                else to
+      putHN to2
       let inner = Telex
             { tId = Nothing
             , tType = Nothing
@@ -1569,16 +1574,11 @@ openize to = do
             , tPacket = Nothing
             , tCsid = Nothing
 
-            , tAt = hLineAt to
-            , tToHash = Just (hHashName to)
+            , tAt = hLineAt to2
+            , tToHash = Just (hHashName to2)
             , tFrom = Just (swParts sw)
-            , tLine = Just (hLineOut to)
+            , tLine = Just (hLineOut to2)
             }
-      let
-        to2 = if hLineAt to == Nothing
-                then to {hLineAt = Just timeNow }
-                else to
-      putHN to2
       lp <- crypt_openize_1a to2 inner
       return (Just lp)
 
