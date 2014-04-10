@@ -3,6 +3,7 @@ module TeleHash.Packet
     Packet(..)
   , Head (..)
   , Body(..)
+  , unBody
   , newPacket
   , LinePacket(..)
   , unLP
@@ -51,7 +52,9 @@ any app-specific usage.
 
  -}
 
-type Body = BC.ByteString
+data Body = Body BC.ByteString
+          deriving Show
+unBody (Body b) = b
 
 data Packet = Packet { paHead :: Head
                      , paBody :: Body
@@ -60,7 +63,7 @@ data Packet = Packet { paHead :: Head
 
 newPacket :: Packet
 newPacket = Packet { paHead = HeadEmpty
-                   , paBody = BC.empty
+                   , paBody = Body BC.empty
                    }
 
 -- ---------------------------------------------------------------------
@@ -70,9 +73,11 @@ instance Binary Packet where
              put (paBody p)
 
   get = do h  <- get
-           pb <- getRemainingLazyByteString
+           -- pb <- getRemainingLazyByteString
 
-           return (newPacket { paHead = h, paBody = lbsTocbs pb})
+           -- return (newPacket { paHead = h, paBody = lbsTocbs pb})
+           pb <- get
+           return (newPacket { paHead = h, paBody = pb})
 
 -- ---------------------------------------------------------------------
 
@@ -93,6 +98,13 @@ instance Binary Head where
                          return (HeadJson b)
            return h
 
+instance Binary Body where
+  put (Body bs) = mapM_ put $ BC.unpack bs
+
+  get = do bs <- get
+           return (Body bs)
+
+
 -- ---------------------------------------------------------------------
 
 data LinePacket = LP BL.ByteString
@@ -103,7 +115,9 @@ unLP (LP x) = x
 -- ---------------------------------------------------------------------
 
 toLinePacket :: Packet -> LinePacket
-toLinePacket p = LP $ encode p
+-- toLinePacket p = LP $ encode p
+toLinePacket (Packet h (Body b)) = LP $ BL.append (encode h) (cbsTolbs b)
+
 
 -- ---------------------------------------------------------------------
 
@@ -181,12 +195,12 @@ p2 =
 
 testp1 = do
   let p1b = BL.pack p1
-  let p@(Packet h b) = decode p1b :: Packet
+  let p@(Packet h (Body b)) = decode p1b :: Packet
   putStrLn $ show p
   putStrLn $ show (BC.length b)
 
 testp2 = do
   let p1b = BL.pack p2
-  let p@(Packet h b) = decode p1b :: Packet
+  let p@(Packet h (Body b)) = decode p1b :: Packet
   putStrLn $ show p
   putStrLn $ show (BC.length b)

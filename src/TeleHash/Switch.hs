@@ -304,7 +304,9 @@ ipv4Pid  = PId 2
 initialSeeds :: [SeedInfo]
 initialSeeds =
 
- [ SI
+ [ 
+{-
+  SI
    { sId = "f50f423ce7f94fe98cdd09268c7e57001aed300b23020840a84a881c76739471"
    , sAdmin =  "http://github.com/quartzjer"
    , sPaths =
@@ -341,9 +343,10 @@ initialSeeds =
       ]
     , sIsBridge = True
     }
+ ,
+-}
 
-{-
- ,  SI
+  SI
     { sId = "89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de"
     , sAdmin = "http://github.com/quartzjer"
     , sPaths =
@@ -393,7 +396,6 @@ initialSeeds =
         ]
     , sIsBridge = True
     }
--}
  ]
 
 -- ---------------------------------------------------------------------
@@ -1284,7 +1286,7 @@ hnSend hn packet = do
           logT $ "hnSend: hnOpen returned Nothing"
           return False
         Just lpacket -> do
-          logT $ "hnSend: hnOpen returned " ++ show lpacket
+          logT $ "hnSend: hnOpen returned packet" -- ++ show lpacket
           forM_ (hPaths hn') $ \path -> do
             (swSend sw) path lpacket (Just hn)
           return True
@@ -3305,12 +3307,12 @@ function hex2nib(hex)
 -- | Send the body of the packet in the telex. It is already encrypted
 ipv4Send :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 ipv4Send path msg _ = do
-  logT $ "ipv4Send:" ++ show (path,msg)
+  logT $ "ipv4Send:" ++ show (path)
+  logT $ "ipv4Send:" ++ show (B16.encode $ lbsTocbs $ unLP msg)
   addr <- io (addrFromHostPort (show $ gfromJust "ipv4Send" $ pIp path) (show $ pPort path))
 
   sender <- gets swSender
   sender msg addr
-
 
 -- ---------------------------------------------------------------------
 
