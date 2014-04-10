@@ -303,7 +303,47 @@ ipv4Pid  = PId 2
 
 initialSeeds :: [SeedInfo]
 initialSeeds =
+
  [ SI
+   { sId = "f50f423ce7f94fe98cdd09268c7e57001aed300b23020840a84a881c76739471"
+   , sAdmin =  "http://github.com/quartzjer"
+   , sPaths =
+       [ Path { pType = PathType "ipv4"
+              , pIp = Just "208.126.199.195"
+              , pPort = 42424
+              , pHttp = ""
+              , pLastIn = Nothing
+              , pLastOut = Nothing
+              , pRelay = Nothing
+              , pId = Nothing
+              , pPriority = Nothing
+              , pIsSeed = True
+              }
+     
+{-  
+    }, {
+      "type": "ipv6",
+      "ip": "2001:470:c0a6:3::10",
+      "port": 42424
+    }, {
+      "type": "http",
+      "http": "http://208.126.199.195:42424"
+    }],
+-}
+      ]
+    , sParts =
+      [("2a", "8a5235d7cebb82d48a945e7c4b301efed40503d50ea1063464fe839b12278d93")
+      ,("1a", "b3c9341ff5d11670c1e1c918ad51631b1251448a")
+      ]
+    , sKeys =
+      [ ("2a", "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5mWOu3o0chHcpcxPYX43fD6DTWGkCj09QaWerHbTX1Gua5eW8VdPOM/Ki21WEY2xcBa55/s37hIRP1XZveFiWgIXft9g/L+1AsF56cO0ZGnHhrp5Wabrt+L5mVuWg2VcSAUQ/gdoSLmDRTdOc0ruzroIN4a4Wnfk6rwvFYq/LfTj2w5cBD3ziVts4XSicX9fnmWElrTKfGLWyC6W5ICbLZ0BmTt9CZLbdNmotuYqQkPXPJ0wccsWAuI8yjbmU2my+F+vakWbGFvMSCBlLlQLXMTnLbLtgnwgeujTHiJaB0Iycw5Q9FS0RiQ0QeFqUvmMX9BezKfayq2hHjcob58WbwIDAQAB")
+      , ("1a", "idT0VmmEmSdDF1eMrajIVHP0XZ/8Udgeas1Zxy0va5tD/KP393Ri3w==")
+      ]
+    , sIsBridge = True
+    }
+
+{-
+ ,  SI
     { sId = "89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de"
     , sAdmin = "http://github.com/quartzjer"
     , sPaths =
@@ -353,6 +393,7 @@ initialSeeds =
         ]
     , sIsBridge = True
     }
+-}
  ]
 
 -- ---------------------------------------------------------------------
@@ -3307,6 +3348,7 @@ doNullSendDgram msgJson addr = do
 
 doSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
 doSendDgram (LP msgJson) addr = do
+  logT $ "doSendDgram to:" ++ show addr
   Just socketh <- gets swH
   io (sendDgram socketh (lbsTocbs msgJson) addr)
 

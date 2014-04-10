@@ -26,7 +26,9 @@ module TeleHash.Crypto1a
 
 import Control.Exception
 import Control.Monad.State
+import Crypto.Cipher.AES
 import Crypto.MAC.HMAC
+import Crypto.Number.Serialize
 import Crypto.PubKey.ECC.ECDSA
 import Crypto.PubKey.ECC.Generate
 import Crypto.Random
@@ -34,8 +36,7 @@ import Data.ByteString.Base64
 import Data.List
 import Data.Maybe
 import Data.Word
-import Crypto.Number.Serialize
-import Crypto.Cipher.AES
+import System.Time
 import TeleHash.Convert
 import TeleHash.Packet
 import TeleHash.Utils
@@ -237,38 +238,53 @@ Note: 1. the domain parameters are the agreed curve, i.e. SEC_p160r1
   logT $ "crypt_openize_1a:(sharedX)=" ++ show (sharedX)
 
   --  encrypt the inner
-  let (Just longkey) = i2ospOf 20 sharedX
-      key = BC.take 16 longkey
+  let ourCrypto = gfromJust "crypt_openize_1a" (swIdCrypto sw)
+      Public1a (PublicKey _ ourPub) = hcPublic ourCrypto
+      Private1a (PrivateKey _ ourPriv) = gfromJust "crypt_openize_1a.2" $ hcPrivate ourCrypto
+
+      (TOD atSeconds _ ) = (gfromJust "crypt_openize_1a.at" (tAt inner))
+
+      from = (gfromJust "crypt_openize_1a.from" (tFrom inner))
+      fromJS = "{" ++ (intercalate "," $ map (\(k,v) -> show k ++ ":" ++ show v) from) ++ "}"
+{-
+
+crypt_openize_1a:js=
+{"at":"1397156337"
+,"to":"89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de"
+,"from":{"1a":"o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg=="}"
+,"line":"7d544053d7ee09ea9ba42ac96c508edc"}
+
+-}
 
       -- Construct the JSON for the inner packet
-      js = "{\"at\":\"" ++ (show (gfromJust "crypt_openize_1a.at" (tAt inner))) ++ "\"," ++
-           "\"to\":\"" ++  (show (gfromJust "crypt_openize_1a.to" (tToHash inner))) ++ "\"," ++
-           "\"from\":" ++  (show (gfromJust "crypt_openize_1a.from" (tFrom inner))) ++ "\"," ++
-           "\"line\":" ++  (show (gfromJust "crypt_openize_1a.line" (tLine inner))) ++ "\"" ++
-           "}"
+      js =("{\"at\":\"" ++ (show atSeconds) ++ "\"," ++
+           "\"to\":"    ++ (show $ unHN (gfromJust "crypt_openize_1a.to" (tToHash inner))) ++ "," ++
+           "\"from\":"  ++ fromJS ++ "\"," ++
+           "\"line\":"  ++ (show (gfromJust "crypt_openize_1a.line" (tLine inner))) ++
+           "}")
 
-      innerPacket = Packet (HeadJson (cbsTolbs $ BC.pack js)) key
+  logT $ "crypt_openize_1a:js=" ++ js
+
+  let innerPacket = Packet (HeadJson (cbsTolbs $ BC.pack js)) (pointTow8s ourPub)
       body = lbsTocbs $ Binary.encode innerPacket
+
+      (Just longkey) = i2ospOf 20 sharedX
+      key = BC.take 16 longkey
       Just iv = i2ospOf 16 1
       cbody = encryptCTR (initAES key) iv body
 
   -- prepend the line public key and hmac it
 
-  let ourCrypto = gfromJust "crypt_openize_1a" (swIdCrypto sw)
-      -- Public1a (PublicKey _ pub) = hcPublic ourCrypto
-      Private1a (PrivateKey _ ourPriv) = gfromJust "crypt_openize_1a.2" $ hcPrivate ourCrypto
-
   -- var secret = id.cs["1a"].private.deriveSharedSecret(to.public);
-  let (ECC.Point secretX _Y) = ECC.pointMul curve ourPriv linePub
+  let (ECC.Point secretX _Y) = ECC.pointMul curve ourPriv toPublic
       Just secretMac = i2ospOf 20 secretX
       macd = BC.append (pointTow8s linePub) cbody
       hmacVal = hmac SHA1.hash 64 secretMac macd
 
   -- create final body
   let bodyFinal = BC.append hmacVal macd
-      body = toLinePacket $ Packet (HeadByte 0x1a) bodyFinal
 
-  return body
+  return $ toLinePacket $ Packet (HeadByte 0x1a) bodyFinal
 
 
 
@@ -829,6 +845,29 @@ packet_raw(inner)hex dump
  0x78, 0x0e, 0x9d, 0x35, 0x27, 0x19, 0xf9, 0x86, 0x3f, 0x7d, 0xc5, 0xf8, 0x7f, 0x20, 0xad, 0xb1,
  0x23, 0xb6, 0xbb, 0xd2, 0xf9, 0x2e,
 hex dump done
+-}
+t_inner :: [Word8]
+t_inner =
+ [
+ 0x00, 0xbc, 0x7b, 0x22, 0x74, 0x6f, 0x22, 0x3a, 0x22, 0x66, 0x35, 0x30, 0x66, 0x34, 0x32, 0x33,
+ 0x63, 0x65, 0x37, 0x66, 0x39, 0x34, 0x66, 0x65, 0x39, 0x38, 0x63, 0x64, 0x64, 0x30, 0x39, 0x32,
+ 0x36, 0x38, 0x63, 0x37, 0x65, 0x35, 0x37, 0x30, 0x30, 0x31, 0x61, 0x65, 0x64, 0x33, 0x30, 0x30,
+ 0x62, 0x32, 0x33, 0x30, 0x32, 0x30, 0x38, 0x34, 0x30, 0x61, 0x38, 0x34, 0x61, 0x38, 0x38, 0x31,
+ 0x63, 0x37, 0x36, 0x37, 0x33, 0x39, 0x34, 0x37, 0x31, 0x22, 0x2c, 0x22, 0x66, 0x72, 0x6f, 0x6d,
+ 0x22, 0x3a, 0x7b, 0x22, 0x31, 0x61, 0x22, 0x3a, 0x22, 0x37, 0x32, 0x39, 0x62, 0x32, 0x32, 0x35,
+ 0x32, 0x65, 0x63, 0x31, 0x37, 0x34, 0x30, 0x65, 0x36, 0x37, 0x34, 0x33, 0x37, 0x61, 0x35, 0x30,
+ 0x35, 0x31, 0x38, 0x61, 0x31, 0x63, 0x31, 0x30, 0x33, 0x31, 0x34, 0x64, 0x37, 0x36, 0x63, 0x33,
+ 0x61, 0x22, 0x7d, 0x2c, 0x22, 0x6c, 0x69, 0x6e, 0x65, 0x22, 0x3a, 0x22, 0x34, 0x65, 0x32, 0x33,
+ 0x37, 0x36, 0x31, 0x61, 0x32, 0x62, 0x66, 0x31, 0x61, 0x36, 0x38, 0x38, 0x34, 0x37, 0x35, 0x33,
+ 0x66, 0x31, 0x61, 0x38, 0x32, 0x64, 0x62, 0x66, 0x36, 0x64, 0x65, 0x34, 0x22, 0x2c, 0x22, 0x61,
+ 0x74, 0x22, 0x3a, 0x31, 0x33, 0x39, 0x37, 0x30, 0x36, 0x39, 0x36, 0x36, 0x31, 0x7d, 0xa3, 0x45,
+ 0x0b, 0xfc, 0x3e, 0xaa, 0x43, 0xe7, 0x5c, 0x49, 0x7e, 0xe1, 0x0a, 0x8c, 0x8c, 0x8c, 0xb0, 0xd8,
+ 0x78, 0x0e, 0x9d, 0x35, 0x27, 0x19, 0xf9, 0x86, 0x3f, 0x7d, 0xc5, 0xf8, 0x7f, 0x20, 0xad, 0xb1,
+ 0x23, 0xb6, 0xbb, 0xd2, 0xf9, 0x2e
+ ]
+
+{-
+
 sending open packet 293 {"type":"ipv4","ip":"208.126.199.195","port":42424}
 hex dump of packet out
  0x00, 0x01, 0x1a, 0x1b, 0xb0, 0x92, 0x16, 0xc6, 0x00, 0xe7, 0x7c, 0xa2, 0x27, 0x26, 0x18, 0x33,
@@ -875,13 +914,64 @@ test_gen_shared_secret = r
 expected_shared_secret = "0190b0b90edd299a0ba6fda6726d8704"
 
 
+test_aes_CTR = r
+  where
+     body = lbsTocbs $ BL.pack t_inner
+
+     -- (Just longkey) = i2ospOf 20 sharedX
+     -- key = BC.take 16 longkey
+     key = lbsTocbs $ BL.pack t_secret
+     Just iv = i2ospOf 16 1
+     cbody = encryptCTR (initAES key) iv body
+     r = B16.encode cbody
+
+{-
+"
+1259a8b2d794ef019ac83aee49c493cb
+64b884049211944479a6086b0d6fb8a6
+fc9900e6cab45f58b11221e357aa7453
+5d6645be44ec759e398b6ce4a0d36d41
+ffa804b4961726a9ce9a5af63548f252
+c2b257a4a8b6feb43a8fcb38170e9483
+be905d6ea71ce1aa363917fc095f6fc7
+462336a9ee6cef44aba57ca3a5e0de9a
+2821d444e3d3482f4ed588580ecfa914
+f1e0afa062a36e9f9194b97baf4ad0bb
+804b3023d5f5153d51c5ef99796330a5
+a576335117b62092e0ce434b64c431ec
+30af6c0b096e91deb7dced45838d3597
+b4680de870d90d6788938e95691dde9c
+7af0b642da25"
+-}
 
 
+innerString = lbsTocbs $ BL.pack t_inner
+{-
+
+"\NUL\188
+{\"to\":\"f50f423ce7f94fe98cdd09268c7e57001aed300b23020840a84a881c76739471\"
+,\"from\":{\"1a\":\"729b2252ec1740e67437a50518a1c10314d76c3a\"}
+,\"line\":\"4e23761a2bf1a6884753f1a82dbf6de4\"
+,\"at\":1397069661}
+\163E\v\252>\170C\231\\I~\225\n\140\140\140\176\216x\SO\157\&5'\EM\249\134?}\197\248\DEL \173\177#\182\187\210\249."
+
+-}
 
 
+inner_key :: [Word8]
+inner_key =
+ [
+ 0xa3, 0x45, 0x0b, 0xfc, 0x3e, 0xaa, 0x43, 0xe7, 0x5c, 0x49, 0x7e, 0xe1, 0x0a, 0x8c, 0x8c, 0x8c, 0xb0, 0xd8,
+ 0x78, 0x0e, 0x9d, 0x35, 0x27, 0x19, 0xf9, 0x86, 0x3f, 0x7d, 0xc5, 0xf8, 0x7f, 0x20, 0xad, 0xb1,
+ 0x23, 0xb6, 0xbb, 0xd2, 0xf9, 0x2e
+ ]
 
+b64_inner_key = encode $ lbsTocbs $ BL.pack inner_key
+{-
+"o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg=="
 
+{"1a":"o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg==","1a_secret":"iollyIcHaGeD/JpUNn/7ef1QAzE="}
+-}
 
-
-
+-- ---------------------------------------------------------------------
 
