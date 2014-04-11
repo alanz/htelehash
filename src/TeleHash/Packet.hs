@@ -12,8 +12,10 @@ module TeleHash.Packet
 
   -- debug
   , p1, p2
+  , myencode
   ) where
 
+import Crypto.Number.Serialize
 import Data.Binary
 import Data.Binary.Get
 import TeleHash.Convert
@@ -87,7 +89,7 @@ instance Binary Head where
   put (HeadByte b) = do put (1 :: Word16)
                         put b
   put (HeadJson x) = do put ((fromIntegral $ BL.length x) :: Word16)
-                        put x
+                        mapM_ put $ BL.unpack x
 
   get = do hb <- get :: Get Word16
            h <- case hb of
@@ -116,8 +118,17 @@ unLP (LP x) = x
 
 toLinePacket :: Packet -> LinePacket
 -- toLinePacket p = LP $ encode p
-toLinePacket (Packet h (Body b)) = LP $ BL.append (encode h) (cbsTolbs b)
+toLinePacket (Packet h (Body b)) = LP $ BL.append (myencode h) (cbsTolbs b)
 
+myencode :: Head -> BL.ByteString
+myencode (HeadEmpty) = BL.pack [0,0]
+myencode (HeadByte b) = BL.pack [0,1,b]
+myencode (HeadJson x) = BL.append (cbsTolbs bb) x
+  where
+    xlen :: Integer
+    xlen = fromIntegral (BL.length x)
+
+    Just bb = i2ospOf 2 xlen 
 
 -- ---------------------------------------------------------------------
 

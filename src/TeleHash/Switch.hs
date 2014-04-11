@@ -302,10 +302,45 @@ ipv4Pid  = PId 2
 
 
 initialSeeds :: [SeedInfo]
-initialSeeds =
+-- initialSeeds = [seed195,seed253]
+-- initialSeeds = [seed253]
+initialSeeds = [seedLocal]
 
- [ 
-{-
+
+seedLocal:: SeedInfo
+seedLocal =
+
+  SI
+   { sId = "3036d9b6f9525660b71d58bacd80d0ef0f6e191f1622daefd461823c366eb4fc"
+   , sAdmin =  "alanz"
+   , sPaths =
+       [ Path { pType = PathType "ipv4"
+              , pIp = Just "10.0.0.42"
+              , pPort = 42424
+              , pHttp = ""
+              , pLastIn = Nothing
+              , pLastOut = Nothing
+              , pRelay = Nothing
+              , pId = Nothing
+              , pPriority = Nothing
+              , pIsSeed = True
+              }
+      ]
+    , sParts =
+      [("1a", "7ce35806dc84943da12ea8d3a93bbcfdcf83e6b9")
+      ]
+
+    , sKeys =
+      [ ("1a", "KaOZRKU3ouxNLGBHQV4TFAGrwM8pF8PncWC9XLcx+7H+fHebOTdcyg==")
+      ]
+    , sIsBridge = True
+    }
+
+
+
+seed195:: SeedInfo
+seed195 =
+
   SI
    { sId = "f50f423ce7f94fe98cdd09268c7e57001aed300b23020840a84a881c76739471"
    , sAdmin =  "http://github.com/quartzjer"
@@ -343,9 +378,10 @@ initialSeeds =
       ]
     , sIsBridge = True
     }
- ,
--}
 
+
+seed253 :: SeedInfo
+seed253 =
   SI
     { sId = "89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de"
     , sAdmin = "http://github.com/quartzjer"
@@ -396,7 +432,6 @@ initialSeeds =
         ]
     , sIsBridge = True
     }
- ]
 
 -- ---------------------------------------------------------------------
 
@@ -3313,6 +3348,7 @@ ipv4Send path msg _ = do
 
   sender <- gets swSender
   sender msg addr
+  return ()
 
 -- ---------------------------------------------------------------------
 

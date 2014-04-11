@@ -259,11 +259,13 @@ crypt_openize_1a:js=
       -- Construct the JSON for the inner packet
       js =("{\"at\":\"" ++ (show atSeconds) ++ "\"," ++
            "\"to\":"    ++ (show $ unHN (gfromJust "crypt_openize_1a.to" (tToHash inner))) ++ "," ++
-           "\"from\":"  ++ fromJS ++ "\"," ++
+           "\"from\":"  ++ fromJS ++ "," ++
            "\"line\":"  ++ (show (gfromJust "crypt_openize_1a.line" (tLine inner))) ++
            "}")
 
   logT $ "crypt_openize_1a:js=" ++ js
+
+  logT $ "crypt_openize_1a:ourPub hex=" ++ (show $ B16.encode $ pointTow8s ourPub)
 
   let innerPacket = Packet (HeadJson (cbsTolbs $ BC.pack js)) (Body $ pointTow8s ourPub)
       body = lbsTocbs $ Binary.encode innerPacket
@@ -272,6 +274,11 @@ crypt_openize_1a:js=
       key = BC.take 16 longkey
       Just iv = i2ospOf 16 1
       cbody = encryptCTR (initAES key) iv body
+
+  let (Packet h b) = innerPacket
+  logT $ "crypt_openize_1a:body=" ++ show innerPacket
+  logT $ "crypt_openize_1a:body.h=" ++ (show $ myencode h)
+  logT $ "crypt_openize_1a:body.b=" ++ show b
 
   -- prepend the line public key and hmac it
 
@@ -1162,3 +1169,6 @@ inner_encrypted2 =
  0x11, 0xb4, 0x62, 0x1a, 0x36, 0x49, 0x36, 0xd2, 0x09, 0x96, 0x4a, 0xe2, 0x69, 0xa3, 0x94, 0x6e,
  0x10, 0x92, 0xb2, 0x09, 0x44
  ]
+
+
+err = B16.decode "00ce00000000000000ce7b226174223a2231333937323239383430222c22746f223a2231343232366138326535623561396364346464383161386161363162636261643738636635336530323637666230623534386432363762323332373433633161222c2266726f6d223a7b223161223a226f30554c2f443671512b646353583768436f794d6a4c4459654136644e53635a2b59592f666358346679437473534f3275394c354c673d3d227d2c226c696e65223a223336623238653535303430306333313932653032343835356531653437623263227dc2a3450bc3bc3ec2aa43c3a75c497ec3a10ac28cc28cc28cc2b0c398780ec29d352719c3b9c2863f7dc385c3b87f20c2adc2b123c2b6c2bbc392c3b92e"
