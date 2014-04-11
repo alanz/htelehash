@@ -44,7 +44,6 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.Socket as NS
@@ -608,8 +607,9 @@ loadId anId = do
   logT $ "loadId:" ++ show anId
   sw <- get
   -- put $ sw { swParts = [("1a",id1a anId),("1a_secret",id1a_secret anId)] }
+  let (Hash hash1a) = mkHashFromB64 $ id1a anId
   put $ sw { swId = Map.fromList [("1a",id1a anId),("1a_secret",id1a_secret anId)]
-           , swParts = [("1a",id1a anId)]
+           , swParts = [("1a",hash1a)]
            }
 
   loadkeys

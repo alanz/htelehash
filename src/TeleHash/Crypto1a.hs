@@ -9,6 +9,8 @@ module TeleHash.Crypto1a
   , crypt_deopenize_1a
   , crypt_openline_1a
   , crypt_lineize_1a
+
+  , mkHashFromB64
   ) where
 
 -- | Implement Cypher Suite 1a for TeleHash, as per
@@ -164,13 +166,10 @@ mkHashFromBS bs =
    Hash (show digest)
 
 mkHashFromB64 :: String -> Hash
-mkHashFromB64 str =
-  let
-    -- digest = SHA.sha1 $ BL.fromChunks [BC.pack str]
-    digest = SHA1.hash $ BC.pack str
-  in
-   -- B64.encode $ BL.unpack $ SHA.bytestringDigest digest
-   Hash (show digest)
+mkHashFromB64 str = r
+  where
+    Right bs = decode $ BC.pack str
+    r = Hash (BC.unpack $ B16.encode $ SHA1.hash $ bs)
 
 -- ---------------------------------------------------------------------
 
@@ -268,7 +267,8 @@ crypt_openize_1a:js=
   logT $ "crypt_openize_1a:ourPub hex=" ++ (show $ B16.encode $ pointTow8s ourPub)
 
   let innerPacket = Packet (HeadJson (cbsTolbs $ BC.pack js)) (Body $ pointTow8s ourPub)
-      body = lbsTocbs $ Binary.encode innerPacket
+      (LP innerPacketBody) = toLinePacket innerPacket
+      body = lbsTocbs innerPacketBody
 
       (Just longkey) = i2ospOf 20 sharedX
       key = BC.take 16 longkey
@@ -277,8 +277,10 @@ crypt_openize_1a:js=
 
   let (Packet h b) = innerPacket
   logT $ "crypt_openize_1a:body=" ++ show innerPacket
-  logT $ "crypt_openize_1a:body.h=" ++ (show $ myencode h)
-  logT $ "crypt_openize_1a:body.b=" ++ show b
+  logT $ "crypt_openize_1a:body.h=" ++ (show $ B16.encode $ lbsTocbs $ myencode h)
+  -- logT $ "crypt_openize_1a:body.b=" ++ (show $ B16.encode $ lbsTocbs $ Binary.encode b)
+  let (LP xx) = toLinePacket innerPacket
+  logT $ "crypt_openize_1a:innerPacket=" ++ (show $ B16.encode $ lbsTocbs xx)
 
   -- prepend the line public key and hmac it
 
@@ -1171,4 +1173,16 @@ inner_encrypted2 =
  ]
 
 
-err = B16.decode "00ce00000000000000ce7b226174223a2231333937323239383430222c22746f223a2231343232366138326535623561396364346464383161386161363162636261643738636635336530323637666230623534386432363762323332373433633161222c2266726f6d223a7b223161223a226f30554c2f443671512b646353583768436f794d6a4c4459654136644e53635a2b59592f666358346679437473534f3275394c354c673d3d227d2c226c696e65223a223336623238653535303430306333313932653032343835356531653437623263227dc2a3450bc3bc3ec2aa43c3a75c497ec3a10ac28cc28cc28cc2b0c398780ec29d352719c3b9c2863f7dc385c3b87f20c2adc2b123c2b6c2bbc392c3b92e"
+
+-- -------------------------------------------------------------
+{-
+  console.log("AZ inner.js.from=",inner.js.from,crypto.createHash("sha1").update(inner.body).digest("hex"));
+
+AZ inner.js.from= { '1a': 'o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg==' } 729b2252ec1740e67437a50518a1c10314d76c3a
+-}
+testHash = B16.encode r
+  where
+    Right bs = decode "o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg=="
+    r = SHA1.hash $ bs
+
+
