@@ -256,7 +256,7 @@ crypt_openize_1a:js=
 -}
 
       -- Construct the JSON for the inner packet
-      js =("{\"at\":\"" ++ (show atSeconds) ++ "\"," ++
+      js =("{\"at\":" ++ (show atSeconds) ++ "," ++
            "\"to\":"    ++ (show $ unHN (gfromJust "crypt_openize_1a.to" (tToHash inner))) ++ "," ++
            "\"from\":"  ++ fromJS ++ "," ++
            "\"line\":"  ++ (show (gfromJust "crypt_openize_1a.line" (tLine inner))) ++

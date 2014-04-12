@@ -326,8 +326,12 @@ seedLocal =
               }
       ]
     , sParts =
-      [("1a", "7ce35806dc84943da12ea8d3a93bbcfdcf83e6b9")
-      ]
+       [
+         ("3a", "d4b78855e6cee2d005753ef4abe8bd05cc014efdd2bdb9c7994d34c712020a8e")
+       , ("2a", "c216b2ccb1a832f0e893c847b0ef1f81d0a00f9fd0708b845299715226c87112")
+       , ("1a", "7ce35806dc84943da12ea8d3a93bbcfdcf83e6b9")
+       ]
+
 
     , sKeys =
       [ ("1a", "KaOZRKU3ouxNLGBHQV4TFAGrwM8pF8PncWC9XLcx+7H+fHebOTdcyg==")
