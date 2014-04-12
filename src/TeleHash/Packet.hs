@@ -5,6 +5,9 @@ module TeleHash.Packet
   , Body(..)
   , unBody
   , newPacket
+  , headLen
+  , bodyLen
+  , packetLen
   , LinePacket(..)
   , unLP
   , toLinePacket
@@ -20,8 +23,9 @@ import Data.Binary
 import Data.Binary.Get
 import TeleHash.Convert
 
-import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Lazy as BL
 
 
 {-
@@ -68,6 +72,16 @@ newPacket = Packet { paHead = HeadEmpty
                    , paBody = Body BC.empty
                    }
 
+headLen :: Packet -> Int
+headLen (Packet HeadEmpty _)     = 2
+headLen (Packet (HeadByte _) _)  = 3
+headLen (Packet (HeadJson bs) _) = 2 + (fromIntegral $ BL.length bs)
+
+bodyLen :: Packet -> Int
+bodyLen (Packet _ (Body bs)) = fromIntegral $ BC.length bs
+
+packetLen p = headLen p + bodyLen p
+
 -- ---------------------------------------------------------------------
 
 instance Binary Packet where
@@ -103,8 +117,8 @@ instance Binary Head where
 instance Binary Body where
   put (Body bs) = mapM_ put $ BC.unpack bs
 
-  get = do bs <- get
-           return (Body bs)
+  get = do bs <- getRemainingLazyByteString
+           return (Body $ lbsTocbs bs)
 
 
 -- ---------------------------------------------------------------------
@@ -128,13 +142,13 @@ myencode (HeadJson x) = BL.append (cbsTolbs bb) x
     xlen :: Integer
     xlen = fromIntegral (BL.length x)
 
-    Just bb = i2ospOf 2 xlen 
+    Just bb = i2ospOf 2 xlen
 
 -- ---------------------------------------------------------------------
 
 -- |Note: this will throw an exception is the decode fails
-fromLinePacket :: LinePacket -> Packet
-fromLinePacket (LP bs) = decode bs
+fromLinePacket :: LinePacket -> Maybe Packet
+fromLinePacket (LP bs) = Just $ decode bs
 
 -- ---------------------------------------------------------------------
 
@@ -215,3 +229,27 @@ testp2 = do
   let p@(Packet h (Body b)) = decode p1b :: Packet
   putStrLn $ show p
   putStrLn $ show (BC.length b)
+
+-- ---------------------------------------------------------------------
+
+-- Received open packet
+-- RECV from IPP "10.0.0.42:42424":"00011adee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b4679c59fbc93a2267e1c2b7cf4bfe832f0fb07221f8654a758d6a63200979f9367e046379aa1f4d27f74be6ae9367f4ff655820f2e0dedea70c6a8e32084180a464993e625803fa9774ac99a50c2e63fa637a07a2ae52860a1961f630c51d4f6779c7409c80497f52c91c69ed812261f2dcb5c1675b24d978a94fb55d9d55ecb772b542aa21c32d9dc704374dcbf53b32579e68cc3a01da6f9fd44ee1a1753919c50a09790c168d2a22069e0bd1f7e7db5410ec540c90f893956ddbdf01fc9ae5a7c82fc832ae72f846a2b1dc3a911dc13aa641fcf83f68ed1d3e6f445f5b82814649b9a127c7ad6fd2e3a8d5b986852c8bca221931e7a09ea1a2e7aff7ea090fdc8eebdd8664bb926909c396c3f7dd01ac38819a6cf7b947a855f8bdc87593e20bda115913056d6935b188308fad9a7873fb95395216d487cb5173a20296b86103715005e1ccbe3bcaae8ee64e4806928dd654a08ed8a7818d4eff2052aaa62c300c7661e678febaf34378a32028e0a3eea83cc87bc9c18742d4daafa3029df15030d7fc2cf916eab082e2424e4f912cadd319aaa39d6a8dc32c4282" at
+
+b16_rx_open = "00011adee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b4679c59fbc93a2267e1c2b7cf4bfe832f0fb07221f8654a758d6a63200979f9367e046379aa1f4d27f74be6ae9367f4ff655820f2e0dedea70c6a8e32084180a464993e625803fa9774ac99a50c2e63fa637a07a2ae52860a1961f630c51d4f6779c7409c80497f52c91c69ed812261f2dcb5c1675b24d978a94fb55d9d55ecb772b542aa21c32d9dc704374dcbf53b32579e68cc3a01da6f9fd44ee1a1753919c50a09790c168d2a22069e0bd1f7e7db5410ec540c90f893956ddbdf01fc9ae5a7c82fc832ae72f846a2b1dc3a911dc13aa641fcf83f68ed1d3e6f445f5b82814649b9a127c7ad6fd2e3a8d5b986852c8bca221931e7a09ea1a2e7aff7ea090fdc8eebdd8664bb926909c396c3f7dd01ac38819a6cf7b947a855f8bdc87593e20bda115913056d6935b188308fad9a7873fb95395216d487cb5173a20296b86103715005e1ccbe3bcaae8ee64e4806928dd654a08ed8a7818d4eff2052aaa62c300c7661e678febaf34378a32028e0a3eea83cc87bc9c18742d4daafa3029df15030d7fc2cf916eab082e2424e4f912cadd319aaa39d6a8dc32c4282"
+
+rx_open = b16ToLbs b16_rx_open
+
+lp_rx_open = LP rx_open
+
+b16ToLbs str = cbsTolbs r
+  where (r,_) = B16.decode $ BC.pack str
+
+headok :: Head
+headok = decode $ b16ToLbs "00011a"
+
+bodyok :: Body
+bodyok = decode $ b16ToLbs "dee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b4679c59fbc93a2267e1c2b7cf4bfe832f0fb07221f8654a758d6a63200979f9367e046379aa1f4d27f74be6ae9367f4ff655820f2e0dedea70c6a8e32084180a464993e625803fa9774ac99a50c2e63fa637a07a2ae52860a1961f630c51d4f6779c7409c80497f52c91c69ed812261f2dcb5c1675b24d978a94fb55d9d55ecb772b542aa21c32d9dc704374dcbf53b32579e68cc3a01da6f9fd44ee1a1753919c50a09790c168d2a22069e0bd1f7e7db5410ec540c90f893956ddbdf01fc9ae5a7c82fc832ae72f846a2b1dc3a911dc13aa641fcf83f68ed1d3e6f445f5b82814649b9a127c7ad6fd2e3a8d5b986852c8bca221931e7a09ea1a2e7aff7ea090fdc8eebdd8664bb926909c396c3f7dd01ac38819a6cf7b947a855f8bdc87593e20bda115913056d6935b188308fad9a7873fb95395216d487cb5173a20296b86103715005e1ccbe3bcaae8ee64e4806928dd654a08ed8a7818d4eff2052aaa62c300c7661e678febaf34378a32028e0a3eea83cc87bc9c18742d4daafa3029df15030d7fc2cf916eab082e2424e4f912cadd319aaa39d6a8dc32c4282"
+
+decodeok = fromLinePacket lp_rx_open
+
+decodefail = fromLinePacket (LP (b16ToLbs "08011adee339dc7ca422"))

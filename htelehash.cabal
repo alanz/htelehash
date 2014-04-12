@@ -56,6 +56,9 @@ Library
                    , cipher-aes
                    -- , byteable
                    , bytestring
+                   , unordered-containers
+                   , text
+                   , scientific
                    -- , tls
   hs-source-dirs: src
   Buildable: False

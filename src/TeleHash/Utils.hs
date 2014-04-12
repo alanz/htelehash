@@ -14,6 +14,8 @@ module TeleHash.Utils
   , PathType(..)
   , PathPriority
   , Telex(..)
+  , emptyTelex
+  , DeOpenizeResult(..)
   , Hash(..)
   , unHash
   , HashName(..)
@@ -31,6 +33,8 @@ module TeleHash.Utils
   , SocketHandle(..)
   , CallBack
   , nullCb
+  , IPP(..)
+  , unIPP
   , parts2hn
   , io
   , logT
@@ -40,9 +44,15 @@ module TeleHash.Utils
   , gtail
   , gfromJust
 
+  , valToBs
+  , valToString
+
   , putHN
   , getHN
+  , incPCounter
   ) where
+
+
 
 
 import Control.Applicative
@@ -52,8 +62,6 @@ import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State
 import Crypto.Random
-import TeleHash.Packet
-import Data.Aeson
 import Data.Bits
 import Data.Char
 import Data.IP
@@ -63,16 +71,17 @@ import Data.String.Utils
 import Data.Word
 import Network.BSD
 import Network.Socket
-import qualified Network.Socket as NS
 import Prelude hiding (id, (.), head, either, catch)
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
-
+import TeleHash.Packet
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
+import qualified Crypto.Types.PubKey.ECDSA as ECDSA
+import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
@@ -80,9 +89,10 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
-import qualified Crypto.Types.PubKey.ECDSA as ECDSA
+import qualified Data.Text as Text
 
 -- ---------------------------------------------------------------------
 
@@ -105,32 +115,34 @@ unHN :: HashName -> String
 unHN (HN s) = s
 
 data HashContainer = H
-  { hHashName   :: HashName
-  , hChans      :: Map.Map ChannelId Channel
-  , hSelf       :: Maybe HashCrypto
-  , hPaths      :: [Path]
-  , hTo         :: Maybe Path
-  , hIsAlive    :: Bool
-  , hIsPublic   :: Bool
-  , hIsSeed     :: Bool
-  , hAt         :: ClockTime
-  , hBucket     :: HashDistance
-  , hChanOut    :: ChannelId
-  , hLineOut    :: String -- randomHEX 16 output. Make it a type
-  , hLineAt     :: Maybe ClockTime
-  , hLineIn     :: Maybe BC.ByteString
-  , hSendSeek   :: Maybe ClockTime
-  , hVias       :: Map.Map HashName String
-  , hLastPacket :: Maybe Telex
-  , hParts      :: Maybe Parts
-  , hOpened     :: Maybe LinePacket
-  , hCsid       :: Maybe String
+  { hHashName   :: !HashName
+  , hChans      :: !(Map.Map ChannelId Channel)
+  , hSelf       :: !(Maybe HashCrypto)
+  , hPaths      :: ![Path]
+  , hTo         :: !(Maybe Path)
+  , hIsAlive    :: !Bool
+  , hIsPublic   :: !Bool
+  , hIsSeed     :: !Bool
+  , hAt         :: !ClockTime
+  , hBucket     :: !HashDistance
+  , hChanOut    :: !ChannelId
+  , hLineOut    :: !String -- randomHEX 16 output. Make it a type
+  , hLineAt     :: !(Maybe ClockTime)
+  , hLineIn     :: !(Maybe BC.ByteString)
+  , hSendSeek   :: !(Maybe ClockTime)
+  , hVias       :: !(Map.Map HashName String)
+  , hLastPacket :: !(Maybe Telex)
+  , hParts      :: !(Maybe Parts)
+  , hOpened     :: !(Maybe LinePacket)
+  , hOpenAt     :: !(Maybe ClockTime)
+  , hCsid       :: !(Maybe String)
+  , hRecvAt     :: !(Maybe ClockTime)
 
-  , hLineIV :: Word32 -- crypto 1a IV value
-  , hEncKey :: Maybe BC.ByteString
-  , hDecKey :: Maybe BC.ByteString
-  , hEcc    :: Maybe (PublicKey,PrivateKey) -- our DH ECC key for
-                                            -- communicating with this remote
+  , hLineIV :: !Word32 -- crypto 1a IV value
+  , hEncKey :: !(Maybe BC.ByteString)
+  , hDecKey :: !(Maybe BC.ByteString)
+  , hEcc    :: !(Maybe (PublicKey,PrivateKey)) -- our DH ECC key for
+                                               -- communicating with this remote
   } deriving Show
 
 -- ---------------------------------------------------------------------
@@ -147,13 +159,13 @@ typedef struct crypt_struct
 
 -}
 data HashCrypto = HC
-  { hcHashName :: HashName
-  , hcHexName  :: Hash
-  , hcParts    :: Parts
-  , hcCsid     :: String
-  , hcKey      :: String
-  , hcPublic   :: PublicKey
-  , hcPrivate  :: Maybe PrivateKey
+  { hcHashName :: !HashName
+  , hcHexName  :: !Hash
+  , hcParts    :: !Parts
+  , hcCsid     :: !String
+  , hcKey      :: !String
+  , hcPublic   :: !PublicKey
+  , hcPrivate  :: !(Maybe PrivateKey)
   -- , hcEccKeys  :: Maybe (DH.PublicNumber,DH.PrivateNumber)
   } deriving Show
 
@@ -165,7 +177,7 @@ data PrivateKey = Private1a ECDSA.PrivateKey deriving Show
 data CSet = CS
   { csLoadkey :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
   , csOpenize  :: HashContainer -> Telex -> TeleHash LinePacket
-  , csDeopenize :: Packet -> TeleHash (Maybe Telex)
+  , csDeopenize :: Packet -> TeleHash DeOpenizeResult
   }
 
 -- ---------------------------------------------------------------------
@@ -176,16 +188,17 @@ data PathType = PathType String
 type PathPriority = Int
 
 data Path = Path
-      { pType    :: PathType
-      , pIp      :: Maybe IP -- ipv4,ipv6
-      , pPort    :: Int    -- ipv4,ipv6
-      , pHttp    :: String -- http
-      , pRelay   :: Maybe Channel -- relay
-      , pId      :: Maybe HashName -- local
-      , pLastIn  :: Maybe ClockTime
-      , pLastOut :: Maybe ClockTime
-      , pPriority :: Maybe PathPriority
-      , pIsSeed :: Bool
+      { pType     :: !PathType
+      , pIp       :: !(Maybe IP)       -- ipv4,ipv6
+      , pPort     :: !Int            -- ipv4,ipv6
+      , pHttp     :: !String         -- http
+      , pRelay    :: !(Maybe Channel)  -- relay
+      , pId       :: !(Maybe HashName) -- local
+      , pLastIn   :: !(Maybe ClockTime)
+      , pLastOut  :: !(Maybe ClockTime)
+      , pPriority :: !(Maybe PathPriority)
+      , pIsSeed   :: !Bool
+      , pGone     :: !Bool
       } deriving (Show,Eq)
 
 -- ---------------------------------------------------------------------
@@ -200,32 +213,62 @@ data Relay = Relay deriving (Show,Eq)
 -- ---------------------------------------------------------------------
 
 -- a Telex gets packed to/from a Packet
-data Telex = Telex { tId   :: Maybe HashContainer
-                   , tType :: Maybe String
-                   , tPath :: Maybe Path
-                   , tTo   :: Maybe Path -- Do we need both of these? Need to clarify the type of this one first
-                   , tJson :: Map.Map String String
-                   , tPacket :: Maybe Packet
-                   , tCsid :: Maybe String
+data Telex = Telex { tId     :: !(Maybe HashContainer)
+                   , tType   :: !(Maybe String)
+                   , tPath   :: !(Maybe Path)
+                   , tTo     :: !(Maybe Path) -- Do we need both of these? Need to clarify the type of this one first
+                   , tJson   :: !(Map.Map String String)
+                   , tPacket :: !(Maybe Packet)
+                   , tCsid   :: !(Maybe String)
+
+                   -- From rx packet processing
+                   , tRxId   :: !(Maybe Int)
 
                    -- TODO: break Inner out into its own type
                    -- openize stuff, used in 'inner'
-                   , tAt   :: Maybe ClockTime
-                   , tToHash  :: Maybe HashName
-                   , tFrom :: Maybe Parts
-                   , tLine :: Maybe String -- lineOut
+                   , tAt     :: !(Maybe ClockTime)
+                   , tToHash :: !(Maybe HashName)
+                   , tFrom   :: !(Maybe Parts)
+                   , tLine   :: !(Maybe String) -- lineOut
                    } deriving Show
+
+emptyTelex :: Telex
+emptyTelex = Telex { tId     = Nothing
+                   , tType   = Nothing
+                   , tPath   = Nothing
+                   , tTo     = Nothing
+                   , tJson   = Map.empty
+                   , tPacket = Nothing
+                   , tCsid   = Nothing
+
+                   , tRxId   = Nothing
+
+                   -- TODO: break Inner out into its own type
+                   -- openize stuff, used in 'inner'
+                   , tAt     = Nothing
+                   , tToHash = Nothing
+                   , tFrom   = Nothing
+                   , tLine   = Nothing
+                   }
+
+data DeOpenizeResult = DeOpenizeVerifyFail
+                     | DeOpenize { doLinePub :: !PublicKey
+                                 , doKey     :: !BC.ByteString
+                                 , doJs      :: !Aeson.Value
+                                 , doCsid    :: !String
+                                 }
+                     deriving (Show)
 
 -- ---------------------------------------------------------------------
 
 data Channel = Chan
-  { chType     :: String
-  , chCallBack :: CallBack
-  , chId       :: ChannelId
-  , chHashName :: HashName -- for convenience
-  , chLast     :: Maybe Path
-  , chSentAt   :: Maybe ClockTime
-  , chEnded    :: Bool
+  { chType     :: !String
+  , chCallBack :: !CallBack
+  , chId       :: !ChannelId
+  , chHashName :: !HashName -- for convenience
+  , chLast     :: !(Maybe Path)
+  , chSentAt   :: !(Maybe ClockTime)
+  , chEnded    :: !Bool
   } deriving (Show,Eq)
 
 instance Show (CallBack) where
@@ -251,12 +294,12 @@ instance Num ChannelId where
 
 type Bucket = [Line]
 
-data Line = Line { lineAge :: ClockTime
-                 , lineSeed :: String
-                 , lineAddress :: String
-                 , lineLinked :: Maybe Path
-                 , lineAlive :: Bool
-                 , lineSentat :: Maybe ClockTime
+data Line = Line { lineAge     :: !ClockTime
+                 , lineSeed    :: !String
+                 , lineAddress :: !String
+                 , lineLinked  :: !(Maybe Path)
+                 , lineAlive   :: !Bool
+                 , lineSentat  :: !(Maybe ClockTime)
                  } deriving Show
 
 -- ---------------------------------------------------------------------
@@ -271,27 +314,28 @@ data Seed = Seed { sAlive :: Bool
 
 type Parts = [(String,String)] -- [(csid,key)]
 
+
 data SeedInfo = SI
-  { sId :: String
-  , sAdmin :: String
-  , sPaths :: [Path]
-  , sParts :: Parts -- crypto ids?
-  , sKeys :: [(String,String)] -- crypto scheme name, crypto key
-  , sIsBridge :: Bool
+  { sId       :: !String
+  , sAdmin    :: !String
+  , sPaths    :: ![Path]
+  , sParts    :: !Parts -- crypto ids?
+  , sKeys     :: ![(String,String)] -- crypto scheme name, crypto key
+  , sIsBridge :: !Bool
   } deriving Show
 
 
 -- ---------------------------------------------------------------------
 
-data Id = Id { id1a :: String
-             , id1a_secret :: String
+data Id = Id { id1a        :: !String
+             , id1a_secret :: !String
              } deriving Show
 
 
-instance FromJSON Id where
-     parseJSON (Object v) = Id <$>
-                            v .: "1a" <*>
-                            v .: "1a_secret"
+instance Aeson.FromJSON Id where
+     parseJSON (Aeson.Object v) = Id <$>
+                                  v Aeson..: "1a" <*>
+                                  v Aeson..: "1a_secret"
      -- A non-Object value is of the wrong type, so fail.
      parseJSON _          = mzero
 
@@ -299,47 +343,47 @@ instance FromJSON Id where
 
 data Switch = Switch
 
-       { swH :: Maybe SocketHandle
-       , swSender :: (LinePacket -> SockAddr -> TeleHash ())
+       { swH      :: !(Maybe SocketHandle)
+       , swSender :: !(LinePacket -> SockAddr -> TeleHash ())
 
-       , swSeeds :: [HashName]
-       , swLocals :: [String]
-       , swLines :: [String]
-       , swBridges :: [String]
-       , swBridgeLine :: [String]
-       , swAll :: Map.Map HashName HashContainer
-       , swBuckets :: [Bucket]
-       , swCapacity :: [String]
-       , swRels :: [String]
-       , swRaws :: Map.Map String (String -> Telex -> Channel -> IO ())
-       , swPaths :: Map.Map PathId Path
-       , swBridgeCache :: [String]
-       , swNetworks :: Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashContainer -> TeleHash ()))
+       , swSeeds :: ![HashName]
+       , swLocals :: ![String]
+       , swLines :: ![String]
+       , swBridges :: ![String]
+       , swBridgeLine :: ![String]
+       , swAll :: !(Map.Map HashName HashContainer)
+       , swBuckets :: ![Bucket]
+       , swCapacity :: ![String]
+       , swRels :: ![String]
+       , swRaws :: !(Map.Map String (String -> Telex -> Channel -> IO ()))
+       , swPaths :: !(Map.Map PathId Path)
+       , swBridgeCache :: ![String]
+       , swNetworks :: !(Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashContainer -> TeleHash ())))
 
-       , swHashname :: Maybe HashName
+       , swHashname :: !(Maybe HashName)
 
-       , swId :: Map.Map String String
-       , swIdCrypto :: Maybe HashCrypto
+       , swId :: !(Map.Map String String)
+       , swIdCrypto :: !(Maybe HashCrypto)
 
        -- , swCs :: Map.Map String (Map.Map String String)
-       , swCs :: Map.Map String HashCrypto
+       , swCs :: !(Map.Map String HashCrypto)
 
-       , swKeys :: Map.Map String String
+       , swKeys :: !(Map.Map String String)
 
-       , swCSets :: Map.Map String CSet
-       , swParts :: Parts -- ++AZ++ TODO: this should be a packet
+       , swCSets :: !(Map.Map String CSet)
+       , swParts :: !Parts
 
 
        , swLoad :: Id -> TeleHash ()
        , swMake :: () -> () -> IO ()
 
-       , swNat :: Bool
-       , swSeed :: Bool
-       , swLanToken :: Maybe String
+       , swNat :: !Bool
+       , swSeed :: !Bool
+       , swLanToken :: !(Maybe String)
 
        -- udp socket stuff
-       , swPcounter :: Int
-       , swReceive :: Packet -> Path -> IO ()
+       , swPcounter :: !Int
+       , swReceive :: Packet -> Path -> ClockTime -> TeleHash ()
 
        -- outgoing packets to the network
        , swDeliver :: String -> () -> ()
@@ -355,7 +399,7 @@ data Switch = Switch
 
        , swStart :: String -> String -> String -> () -> IO ()
        , swOnline :: CallBack -> TeleHash ()
-       , swIsOnline :: Bool
+       , swIsOnline :: !Bool
        , swListen :: String -> () -> IO ()
 
        -- advanced usage only
@@ -380,11 +424,13 @@ data Switch = Switch
 
 
        -- crypto
-       , swRNG :: SystemRNG
+       , swRNG :: !SystemRNG
 
-       -- , swCountOnline :: Int
-       -- , swCountTx :: Int
-       -- , swCountRx :: Int
+       , swPCounter :: !Int
+
+       , swCountOnline :: !Int
+       , swCountTx :: !Int
+       , swCountRx :: !Int
        }
 
 -- ---------------------------------------------------------------------
@@ -393,6 +439,13 @@ type CallBack = TeleHash ()
 
 nullCb :: TeleHash ()
 nullCb = return ()
+
+-- ---------------------------------------------------------------------
+
+newtype IPP = IPP String
+             deriving (Eq,Show,Ord)
+unIPP :: IPP -> String
+unIPP (IPP str) = str
 
 -- ---------------------------------------------------------------------
 
@@ -466,6 +519,13 @@ gfromJust  info Nothing = error $ "gfromJust " ++ info ++ " Nothing"
 
 -- ---------------------------------------------------------------------
 
+valToBs :: Aeson.Value -> BC.ByteString
+valToBs (Aeson.String val) = BC.pack $ Text.unpack val
+
+-- ---------------------------------------------------------------------
+
+valToString :: Aeson.Value -> String
+valToString (Aeson.String val) = Text.unpack val
 
 -- ---------------------------------------------------------------------
 -- Utility
@@ -481,4 +541,12 @@ putHN :: HashContainer -> TeleHash ()
 putHN hn = do
   sw <- get
   put $ sw { swAll = Map.insert (hHashName hn) hn (swAll sw)}
+
+
+incPCounter :: TeleHash Int
+incPCounter = do
+  sw <- get
+  let r = 1 + (swPCounter sw)
+  put $ sw {swPCounter = r }
+  return r
 

@@ -56,6 +56,8 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map as Map
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Text as Text
 
 curve = ECC.getCurveByName ECC.SEC_p160r1
 
@@ -366,12 +368,12 @@ packet_t crypt_openize_1a(crypt_t self, crypt_t c, packet_t inner)
 
 -- ---------------------------------------------------------------------
 
-crypt_deopenize_1a :: Packet -> TeleHash (Maybe Telex)
+crypt_deopenize_1a :: Packet -> TeleHash DeOpenizeResult
 crypt_deopenize_1a open = do
   if BC.length (unBody $ paBody open) <= 60
     then do
       logT $ "crypt_deopenize_1a:body length too short:" ++ show (BC.length $ unBody $ paBody open)
-      return Nothing
+      return DeOpenizeVerifyFail
     else do
       sw <- get
       let
@@ -407,13 +409,66 @@ crypt_deopenize_1a open = do
 
       -- aes-128 decipher the inner
       let body = decryptCTR (initAES key) iv cbody
-          inner = fromLinePacket (LP $ cbsTolbs body)
+          Just inner = fromLinePacket (LP $ cbsTolbs body)
 
       logT $ "crypt_deopenize_1a:inner=" ++ show inner
       let HeadJson js = paHead inner
       logT $ "crypt_deopenize_1a:inner json=" ++ show (B16.encode $ lbsTocbs js)
-      return $ assert False undefined
-  assert False undefined
+
+      -- verify+load inner key info
+      let Body ekey = paBody inner
+          epub = PublicKey curve (bsToPoint $ ekey)
+
+          Just json@(Aeson.Object jsHashMap) = Aeson.decode js :: Maybe Aeson.Value
+
+      case HM.lookup "from" jsHashMap of
+        Nothing -> do
+          logT $ "crypt_deopenize_1a:missing inner.js.from"
+          return DeOpenizeVerifyFail
+        Just (Aeson.Object fromHm) -> do
+          case HM.lookup "1a" fromHm of
+            Nothing -> do
+              logT $ "crypt_deopenize_1a:missing inner.js.from.1a"
+              return DeOpenizeVerifyFail
+            Just (Aeson.String from1aVal) -> do
+              -- if(crypto.createHash("sha1").update(inner.body).digest("hex") != inner.js.from["1a"]) return ret;
+              let calcDigest = B16.encode $ SHA1.hash ekey
+                  from1aValStr = BC.pack $ Text.unpack from1aVal
+              if calcDigest /= from1aValStr
+                then do
+                  logT $ "crypt_deopenize_1a:pub key digest does not match key:" ++ show (calcDigest,from1aVal)
+                  return DeOpenizeVerifyFail
+                else do
+                  -- verify the hmac
+                  -- var secret = id.cs["1a"].private.deriveSharedSecret(epub);
+                  let (PublicKey _ epubPoint) = epub
+                      (ECC.Point secretX _Y) = ECC.pointMul curve ourPriv epubPoint
+                      Just secretMac = i2ospOf 20 secretX
+                      hmacVal = hmac SHA1.hash 64 secretMac (BC.drop 20 (unBody $ paBody open))
+                      mac2 = B16.encode hmacVal
+                     -- var mac2 = crypto.createHmac('sha1', secret).update(open.body.slice(20)).digest("hex");
+                     -- if(mac2 != mac1) return ret;
+                  if mac1 /= mac2
+                    then do
+                      logT $ "crypt_deopenize_1a:mac1 /= mac2:" ++ show (mac1,mac2)
+                      return DeOpenizeVerifyFail
+                    else do
+                      --  all good, cache+return
+                      -- ret.verify = true;
+                      -- ret.js = inner.js;
+                      -- return ret;
+                      let ret = DeOpenize
+                           { doLinePub = Public1a linePub
+                           , doKey = unBody $ paBody inner
+                           , doJs = json
+                           , doCsid = "1a"
+                           }
+                      return ret
+
+      -- logT $ "crypt_deopenize_1a:inner.js decoded=" ++ show json
+
+      -- return $ assert False undefined
+
 
 {-
 

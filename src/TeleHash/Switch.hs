@@ -25,6 +25,7 @@ import Data.IP
 import Data.List
 import Data.Maybe
 import Data.String.Utils
+import Data.Scientific
 import Data.Typeable
 import Network.BSD
 import Prelude hiding (id, (.), head, either, catch)
@@ -38,14 +39,17 @@ import TeleHash.Crypto1a
 import TeleHash.Packet
 import TeleHash.Utils
 import qualified Crypto.Hash.SHA256 as SHA256
+import qualified Data.Aeson as Aeson
 import qualified Data.Binary as Binary
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
@@ -132,6 +136,7 @@ run ch1 ch2 = do
                   , tCsid = Just "1a"
                   , tTo = Nothing
                   , tPacket = Nothing
+                  , tRxId = Nothing
                   , tAt = Nothing
                   , tToHash = Nothing
                   , tFrom = Nothing
@@ -147,6 +152,7 @@ run ch1 ch2 = do
                   , pId = Nothing
                   , pPriority = Nothing
                   , pIsSeed = True
+                  , pGone = False
                   }
   -- AZ carry on here: use send, not raw
   packet <- telexToPacket msg
@@ -224,7 +230,7 @@ dolisten Nothing _ = return ()
 dolisten (Just h) channel = forever $ do
     (msg,rinfo) <- (SB.recvFrom (slSocket h) 1000)
 
-    (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
+    -- (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
     (writeChan channel (SignalMsgRx msg rinfo))
 
 -- ---------------------------------------------------------------------
@@ -323,6 +329,7 @@ seedLocal =
               , pId = Nothing
               , pPriority = Nothing
               , pIsSeed = True
+              , pGone = False
               }
       ]
     , sParts =
@@ -358,9 +365,10 @@ seed195 =
               , pId = Nothing
               , pPriority = Nothing
               , pIsSeed = True
+              , pGone = False
               }
-     
-{-  
+
+{-
     }, {
       "type": "ipv6",
       "ip": "2001:470:c0a6:3::10",
@@ -399,6 +407,7 @@ seed253 =
               , pId = Nothing
               , pPriority = Nothing
               , pIsSeed = True
+              , pGone = False
               }
 {-
        , Path { pType = PathType "ipv6"
@@ -570,6 +579,12 @@ initial_switch = do
 
       -- crypto
       , swRNG = rng
+
+      , swPCounter = 0
+
+      , swCountOnline = 0
+      , swCountTx = 0
+      , swCountRx = 0
       }
 {-
   put sw
@@ -717,8 +732,100 @@ function loadkeys(self)
 
 -- ---------------------------------------------------------------------
 
-receive :: Packet -> Path -> IO ()
-receive = (assert False undefined)
+-- |process the incoming packet
+receive :: Packet -> Path -> ClockTime -> TeleHash ()
+receive rxPacket path timeNow = do
+  -- logT $ "receive: (rxTelex,remoteipp,timeNow):" ++ show (rxPacket,path,timeNow)
+  if (packetLen rxPacket) == 2
+    then return () -- Empty packets are NAT pings
+    else do
+      counterVal <- incPCounter
+      let packet = emptyTelex
+                    { tPath   = Just path
+                    , tRxId   = Just counterVal
+                    , tAt     = Just timeNow
+                    , tPacket = Just rxPacket
+                    }
+      -- debug(">>>>",Date(),msg.length, packet.head_length, packet.body_length,[path.type,path.ip,path.port,path.id].join(","));
+      logT $ ">>>>" ++ show (timeNow, packetLen rxPacket, headLen rxPacket,bodyLen rxPacket,(pType path,pIp path,pPort path))
+
+      case paHead rxPacket of
+        HeadJson j -> do
+
+          -- handle any LAN notifications
+          logT $ "receive: not processing JSON"
+
+          return ()
+        HeadByte b -> do
+          -- process open packet
+          open <- deopenize packet
+          case open of
+            DeOpenizeVerifyFail -> do
+              logT $ "receive.deopenize: couldn't decode open"
+              return ()
+            _ -> do
+              logT $ "receive.deopenize got " ++ show open
+              let (Aeson.Object js) = doJs open
+              if not (expectedKeysPresent (doJs open) ["line","to","from","at"])
+                then do
+                  logT $ "deopenize missing required js fields, have only:" ++ show (HM.keys js)
+                  return ()
+                else do
+                  if not (isHEX (valToBs (js HM.! "line")) 32)
+                    then do
+                      logT $ "invalid line id enclosed" ++ show (js HM.! "line")
+                      return ()
+                    else do
+                      sw <- get
+                      if (valToString (js HM.! "to") /= unHN (gfromJust "deopenize" $ swHashname sw))
+                        then do
+                          logT $ "open for wrong hashname" ++ show (js HM.! "to")
+                          return ()
+                        else do
+                          let (Aeson.Object jsparts) = js HM.! "from"
+                              jsparts2 = map (\(k,v) -> (Text.unpack k,valToString v)) $ HM.toList jsparts
+                          logT $ "deopenize:jsparts=" ++ show jsparts2
+                          let mcsid = partsMatch (swParts sw) jsparts2
+                          logT $ "deopenize:mcsid=" ++ show mcsid
+                          if mcsid /= Just (doCsid open)
+                            then do
+                              logT $ "open with mismatch CSID" ++ show (mcsid,doCsid open)
+                              return ()
+                            else do
+                              -- var from = self.whokey(open.js.from,open.key);
+                              -- if (!from) return warn("invalid hashname", open.js.from);
+                              let keyVal = BC.unpack $ B64.encode (doKey open)
+                              mfrom <- whokey jsparts2 (Left keyVal)
+                              case mfrom of
+                                Nothing -> do
+                                  logT $ "deopenize:invalid hashname=" ++ show jsparts2
+                                  return ()
+                                Just from -> do
+                                  -- // make sure this open is legit
+                                  -- if (typeof open.js.at != "number") return warn("invalid at", open.js.at);
+                                  logT $ "deopenize:js.at=" ++ show (js HM.! "at")
+                                  case (js HM.! "at") of
+                                    (Data.Aeson.Number atVal) -> do
+                                      -- duplicate open and there's newer line packets, ignore it
+                                      -- if(from.openAt && open.js.at <= from.openAt && from.lineAt == from.openAt) return;
+                                      let jsAt = TOD (round atVal) 0
+                                      if (isJust (hOpenAt from) && jsAt <= (fromJust (hOpenAt from))
+                                         && (hLineAt from == hOpenAt from))
+                                        then do
+                                          logT $ "deopenize:duplicate open and newer line packets, ignoring"
+                                          return ()
+                                        else do
+                                          -- open is legit!
+                                          logT $ "inOpen verified" ++ show (hHashName from)
+                                          assert False undefined
+                                    _ -> do
+                                     logT $ "deopenize:invalid is, need Number:" ++ show (js HM.! "at")
+                                     return ()
+              return ()
+        HeadEmpty -> return ()
+      return ()
+
+
 {-
 // self.receive, raw incoming udp data
 function receive(msg, path)
@@ -1000,12 +1107,17 @@ whois hn = do
       logT "whois called for self"
       return Nothing
     else do
+      logT "whois not called for self"
       -- if we already have it, return it
       case Map.lookup hn (swAll sw) of
-        Just hc -> return (Just hc)
+        Just hc -> do
+          logT $ "whois got cached:" ++ show hc
+          return (Just hc)
         Nothing -> do
+          logT "whois not seen value"
           timeNow <- io getClockTime
           randomHexVal <- randomHEX 16
+          logT $ "whois:randomHexVal=" ++ show randomHexVal
           let hc = mkHashContainer hn timeNow randomHexVal
               hc' = hc {hBucket = dhash (fromJust $ swHashname sw) hn }
           -- to create a new channels to this hashname
@@ -1255,8 +1367,8 @@ hnPathOut hn path = do
     else do
       timeNow <- io getClockTime
       let path'' = path' { pLastOut = Just timeNow }
-          hn' = if (not $ pathValid (hTo hn)) &&
-                   (pathValid (Just path''))
+          hn' = if (not $ pathValid timeNow (hTo hn)) &&
+                   (pathValid timeNow (Just path''))
                   then hn { hTo = Just path''}
                   else hn
       putHN hn'
@@ -1473,6 +1585,7 @@ whokey parts keyVal = do
     Nothing -> return Nothing
     Just csid -> do
       mhn <- (swWhois sw) (parts2hn parts)
+      logT $ "whokey:whois returned:" ++ show mhn
       case mhn of
         Nothing -> return Nothing
         Just hn -> do
@@ -1656,6 +1769,8 @@ openize to = do
             , tPacket = Nothing
             , tCsid = Nothing
 
+            , tRxId = Nothing
+
             , tAt = hLineAt to2
             , tToHash = Just (hHashName to2)
             , tFrom = Just (swParts sw)
@@ -1688,30 +1803,23 @@ function openize(self, to)
 
 -- ---------------------------------------------------------------------
 
-deopenize :: LinePacket -> TeleHash (Maybe Telex)
-deopenize lp = do
-  logT $ "deopenize :" ++ show (BL.length $ unLP lp)
-
-  -- TODO: add exception handler to this
-  let p = fromLinePacket lp
+deopenize :: Telex -> TeleHash DeOpenizeResult
+deopenize open = do
+  let p = gfromJust "deopenize" (tPacket open)
+  logT $ "DEOPEN :" ++ show (bodyLen p)
 
   case paHead p of
-    HeadEmpty  -> return Nothing
-    HeadJson _ -> return Nothing
+    HeadEmpty  -> return DeOpenizeVerifyFail
+    HeadJson _ -> return DeOpenizeVerifyFail
     HeadByte csHex -> do
       sw <- get
       let csid = BC.unpack $ B16.encode (BC.pack [w2c csHex])
       logT $ "deopenize got cs:" ++ csid
       case Map.lookup csid (swCSets sw) of
-        Nothing -> return Nothing
+        Nothing -> return DeOpenizeVerifyFail
         Just cs -> do
-          mt <- (csDeopenize cs) p
-          case mt of
-            Nothing -> return Nothing
-            Just t -> do
-             let t' = t { tCsid = Just csid }
-             return $ Just t'
-      return Nothing
+          ret <- (csDeopenize cs) p
+          return ret
 
 
 {-
@@ -1959,7 +2067,7 @@ sendChanRaw hn chan packet = do
            case tTo packet of
              Just _ -> packet
              Nothing -> -- always send back to the last received for this channel
-                        if pathValid (chLast ch')
+                        if pathValid timeNow (chLast ch')
                           then packet { tTo = chLast ch' }
                           else packet
       sentChan <- hnSend hn packet'
@@ -1999,8 +2107,33 @@ chanTimer chan = do
   return ()
 
 
-pathValid = assert False undefined
+-- ---------------------------------------------------------------------
 
+-- |validate if a network path is acceptable to stop at
+pathValid :: ClockTime -> Maybe Path -> Bool
+pathValid _ Nothing = False
+pathValid timeNow (Just path) =
+  if pGone path
+    then False
+    else
+      if (pType path == PathType "relay") && pRelay path == Nothing
+        then True -- active relays are always valid
+        else
+          if pLastIn path == Nothing
+            then False -- all the rest must have received to be valid
+            else (not $ isTimeOut timeNow (pLastIn path) (natTimeout defaults))
+{-
+// validate if a network path is acceptable to stop at
+function pathValid(path)
+{
+  if(!path || path.gone) return false;
+  if(path.type == "relay" && !path.relay.ended) return true; // active relays are always valid
+  if(!path.lastIn) return false; // all else must receive to be valid
+  if(Date.now() - path.lastIn < defaults.nat_timeout) return true; // received anything recently is good
+  return false;
+}
+
+-}
 -- ---------------------------------------------------------------------
 
 {-
@@ -2878,7 +3011,6 @@ function isLocalPath(path)
 -- ---------------------------------------------------------------------
 
 isLocalIP :: IP -> Bool
-isLocalIP ip = error $ "isLocalIP undefined"
 
 {-
 
@@ -2904,6 +3036,16 @@ function isLocalIP(ip)
   return false;
 }
 -}
+
+isLocalIP ip@(IPv4 _) = r
+  where
+    r127 =  makeAddrRange ((read "127.0.0.0")::IPv4) 8
+    r10  =  makeAddrRange ((read "10.0.0.0")::IPv4) 8
+    r192 =  makeAddrRange ((read "192.168.0.0")::IPv4) 16
+    r172 =  makeAddrRange ((read "172.16.0.0")::IPv4) 9
+    r169 =  makeAddrRange ((read "169.254.0.0")::IPv4) 16
+
+    r = any (isMatchedTo (ipv4 ip)) [r127,r10,r192,r172,r169]
 
 -- ---------------------------------------------------------------------
 
@@ -2936,6 +3078,8 @@ mkHashContainer hn timeNow randomHexVal =
     , hLastPacket = Nothing
     , hParts = Nothing
     , hOpened = Nothing
+    , hOpenAt = Nothing
+    , hRecvAt = Nothing
     , hCsid = Nothing
 
     , hLineOut = randomHexVal
@@ -3452,58 +3596,58 @@ addrFromHostPort hostname port = do
 
 recvTelex :: BC.ByteString -> NS.SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
-    logT ( ("recvTelex:" ++  (show (msg))))
+    -- logT ( ("recvTelex:" ++  (show (msg))))
+    -- logT $ "recvTelex:rinfo=" ++  show rinfo
 
-{-
     switch' <- get
     put switch' { swCountRx = (swCountRx switch') + 1 }
     -- switch <- get
     -- seedsIndex <- gets swSeedsIndex
 
-    (Just hostIP,Just port) <- io (getNameInfo [NI_NUMERICHOST] True True rinfo)
+    (Just hostIP,Just port) <- io (NS.getNameInfo [NS.NI_NUMERICHOST] True True rinfo)
     let
       remoteipp = IPP (hostIP ++ ":" ++ port)
 
     timeNow <- io getClockTime
     --console.log(["RECV from ", remoteipp, ": ", JSON.stringify(telex)].join(""));
-    logT ("RECV from " ++ (show remoteipp) ++ ":"++ msg
+    logT ("RECV from " ++ (show remoteipp) ++ ":"++ (show $ B16.encode msg)
                   ++ " at " ++ (show timeNow))
     let
-      maybeRxTelex = parseTelex msg
+      maybeRxTelex = fromLinePacket (LP (cbsTolbs msg))
+    -- logT $ "recvTelex:maybeRxTelex:" ++ show maybeRxTelex
+      path = Path
+        { pType    = PathType "ipv4"
+        , pIp      = Just (read hostIP)
+        , pPort    = read port
+        , pHttp    = ""
+        , pRelay   = Nothing
+        , pId      = Nothing
+        , pLastIn  = Nothing
+        , pLastOut = Nothing
+        , pPriority = Nothing
+        , pIsSeed = False
+        , pGone = False
+        }
 
     case maybeRxTelex of
-      Just rxTelex -> handleRxTelex rxTelex remoteipp timeNow
-      Nothing -> return ()
--}
-
-{-
-handleRxTelex :: Telex -> IPP -> ClockTime -> TeleHash ()
-handleRxTelex rxTelex remoteipp timeNow = do
-    isOnline <- checkOnline rxTelex remoteipp timeNow
-    case isOnline of
-      False -> return ()
-      True -> do
-        -- // if this is a switch we know, check a few things
-        line <- getOrCreateLine remoteipp timeNow
-        let lstat = checkLine line rxTelex timeNow
-        case lstat of
-          Left reason -> do
-            logT ( "\tLINE FAIL[" ++ reason ++ ", " ++ (show (lineIpp line, lineEnd line)))
-            myNop
-          Right line' -> do
-            -- // we're valid at this point, line or otherwise, track bytes
-            let diff = (lineBsent line') - (teleBr rxTelex)
-            -- console.log(["\tBR ", line.ipp, " [", line.br, " += ",br, "] DIFF ", (line.bsent - t._br)].join(""));
-            logT ("\tBR " ++ (show $ lineIpp line') ++ " [" ++ (show $ lineBr line') ++ " += " ++ (show $ teleMsgLength rxTelex) ++ "] DIFF " ++
-                  (show (diff, (lineBsent line') , (teleBr rxTelex))))
-                   -- (show $ ((lineBsent line') , (teleBr rxTelex)) ))
-
-            logT ( "\tLINE STATUS " ++ (getLineStatus rxTelex))
-            updateTelehashLine line'
-            processCommands rxTelex remoteipp line'
-            processSignals  rxTelex remoteipp line'
-
-        tapSignals (hasSignals rxTelex) rxTelex
-
+      Just rxTelex -> receive rxTelex path timeNow
+      Nothing -> do
+        logT $ "could not parse packet, discarding:" ++ (show $ B16.encode msg)
         return ()
--}
+
+
+-- ---------------------------------------------------------------------
+
+isHEX :: BC.ByteString -> Int -> Bool
+isHEX str len = r
+  where
+   (f,b) = B16.decode str
+   r = BC.length b == 0 && BC.length str == len
+
+-- ---------------------------------------------------------------------
+
+expectedKeysPresent :: Aeson.Value -> [String] -> Bool
+expectedKeysPresent (Aeson.Object hm) keys = all present keys
+  where
+    present k = HM.member (Text.pack k) hm
+
