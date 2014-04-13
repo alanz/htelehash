@@ -569,7 +569,7 @@ crypt_lineize_1a to packet = r
     final = foldl' BC.append BC.empty [(gfromJust "crypt_lineize_1a.2" $ hLineIn to),h,iv,cbody]
     fc = packet { tPacket = Just (Packet HeadEmpty (Body final)) }
 
-    r = (to,assert False undefined)
+    r = (to,toLinePacket (Packet HeadEmpty (Body final)))
 
 {-
 exports.lineize = function(to, packet)

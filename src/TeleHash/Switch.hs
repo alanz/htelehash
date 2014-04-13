@@ -124,25 +124,9 @@ run ch1 ch2 = do
   sw <- get
   let seed0 = head (swSeeds sw)
   let Just hcs = Map.lookup seed0 (swAll sw)
-  let msg = Telex { tId = Nothing
-                  , tType = Just "seek"
-                  , tPath = Nothing
-                  , tJson = Map.fromList
-                       [("type","seek")
-                       ,("c","0")
-                       ,("seek",unHN $ hHashName hcs)
-                       ]
-                  , tCsid = Just "1a"
-                  , tTo = Nothing
-                  , tPacket = Nothing
-                  , tRxId = Nothing
-                  , tAt = Nothing
-                  , tToHash = Nothing
-                  , tFrom = Nothing
-                  , tLine = Nothing
-                  }
   let path = Path { pType = PathType "ipv4"
-                  , pIp = Just "208.68.164.253"
+                  -- , pIp = Just "208.68.164.253"
+                  , pIp = Just "10.0.0.42"
                   , pPort = 42424
                   , pHttp = ""
                   , pLastIn = Nothing
@@ -153,14 +137,31 @@ run ch1 ch2 = do
                   , pIsSeed = True
                   , pGone = False
                   }
+  let msg = Telex { tId = Nothing
+                  , tType = Just "seek"
+                  , tPath = Nothing
+                  , tJson = Map.fromList
+                       [("type","seek")
+                       ,("c","0")
+                       ,("seek",unHN $ hHashName hcs)
+                       ]
+                  , tCsid = Just "1a"
+                  , tTo = Just path
+                  , tPacket = Nothing
+                  , tRxId = Nothing
+                  , tAt = Nothing
+                  , tToHash = Nothing
+                  , tFrom = Nothing
+                  , tLine = Nothing
+                  }
   logT $ "AZ starting ping inject"
   -- AZ carry on here: use send, not raw
   packet <- telexToPacket msg
   -- let (hcs',lined) = crypt_lineize_1a hcs packet
   -- send path lined Nothing
 
-  -- c <- raw hcs "seek" msg nullCb
-  -- logT $ "sending msg returned :" ++ show c
+  c <- raw hcs "seek" msg nullCb
+  logT $ "sending msg returned :" ++ show c
   -- xxxxxxxxxxxxxxxxxxxx
   -- -------------- ping.c end -----------------------------------------
 
@@ -872,10 +873,11 @@ receive rxPacket path timeNow = do
                                           case (hLastPacket from5) of
                                             Nothing -> return ()
                                             Just msg -> do
-                                              putHN $ from5 { hLastPacket = Nothing }
                                               from6 <- getHNsafe (hHashName from5) "deopenize"
+                                              putHN $ from6 { hLastPacket = Nothing }
+                                              from7 <- getHNsafe (hHashName from5) "deopenize"
                                               logT $ "deopenize:resending packet"
-                                              void $ hnSend from6 msg
+                                              void $ hnSend from7 msg
 
                                           -- if it was a lan seed, add them
                                           sw4 <- get
@@ -1045,6 +1047,7 @@ relay path msg _ = (assert False undefined)
 send :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 send mpath msg mto = do
   logT $ "send entered for path:" ++ show mpath
+  timeNow <- io getClockTime
   sw <- get
   path <- case mto of
     Just to -> do
@@ -1053,7 +1056,7 @@ send mpath msg mto = do
     Nothing -> return mpath
     -- if(!path) return debug("send called w/ no valid network, dropping");
     -- debug("<<<<",Date(),msg.length,[path.type,path.ip,path.port,path.id].join(","),to&&to.hashname);
-  logT $ "<<<<"
+  logT $ "<<<<" ++ show (timeNow,BL.length $ unLP msg,mpath)
   -- try to send it via a supported network
   -- if(self.networks[path.type])
      -- self.networks[path.type](path,msg,to);
