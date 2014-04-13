@@ -68,6 +68,7 @@ cset_1a = CS
   , csOpenize = crypt_openize_1a
   , csDeopenize = crypt_deopenize_1a
   , csOpenLine = crypt_openline_1a
+  , csDelineize = crypt_delineize_1a
   }
 -- ---------------------------------------------------------------------
 
@@ -387,11 +388,11 @@ crypt_deopenize_1a open = do
         linePubPoint = (bsToPoint pubBs)
         linePub = PublicKey curve linePubPoint
 
-      logT $ "crypt_deopenize_1a:mac1=" ++ show (mac1)
-      logT $ "crypt_deopenize_1a:pubBs=" ++ show (B16.encode pubBs)
-      logT $ "crypt_deopenize_1a:cbody=" ++ show (B16.encode cbody)
+      -- logT $ "crypt_deopenize_1a:mac1=" ++ show (mac1)
+      -- logT $ "crypt_deopenize_1a:pubBs=" ++ show (B16.encode pubBs)
+      -- logT $ "crypt_deopenize_1a:cbody=" ++ show (B16.encode cbody)
 
-      logT $ "crypt_deopenize_1a:pubBs b64=" ++ show (encode pubBs)
+      -- logT $ "crypt_deopenize_1a:pubBs b64=" ++ show (encode pubBs)
 
 
       -- derive shared secret
@@ -405,17 +406,17 @@ crypt_deopenize_1a open = do
           key = BC.take 16 longkey
           Just iv = i2ospOf 16 1
 
-      logT $ "crypt_deopenize_1a:iv=" ++ show (B16.encode iv)
+      -- logT $ "crypt_deopenize_1a:iv=" ++ show (B16.encode iv)
 
-      logT $ "crypt_deopenize_1a:(sharedX,key)=" ++ show (sharedX,key)
+      -- logT $ "crypt_deopenize_1a:(sharedX,key)=" ++ show (sharedX,key)
 
       -- aes-128 decipher the inner
       let body = decryptCTR (initAES key) iv cbody
           Just inner = fromLinePacket (LP $ cbsTolbs body)
 
-      logT $ "crypt_deopenize_1a:inner=" ++ show inner
+      -- logT $ "crypt_deopenize_1a:inner=" ++ show inner
       let HeadJson js = paHead inner
-      logT $ "crypt_deopenize_1a:inner json=" ++ show (B16.encode $ lbsTocbs js)
+      -- logT $ "crypt_deopenize_1a:inner json=" ++ show (B16.encode $ lbsTocbs js)
 
       -- verify+load inner key info
       let Body ekey = paBody inner
@@ -628,7 +629,7 @@ crypt_openline_1a :: HashContainer -> DeOpenizeResult -> TeleHash ()
 crypt_openline_1a from to = do
   case hEcc from of
     Nothing -> error $ "crypt_openline_1a, expecting hEcc to be populated:" ++ show (hHashName from)
-    Just (Public1a eccPub,Private1a (PrivateKey _ eccPriv)) -> do
+    Just (Public1a _eccPub,Private1a (PrivateKey _ eccPriv)) -> do
       let Public1a (PublicKey _ linePub) = doLinePub to
           (ECC.Point secretX _Y) = ECC.pointMul curve eccPriv linePub
           Just ecdhe = i2ospOf 20 secretX
@@ -701,7 +702,56 @@ int crypt_line_1a(crypt_t c, packet_t inner)
 -}
 
 
+-- ---------------------------------------------------------------------
 
+crypt_delineize_1a :: HashContainer -> Packet -> TeleHash (Either String Telex)
+crypt_delineize_1a from packet = do
+  logT $ "crypt_delineize_1a entered for " ++ show (hHashName from)
+  if (BC.length (unBody $ paBody packet) < 16)
+    then do
+      logT $ "crypt_delineize_1a:no / short body"
+      return (Left "crypt_delineize_1a:no / short body")
+    else do
+      -- skip the lineID
+      let body = BC.drop 16 (unBody $ paBody packet)
+      -- logT $ "crypt_delineize_1a:lineID=" ++ show (B16.encode $ BC.take 16 (unBody $ paBody packet))
+      -- validate the HMAC
+      let mac1 = BC.take 4 body
+          mac2 = BC.take 4 $ hmac SHA1.hash 16 (gfromJust "crypt_delineize_1a.1" $ hDecKey from) (BC.drop 4 body)
+      -- logT $ "crypt_delineize_1a.1:drop 4 body=" ++ show (B16.encode (BC.drop 4 body))
+      logT $ "crypt_delineize_1a:hDecKey=" ++ show (hDecKey from)
+      if mac1 /= mac2
+        then do
+          logT $ "invalid hmac:" ++ show (B16.encode mac1,B16.encode mac2)
+          return (Left "invalid hmac")
+        else do
+          assert False undefined
+
+{-
+exports.delineize = function(from, packet)
+{
+  if(!packet.body) return "no body";
+  // remove lineid
+  packet.body = packet.body.slice(16);
+  
+  // validate the hmac
+  var mac1 = packet.body.slice(0,4).toString("hex");
+  var mac2 = crypto.createHmac('sha1', from.decKey).update(packet.body.slice(4)).digest().slice(0,4).toString("hex");
+  if(mac1 != mac2) return "invalid hmac";
+
+  // decrypt body
+  var iv = packet.body.slice(4,8);
+  var ivz = new Buffer(12);
+  ivz.fill(0);
+  var body = packet.body.slice(8);
+  var deciphered = self.pdecode(crypto.aes(false,from.decKey,Buffer.concat([ivz,iv]),body));
+if(!deciphered) return "invalid decrypted packet";
+
+  packet.js = deciphered.js;
+  packet.body = deciphered.body;
+  return false;
+}
+-}
 -- ---------------------------------------------------------------------
 
 testhash :: IO ()

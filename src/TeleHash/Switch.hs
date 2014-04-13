@@ -756,6 +756,7 @@ receive rxPacket path timeNow = do
 
           -- handle any LAN notifications
           logT $ "receive: not processing JSON"
+          assert False undefined
 
           return ()
         HeadByte b -> do
@@ -766,7 +767,7 @@ receive rxPacket path timeNow = do
               logT $ "receive.deopenize: couldn't decode open"
               return ()
             _ -> do
-              logT $ "receive.deopenize got " ++ show open
+              logT $ "receive.deopenize verified ok " -- ++ show open
               let (Aeson.Object js) = doJs open
               if not (expectedKeysPresent (doJs open) ["line","to","from","at"])
                 then do
@@ -810,7 +811,13 @@ receive rxPacket path timeNow = do
                                     (Data.Aeson.Number atVal) -> do
                                       -- duplicate open and there's newer line packets, ignore it
                                       -- if(from.openAt && open.js.at <= from.openAt && from.lineAt == from.openAt) return;
-                                      let jsAt = TOD (round atVal) 0
+                                      let showTod (TOD a b) = "(TOD" ++ show a ++ " " ++ show b ++ ")"
+                                          showmTod Nothing = "Nothing"
+                                          showmTod (Just tod) = "Just " ++ showTod tod
+                                      let jsAt = TOD (round (atVal / 1000)) (((round  atVal) `mod` 1000) * 10^9)
+                                      logT $ "deopenize:jsAt=" ++ showTod jsAt
+                                      logT $ "deopenize:hOpenAt=" ++ showmTod (hOpenAt from)
+                                      logT $ "deopenize:hLineAt=" ++ showmTod (hLineAt from)
                                       if (isJust (hOpenAt from) && jsAt <= (fromJust (hOpenAt from))
                                          && (hLineAt from == hOpenAt from))
                                         then do
@@ -823,18 +830,23 @@ receive rxPacket path timeNow = do
                                           path2 <- hnPathIn from path
 
                                           -- if new line id, reset incoming channels
-                                          logT $ "TODO: code reset incoming channels"
-                                          {-
-                                          if(open.js.line != from.lineIn)
-                                          {
-                                            debug("new line");
-                                            Object.keys(from.chans).forEach(function(id){
-                                              if(id % 2 == from.chanOut % 2) return; // our ids
-                                              if(from.chans[id]) from.chans[id].fail({js:{err:"reset"}});
-                                              delete from.chans[id];
-                                            });
-                                          }
-                                          -}
+                                          if Just (valToBs (js HM.! "line")) /= (hLineIn from)
+                                            then do
+                                              logT $ "new line"
+                                              putHN from
+                                              forM_ (Map.keys (hChans from)) $ \id1 -> do
+                                                let (CID i1) = id1
+                                                    (CID co) = hChanOut from
+                                                if i1 `div` 2 == co `div` 2
+                                                  then return () -- our ids
+                                                  else do
+                                                    fm <- getHNsafe (hHashName from) "deopenize"
+                                                    case Map.lookup id1 (hChans fm) of
+                                                      Nothing -> return ()
+                                                      Just c -> chanFail (hHashName from) c Nothing
+                                                    putHN $ fm { hChans = Map.delete id1 (hChans fm) }
+                                                return ()
+                                            else return ()
 
                                           -- update values
                                           from2 <- getHNsafe (hHashName from) "deopenize"
@@ -867,12 +879,14 @@ receive rxPacket path timeNow = do
                                               (csOpenLine cset) from5 open
                                               logT $ "line open " ++ show (hHashName from5,hLineOut from5,hLineIn from5)
                                               from8 <- getHNsafe (hHashName from) "deopenize.8"
-                                              logT $ "deopenize:hEncKey from8=" ++ show (hEncKey from8)
+                                              logT $ "deopenize:hEncKey from8=" ++ show (hEncKey from8,hDecKey from8)
                                               sw4 <- get
                                               put $ sw4 { swLines
-                                                      = Map.insert (hLineOut from8) (hHashName from8) (swLines sw3)}
+                                                         = Map.insert (hLineOut from8) (hHashName from8) (swLines sw3)}
 
                                           -- resend the last sent packet again
+                                          logT $ "deopenize:not doing last packet resend"
+{-
                                           case (hLastPacket from5) of
                                             Nothing -> return ()
                                             Just msg -> do
@@ -884,7 +898,7 @@ receive rxPacket path timeNow = do
                                               logT $ "deopenize:hEncKey from7=" ++ show (hEncKey from7)
 
                                               void $ hnSend from7 msg
-
+-}
                                           -- if it was a lan seed, add them
                                           sw4 <- get
                                           if hIsLocal from5 && Set.notMember (hHashName from5) (swLocals sw4)
@@ -895,7 +909,62 @@ receive rxPacket path timeNow = do
                                      logT $ "deopenize:invalid is, need Number:" ++ show (js HM.! "at")
                                      return ()
               return ()
-        HeadEmpty -> return ()
+        HeadEmpty -> do
+          -- its a line
+          logT $ "receive:got line msg"
+          let lineID = BC.unpack $ B16.encode $ BC.take 16 (unBody $ paBody rxPacket)
+          logT $ "receive:lineID=" ++ lineID
+          sw <- get
+          case Map.lookup lineID (swLines sw) of
+            Nothing -> do
+              -- a matching line is required to decode the packet
+              assert False undefined
+            Just lineHn -> do
+              -- decrypt and process
+              line <- getHNsafe lineHn "receive.line"
+              case Map.lookup (gfromJust "receive.line" $ hCsid line) (swCSets sw) of
+                Nothing -> do
+                  logT $ "receive.line:couldn't load cset for:" ++ show (hCsid line)
+                Just cset -> do
+                  res <- (csDelineize cset) line rxPacket
+                  case res of
+                    Left err -> do
+                      logT $ "couldn't decrypt line:" ++ err
+                      assert False undefined
+                    Right pkt -> do
+                      assert False undefined
+                      putHN $ line { hLineAt = hOpenAt line }
+                      line2 <- getHNsafe (hHashName line) "receive.line"
+                      hnReceive line2 pkt
+          return ()
+          {-
+          // or it's a line
+          if(packet.head.length == 0)
+          {
+            var lineID = packet.body.slice(0,16).toString("hex");
+            var line = packet.from = self.lines[lineID];
+
+            // a matching line is required to decode the packet
+            if(!line) {
+              if(!self.bridgeLine[lineID]) return debug("unknown line received", lineID, JSON.stringify(packet.sender));
+              debug("BRIDGE",JSON.stringify(self.bridgeLine[lineID]),lineID);
+              var id = crypto.createHash("sha256").update(packet.body).digest("hex")
+              if(self.bridgeCache[id]) return; // drop duplicates
+              self.bridgeCache[id] = true;
+              // flat out raw retransmit any bridge packets
+              return self.send(self.bridgeLine[lineID],msg);
+            }
+
+            // decrypt and process
+            var err;
+            if((err = self.CSets[line.csid].delineize(line, packet))) return debug("couldn't decrypt line",err,packet.sender);
+            line.lineAt = line.openAt;
+            line.receive(packet);
+            return;
+          }
+
+          -}
+
       return ()
 
 
@@ -1187,7 +1256,7 @@ whois hn = do
       -- if we already have it, return it
       case Map.lookup hn (swAll sw) of
         Just hc -> do
-          logT $ "whois got cached:" ++ show hc
+          logT $ "whois got cached val" -- ++ show hc
           return (Just hc)
         Nothing -> do
           logT "whois not seen value"
@@ -1322,11 +1391,6 @@ function whois(hashname)
     chan.receive(packet);
   }
 
-  hn.chanDone = function(id)
-  {
-    hn.chans[id] = false;
-  }
-
   // track who told us about this hn
   hn.via = function(from, address)
   {
@@ -1431,7 +1495,46 @@ function whois(hashname)
 }
 
 -}
+-- ---------------------------------------------------------------------
 
+-- |handle all incoming line packets
+hnReceive :: HashContainer -> Telex -> TeleHash ()
+hnReceive = assert False undefined
+{-
+  // handle all incoming line packets
+  hn.receive = function(packet)
+  {
+//    if((Math.floor(Math.random()*10) == 4)) return warn("testing dropping randomly!");
+    if(!packet.js || typeof packet.js.c != "number") return warn("dropping invalid channel packet",packet.js);
+
+    debug("LINEIN",JSON.stringify(packet.js));
+    hn.recvAt = Date.now();
+    // normalize/track sender network path
+    packet.sender = hn.pathIn(packet.sender);
+
+    // find any existing channel
+    var chan = hn.chans[packet.js.c];
+    if(chan === false) return; // drop packet for a closed channel
+    if(chan) return chan.receive(packet);
+
+    // start a channel if one doesn't exist, check either reliable or unreliable types
+    var listening = {};
+    if(typeof packet.js.seq == "undefined") listening = self.raws;
+    if(packet.js.seq === 0) listening = self.rels;
+    if(!listening[packet.js.type])
+    {
+      // bounce error
+      if(!packet.js.end && !packet.js.err)
+      {
+        warn("bouncing unknown channel/type",packet.js);
+        var err = (packet.js.type) ? "unknown type" : "unknown channel"
+        hn.send({js:{err:err,c:packet.js.c}});
+      }
+      return;
+    }
+
+
+-}
 -- ---------------------------------------------------------------------
 
 hnPathOut :: HashContainer -> Path -> TeleHash (Maybe Path)
@@ -1789,7 +1892,7 @@ whokey parts keyVal = do
     Nothing -> return Nothing
     Just csid -> do
       mhn <- (swWhois sw) (parts2hn parts)
-      logT $ "whokey:whois returned:" ++ show mhn
+      -- logT $ "whokey:whois returned:" ++ show mhn
       case mhn of
         Nothing -> return Nothing
         Just hn -> do
@@ -2214,16 +2317,6 @@ function raw(type, arg, callback)
     timer();
   }
 
-  chan.fail = function(packet){
-    if(chan.ended) return; // prevent multiple calls
-    hn.chanDone(chan.id);
-    chan.ended = true;
-    if(packet)
-    {
-      packet.from = hn;
-      chan.callback(packet.js.err, packet, chan, function(){});
-    }
-  }
 
   // send optional initial packet with type set
   if(arg.js)
@@ -2278,7 +2371,7 @@ sendChanRaw hn chan packet = do
       sentChan <- hnSend hn packet'
       if sentChan
         then return ()
-        else chanFail ch'
+        else chanFail (hHashName hn) ch' Nothing
       chanTimer ch'
 
 {-
@@ -2303,8 +2396,41 @@ sendChanRaw hn chan packet = do
 -- ---------------------------------------------------------------------
 
 
-chanFail :: Channel -> TeleHash ()
-chanFail = assert False undefined
+chanFail :: HashName -> Channel -> Maybe Telex -> TeleHash ()
+chanFail hn chan mpacket = do
+  if chEnded chan
+    then return ()
+    else do
+      hnChanDone hn (chId chan)
+      case mpacket of
+        Nothing -> return ()
+        Just packet -> do
+          (chCallBack chan)
+
+{-
+  chan.fail = function(packet){
+    if(chan.ended) return; // prevent multiple calls
+    hn.chanDone(chan.id);
+    chan.ended = true;
+    if(packet)
+    {
+      packet.from = hn;
+      chan.callback(packet.js.err, packet, chan, function(){});
+    }
+  }
+-}
+
+hnChanDone :: HashName -> ChannelId -> TeleHash ()
+hnChanDone hn chid = do
+  hc <- getHNsafe hn "hnChanDone"
+  putHN $ hc {hChans = Map.delete chid (hChans hc)}
+
+{-
+  hn.chanDone = function(id)
+  {
+    hn.chans[id] = false;
+  }
+-}
 
 chanTimer :: Channel -> TeleHash ()
 chanTimer chan = do
@@ -3699,8 +3825,8 @@ function hex2nib(hex)
 -- | Send the body of the packet in the telex. It is already encrypted
 ipv4Send :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 ipv4Send path msg _ = do
-  logT $ "ipv4Send:" ++ show (path)
-  logT $ "ipv4Send:" ++ show (B16.encode $ lbsTocbs $ unLP msg)
+  -- logT $ "ipv4Send:" ++ show (path)
+  -- logT $ "ipv4Send:" ++ show (B16.encode $ lbsTocbs $ unLP msg)
   addr <- io (addrFromHostPort (show $ gfromJust "ipv4Send" $ pIp path) (show $ pPort path))
 
   sender <- gets swSender

@@ -190,6 +190,7 @@ data CSet = CS
   , csOpenize  :: HashContainer -> Telex -> TeleHash LinePacket
   , csDeopenize :: Packet -> TeleHash DeOpenizeResult
   , csOpenLine :: HashContainer ->  DeOpenizeResult -> TeleHash ()
+  , csDelineize :: HashContainer -> Packet -> TeleHash (Either String Telex)
   }
 
 -- ---------------------------------------------------------------------
@@ -559,14 +560,14 @@ valToString (Aeson.String val) = Text.unpack val
 -- | get current state of the given HashContainer
 getHN :: HashName -> TeleHash (Maybe HashContainer)
 getHN hashName = do
-  logT $ "getHN " ++ show hashName
+  -- logT $ "getHN " ++ show hashName
   sw <- get
   return $ Map.lookup hashName (swAll sw)
 
 -- | get current state of the given HashContainer
 getHNsafe :: HashName -> String -> TeleHash HashContainer
 getHNsafe hashName tag = do
-  logT $ "getHNsafe " ++ show (hashName,tag)
+  -- logT $ "getHNsafe " ++ show (hashName,tag)
   sw <- get
   let mhn = Map.lookup hashName (swAll sw)
   return $ gfromJust tag mhn
@@ -574,7 +575,7 @@ getHNsafe hashName tag = do
 -- | update the stored state of the given HashContainer
 putHN :: HashContainer -> TeleHash ()
 putHN hn = do
-  logT $ "putHN " ++ show (hHashName hn)
+  -- logT $ "putHN " ++ show (hHashName hn)
   sw <- get
   put $ sw { swAll = Map.insert (hHashName hn) hn (swAll sw)}
 
