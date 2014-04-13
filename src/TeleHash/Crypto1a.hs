@@ -67,6 +67,7 @@ cset_1a = CS
   { csLoadkey = crypt_loadkey_1a
   , csOpenize = crypt_openize_1a
   , csDeopenize = crypt_deopenize_1a
+  , csOpenLine = crypt_openline_1a
   }
 -- ---------------------------------------------------------------------
 
@@ -225,6 +226,7 @@ Note: 1. the domain parameters are the agreed curve, i.e. SEC_p160r1
     Nothing -> do
       let ((pub,priv) ,g') = generate (swRNG sw) curve
       put $ sw { swRNG = g' } -- must come before next line, else update lost
+      logT $ "crypt_openize_1a:putHN for " ++ show (hHashName to)
       putHN $ to { hEcc = Just (Public1a pub,Private1a priv) }
       let (PublicKey _ lpub) = pub
       let (PrivateKey _ lp) = priv
@@ -622,12 +624,29 @@ packet_t crypt_lineize_1a(crypt_t c, packet_t p)
 -- ---------------------------------------------------------------------
 
 -- |set up the line enc/dec keys
-crypt_openline_1a :: HashContainer -> HashContainer -> HashContainer
-crypt_openline_1a from to = from'
-  where
-    -- sha1 
-    -- ecdhe -- shared secret
-    from' = assert False undefined
+crypt_openline_1a :: HashContainer -> DeOpenizeResult -> TeleHash ()
+crypt_openline_1a from to = do
+  case hEcc from of
+    Nothing -> error $ "crypt_openline_1a, expecting hEcc to be populated:" ++ show (hHashName from)
+    Just (Public1a eccPub,Private1a (PrivateKey _ eccPriv)) -> do
+      let Public1a (PublicKey _ linePub) = doLinePub to
+          (ECC.Point secretX _Y) = ECC.pointMul curve eccPriv linePub
+          Just ecdhe = i2ospOf 20 secretX
+          (lineOutB,_) = B16.decode (BC.pack $ hLineOut from)
+          lineInB = gfromJust "crypt_openline_1a" (hLineIn from)
+
+          encKeyCtx = SHA1.updates SHA1.init [ecdhe,lineOutB,lineInB]
+          encKey = B16.encode $ BC.take 16 (SHA1.finalize encKeyCtx)
+
+          decKeyCtx = SHA1.updates SHA1.init [ecdhe,lineInB,lineOutB]
+          decKey = B16.encode $ BC.take 16 (SHA1.finalize decKeyCtx)
+
+
+      logT $ "crypt_openline_1a:(encKey,decKey)=" ++ show (encKey,decKey)
+      putHN $ from { hLineIV = 0
+                   , hEncKey = Just encKey
+                   , hDecKey = Just decKey
+                   }
 
 {-
 // set up the line enc/dec keys

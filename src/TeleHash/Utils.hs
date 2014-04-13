@@ -148,10 +148,11 @@ data HashContainer = H
   , hBridging   :: !Bool
   , hIsLocal    :: !Bool
 
-  , hLineIV :: !Word32 -- crypto 1a IV value
-  , hEncKey :: !(Maybe BC.ByteString)
-  , hDecKey :: !(Maybe BC.ByteString)
-  , hEcc    :: !(Maybe (PublicKey,PrivateKey)) -- our DH ECC key for
+  , hLineIV  :: !Word32 -- crypto 1a IV value
+  -- , hlineInB :: !BC.ByteString
+  , hEncKey  :: !(Maybe BC.ByteString)
+  , hDecKey  :: !(Maybe BC.ByteString)
+  , hEcc     :: !(Maybe (PublicKey,PrivateKey)) -- our DH ECC key for
                                                -- communicating with this remote
   } deriving Show
 
@@ -188,6 +189,7 @@ data CSet = CS
   { csLoadkey :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
   , csOpenize  :: HashContainer -> Telex -> TeleHash LinePacket
   , csDeopenize :: Packet -> TeleHash DeOpenizeResult
+  , csOpenLine :: HashContainer ->  DeOpenizeResult -> TeleHash ()
   }
 
 -- ---------------------------------------------------------------------
@@ -369,17 +371,17 @@ data Switch = Switch
        , swChan   :: !(Maybe (Chan Signal))
        , swSender :: !(LinePacket -> SockAddr -> TeleHash ())
 
-       , swSeeds :: ![HashName]
-       , swLocals :: ![String]
-       , swLines :: ![String]
-       , swBridges :: ![String]
+       , swSeeds      :: ![HashName]
+       , swLocals     :: !(Set.Set HashName)
+       , swLines      :: !(Map.Map String HashName)
+       , swBridges    :: ![String]
        , swBridgeLine :: ![String]
-       , swAll :: !(Map.Map HashName HashContainer)
-       , swBuckets :: ![Bucket]
-       , swCapacity :: ![String]
-       , swRels :: ![String]
-       , swRaws :: !(Map.Map String (String -> Telex -> Channel -> IO ()))
-       , swPaths :: !(Map.Map PathId Path)
+       , swAll        :: !(Map.Map HashName HashContainer)
+       , swBuckets    :: ![Bucket]
+       , swCapacity   :: ![String]
+       , swRels       :: ![String]
+       , swRaws       :: !(Map.Map String (String -> Telex -> Channel -> IO ()))
+       , swPaths      :: !(Map.Map PathId Path)
        , swBridgeCache :: ![String]
        , swNetworks :: !(Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashContainer -> TeleHash ())))
 
@@ -556,12 +558,14 @@ valToString (Aeson.String val) = Text.unpack val
 -- | get current state of the given HashContainer
 getHN :: HashName -> TeleHash (Maybe HashContainer)
 getHN hashName = do
+  logT $ "getHN " ++ show hashName
   sw <- get
   return $ Map.lookup hashName (swAll sw)
 
 -- | get current state of the given HashContainer
 getHNsafe :: HashName -> String -> TeleHash HashContainer
 getHNsafe hashName tag = do
+  logT $ "getHNsafe " ++ show (hashName,tag)
   sw <- get
   let mhn = Map.lookup hashName (swAll sw)
   return $ gfromJust tag mhn
@@ -569,6 +573,7 @@ getHNsafe hashName tag = do
 -- | update the stored state of the given HashContainer
 putHN :: HashContainer -> TeleHash ()
 putHN hn = do
+  logT $ "putHN " ++ show (hHashName hn)
   sw <- get
   put $ sw { swAll = Map.insert (hHashName hn) hn (swAll sw)}
 

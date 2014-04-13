@@ -153,13 +153,14 @@ run ch1 ch2 = do
                   , pIsSeed = True
                   , pGone = False
                   }
+  logT $ "AZ starting ping inject"
   -- AZ carry on here: use send, not raw
   packet <- telexToPacket msg
   -- let (hcs',lined) = crypt_lineize_1a hcs packet
   -- send path lined Nothing
 
-  c <- raw hcs "seek" msg nullCb
-  logT $ "sending msg returned :" ++ show c
+  -- c <- raw hcs "seek" msg nullCb
+  -- logT $ "sending msg returned :" ++ show c
   -- xxxxxxxxxxxxxxxxxxxx
   -- -------------- ping.c end -----------------------------------------
 
@@ -489,8 +490,8 @@ initial_switch = do
       , swChan = Nothing
       , swSender = doSendDgram
       , swSeeds = []
-      , swLocals = []
-      , swLines = []
+      , swLocals = Set.empty
+      , swLines = Map.empty
       , swBridges = []
       , swBridgeLine = []
       , swAll = Map.empty
@@ -854,15 +855,34 @@ receive rxPacket path timeNow = do
                                           -- self.send(path,from.open(),from);
 
                                           -- line is open now!
-{-
-                                          from.csid = open.csid;
-                                          self.CSets[open.csid].openline(from, open);
-                                          debug("line open",from.hashname,from.lineOut,from.lineIn);
-                                          self.lines[from.lineOut] = from;
--}
+                                          from4 <- getHNsafe (hHashName from) "deopenize"
+                                          sw3 <- get
+                                          let from5 = from4 { hCsid = Just (doCsid open) }
+                                              mcset = Map.lookup (doCsid open) (swCSets sw3)
+                                          case mcset of
+                                            Nothing -> do
+                                              logT $ "deopenize: cset lookup failed"
+                                            Just cset -> do
+                                              (csOpenLine cset) from5 open
+                                              logT $ "line open " ++ show (hHashName from5,hLineOut from5,hLineIn from5)
+                                              put $ sw3 { swLines
+                                                      = Map.insert (hLineOut from5) (hHashName from5) (swLines sw3)}
 
+                                          -- resend the last sent packet again
+                                          case (hLastPacket from5) of
+                                            Nothing -> return ()
+                                            Just msg -> do
+                                              putHN $ from5 { hLastPacket = Nothing }
+                                              from6 <- getHNsafe (hHashName from5) "deopenize"
+                                              logT $ "deopenize:resending packet"
+                                              void $ hnSend from6 msg
 
-                                          assert False undefined
+                                          -- if it was a lan seed, add them
+                                          sw4 <- get
+                                          if hIsLocal from5 && Set.notMember (hHashName from5) (swLocals sw4)
+                                            then put $ sw4 { swLocals = Set.insert (hHashName from5) (swLocals sw4)}
+                                            else return ()
+
                                     _ -> do
                                      logT $ "deopenize:invalid is, need Number:" ++ show (js HM.! "at")
                                      return ()
@@ -1604,14 +1624,15 @@ hnSend hn packet = do
 
       -- always send to all known paths, increase resiliency
       mp <- hnOpen hn'
+      hn2 <- getHNsafe (hHashName hn) "hnSend"
       case mp of
         Nothing -> do
           logT $ "hnSend: hnOpen returned Nothing"
           return False
         Just lpacket -> do
           logT $ "hnSend: hnOpen returned packet" -- ++ show lpacket
-          forM_ (hPaths hn') $ \path -> do
-            (swSend sw) path lpacket (Just hn)
+          forM_ (hPaths hn2) $ \path -> do
+            (swSend sw) path lpacket (Just hn2)
           return True
 
       logT $ "hnSend: must still do send using vias, and retry backoff"
@@ -1701,7 +1722,9 @@ hnOpen hn = do
            then return $ hOpened hn
            else do
              op <- openize hn
-             putHN $ hn { hOpened = op}
+             hn2 <- getHNsafe (hHashName hn) "hnOpen"
+             putHN $ hn2 { hOpened = op}
+             logT $ "hnOpen:hEcc=" ++ show (hEcc hn2)
              return op
 {-
   // return the current open packet
