@@ -866,17 +866,23 @@ receive rxPacket path timeNow = do
                                             Just cset -> do
                                               (csOpenLine cset) from5 open
                                               logT $ "line open " ++ show (hHashName from5,hLineOut from5,hLineIn from5)
-                                              put $ sw3 { swLines
-                                                      = Map.insert (hLineOut from5) (hHashName from5) (swLines sw3)}
+                                              from8 <- getHNsafe (hHashName from) "deopenize.8"
+                                              logT $ "deopenize:hEncKey from8=" ++ show (hEncKey from8)
+                                              sw4 <- get
+                                              put $ sw4 { swLines
+                                                      = Map.insert (hLineOut from8) (hHashName from8) (swLines sw3)}
 
                                           -- resend the last sent packet again
                                           case (hLastPacket from5) of
                                             Nothing -> return ()
                                             Just msg -> do
-                                              from6 <- getHNsafe (hHashName from5) "deopenize"
+                                              from6 <- getHNsafe (hHashName from5) "deopenize.9"
                                               putHN $ from6 { hLastPacket = Nothing }
-                                              from7 <- getHNsafe (hHashName from5) "deopenize"
+                                              from7 <- getHNsafe (hHashName from5) "deopenize.10"
                                               logT $ "deopenize:resending packet"
+                                              logT $ "deopenize:hEncKey from6=" ++ show (hEncKey from6)
+                                              logT $ "deopenize:hEncKey from7=" ++ show (hEncKey from7)
+
                                               void $ hnSend from7 msg
 
                                           -- if it was a lan seed, add them
@@ -2105,11 +2111,12 @@ chan_t chan_new(switch_t s, hn_t to, char *type, uint32_t id)
 raw :: HashContainer -> String -> Telex -> CallBack -> TeleHash Channel
 raw hn typ arg callback = do
   sw <- get
+  (hn',chanId) <- case tId arg of
+    Just i  -> do
+      hni <- getHNsafe i "raw"
+      return (hn,hChanOut hni)
+    Nothing -> return (hn { hChanOut = (hChanOut hn) + 2},hChanOut hn)
   let
-    (hn',chanId) = case tId arg of
-      Just i  -> (hn,hChanOut i)
-      Nothing -> (hn { hChanOut = (hChanOut hn) + 2},hChanOut hn)
-
     chan = Chan { chType = typ
                 , chCallBack = callback
                 , chId = chanId

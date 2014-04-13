@@ -227,7 +227,8 @@ data Relay = Relay deriving (Show,Eq)
 -- ---------------------------------------------------------------------
 
 -- a Telex gets packed to/from a Packet
-data Telex = Telex { tId     :: !(Maybe HashContainer)
+data Telex = Telex { tId     :: !(Maybe HashName)
+                     -- tId     :: !(Maybe HashContainer)
                    , tType   :: !(Maybe String)
                    , tPath   :: !(Maybe Path)
                    , tTo     :: !(Maybe Path) -- Do we need both of these? Need to clarify the type of this one first

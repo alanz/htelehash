@@ -641,7 +641,6 @@ crypt_openline_1a from to = do
           decKeyCtx = SHA1.updates SHA1.init [ecdhe,lineInB,lineOutB]
           decKey = B16.encode $ BC.take 16 (SHA1.finalize decKeyCtx)
 
-
       logT $ "crypt_openline_1a:(encKey,decKey)=" ++ show (encKey,decKey)
       putHN $ from { hLineIV = 0
                    , hEncKey = Just encKey
