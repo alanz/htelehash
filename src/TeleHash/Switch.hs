@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module TeleHash.Switch
@@ -194,7 +193,7 @@ getSwitch = do
 
 -- ---------------------------------------------------------------------
 
-initialize :: IO (Chan a,Chan b,Switch)
+initialize :: IO (Chan Signal,Chan b,Switch)
 initialize = do
   -- Look up the hostname and port.  Either raises an exception
   -- or returns a nonempty list.  First element in that list
@@ -219,7 +218,8 @@ initialize = do
 
   -- Save off the socket, and server address in a handle
   sw <- initial_switch
-  return (ch1, ch2, sw {swH = Just (SocketHandle sock)})
+  return (ch1, ch2, sw {swH = Just (SocketHandle sock)
+                       ,swChan = Just ch1})
 
 -- ---------------------------------------------------------------------
 --
@@ -233,22 +233,21 @@ dolisten (Just h) channel = forever $ do
     -- (putStrLn ("dolisten:rx msg=" ++ (BC.unpack msg)))
     (writeChan channel (SignalMsgRx msg rinfo))
 
--- ---------------------------------------------------------------------
-
-data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx BC.ByteString NS.SockAddr |
-              SignalGetSwitch
-              deriving (Typeable, Show, Eq)
-
-data Reply = ReplyGetSwitch Switch
-           -- deriving (Typeable, Show)
-           deriving (Typeable)
-
 onesec :: Int
 onesec = 1000000
 
 timer :: Int -> a -> Chan a -> IO ()
 timer timeoutVal signalValue channel  = forever $
   threadDelay timeoutVal >> writeChan channel signalValue
+
+oneShotTimer :: Int -> Signal -> TeleHash ()
+oneShotTimer timeoutVal signalValue  = do
+  mchannel <- gets swChan
+  let Just channel = mchannel
+  io $ forkIO (threadDelay timeoutVal >> writeChan channel signalValue)
+  return ()
+
+
 
 -- =====================================================================
 -- ---------------------------------------------------------------------
@@ -487,6 +486,7 @@ initial_switch = do
   let
     sw = Switch
       { swH = Nothing
+      , swChan = Nothing
       , swSender = doSendDgram
       , swSeeds = []
       , swLocals = []
@@ -817,6 +817,51 @@ receive rxPacket path timeNow = do
                                         else do
                                           -- open is legit!
                                           logT $ "inOpen verified" ++ show (hHashName from)
+                                          -- add this path in
+                                          path2 <- hnPathIn from path
+
+                                          -- if new line id, reset incoming channels
+                                          logT $ "TODO: code reset incoming channels"
+                                          {-
+                                          if(open.js.line != from.lineIn)
+                                          {
+                                            debug("new line");
+                                            Object.keys(from.chans).forEach(function(id){
+                                              if(id % 2 == from.chanOut % 2) return; // our ids
+                                              if(from.chans[id]) from.chans[id].fail({js:{err:"reset"}});
+                                              delete from.chans[id];
+                                            });
+                                          }
+                                          -}
+
+                                          -- update values
+                                          from2 <- getHNsafe (hHashName from) "deopenize"
+                                          let from3 = from2
+                                                        { hOpenAt = Just jsAt
+                                                        , hLineIn = Just (valToBs (js HM.! "line"))
+                                                        }
+                                          putHN from3
+
+                                          -- send an open back
+                                          mpacket <- hnOpen from3
+                                          case mpacket of
+                                            Nothing -> do
+                                              logT $ "deopenize: hnOpen returned Nothing"
+                                              return ()
+                                            Just msg -> do
+                                              sw2 <- get
+                                              (swSend sw2) path msg (Just from3)
+                                          -- self.send(path,from.open(),from);
+
+                                          -- line is open now!
+{-
+                                          from.csid = open.csid;
+                                          self.CSets[open.csid].openline(from, open);
+                                          debug("line open",from.hashname,from.lineOut,from.lineIn);
+                                          self.lines[from.lineOut] = from;
+-}
+
+
                                           assert False undefined
                                     _ -> do
                                      logT $ "deopenize:invalid is, need Number:" ++ show (js HM.! "at")
@@ -982,7 +1027,9 @@ send mpath msg mto = do
   logT $ "send entered for path:" ++ show mpath
   sw <- get
   path <- case mto of
-    Just to -> hnPathOut to mpath
+    Just to -> do
+               mpath <- hnPathOut to mpath
+               return $ gfromJust "send" mpath
     Nothing -> return mpath
     -- if(!path) return debug("send called w/ no valid network, dropping");
     -- debug("<<<<",Date(),msg.length,[path.type,path.ip,path.port,path.id].join(","),to&&to.hashname);
@@ -1358,12 +1405,14 @@ function whois(hashname)
 
 -- ---------------------------------------------------------------------
 
-hnPathOut :: HashContainer -> Path -> TeleHash Path
+hnPathOut :: HashContainer -> Path -> TeleHash (Maybe Path)
 hnPathOut hn path = do
   path' <- hnPathGet hn path
   if (pType path' == PathType "relay")
      && isJust (pRelay path') && chEnded (fromJust (pRelay path'))
-    then hnPathEnd hn path'
+    then do
+      hnPathEnd hn path'
+      return Nothing
     else do
       timeNow <- io getClockTime
       let path'' = path' { pLastOut = Just timeNow }
@@ -1372,7 +1421,7 @@ hnPathOut hn path = do
                   then hn { hTo = Just path''}
                   else hn
       putHN hn'
-      return path''
+      return $ Just path''
 {-
   hn.pathOut = function(path)
   {
@@ -1388,8 +1437,18 @@ hnPathOut hn path = do
 
 -- ---------------------------------------------------------------------
 
-hnPathEnd :: HashContainer -> Path -> TeleHash Path
-hnPathEnd = assert False undefined
+hnPathEnd :: HashContainer -> Path -> TeleHash ()
+hnPathEnd hn path = do
+  if (pIsSeed path) -- never remove a seed path
+    then return ()
+    else do
+      let hn2 = if hTo hn == Just path
+                 then hn {hTo = Nothing}
+                 else hn
+          paths = filter (/=path) (hPaths hn)
+      putHN $ hn2 { hPaths = paths }
+      logT $ "PATH END" ++ show path
+
 {-
   hn.pathEnd = function(path)
   {
@@ -1400,6 +1459,119 @@ hnPathEnd = assert False undefined
     if(index >= 0) hn.paths.splice(index,1);
     debug("PATH END",JSON.stringify(path.json));
     return false;
+  }
+
+
+-}
+-- ---------------------------------------------------------------------
+
+hnPathIn :: HashContainer -> Path -> TeleHash Path
+hnPathIn hn path = do
+  path1 <- hnPathGet hn path
+  timeNow <- io getClockTime
+
+  -- first time we've seen em
+  if (pLastIn path1 == Nothing && pLastOut path1 == Nothing)
+    then do
+      -- debug("PATH INNEW",JSON.stringify(path.json),hn.paths.map(function(p){return JSON.stringify(p.json)}));
+      logT $ "PATH INNEW " ++ show path1
+      -- for every new incoming path, trigger a sync (delayed so caller can continue/respond first)
+      oneShotTimer (1 * onesec) (SignalSyncPath (hHashName hn))
+      -- update public ipv4 info
+      let hn1 = if (pType path1 == PathType "ipv4" && not (isLocalIP (gfromJust "hnPathIn" (pIp path1))))
+                  then hn {hIp = pIp path1, hPort = Just (pPort path1)}
+                  else hn
+      putHN hn1
+      -- cull any invalid paths of the same type
+      forM_ (hPaths hn1) $ \other -> do
+        if ((other == path1) -- ++AZ++ TODO: check what we define as equality
+           || (pType other /= pType path1))
+          then return ()
+          else do
+            if not (pathValid timeNow (Just other))
+              then do
+                hnNow <- getHNsafe (hHashName hn1) "hnPathIn"
+                void $ hnPathEnd hnNow other
+                return ()
+              else return ()
+
+      -- "local" custom paths we must bridge for
+      if pType path1 == PathType "local"
+        then do
+          hnNow <- getHNsafe (hHashName hn1) "hnPathIn.1"
+          putHN $ hnNow {hBridging = True}
+        else return ()
+
+      -- track overall if we trust them as local
+      if isLocalPath path1
+        then do
+          hnNow <- getHNsafe (hHashName hn1) "hnPathIn.2"
+          putHN $ hnNow {hIsLocal = True}
+        else return ()
+    else return ()
+
+  hnNow <- getHNsafe (hHashName hn) "hnPathIn.3"
+
+  -- end any active relay
+  logT $ "hnPathIn: must still code 'end any active relay'"
+  -- if(hn.to && hn.to.type == "relay" && path.type != "relay") hn.to.relay.fail();
+
+  --  update default if better
+  let hnNow2 = if (not (pathValid timeNow (hTo hnNow))
+                  || pathValid timeNow (Just path1))
+                 then hnNow {hTo = Just path1}
+                 else hnNow
+
+  putHN hnNow2 { hIsAlive = pathValid timeNow (hTo hnNow2)
+               , hRecvAt = Just timeNow
+               }
+
+
+  return $ path1 {pLastIn = Just timeNow }
+{-
+  hn.pathIn = function(path)
+  {
+    path = hn.pathGet(path);
+
+    // first time we've seen em
+    if(!path.lastIn && !path.lastOut)
+    {
+      debug("PATH INNEW",JSON.stringify(path.json),hn.paths.map(function(p){return JSON.stringify(p.json)}));
+      // for every new incoming path, trigger a sync (delayed so caller can continue/respond first)
+      setTimeout(hn.sync,1);
+
+      // update public ipv4 info
+      if(path.type == "ipv4" && !isLocalIP(path.ip))
+      {
+        hn.ip = path.ip;
+        hn.port = path.port;
+      }
+
+      // cull any invalid paths of the same type
+      hn.paths.forEach(function(other){
+        if(other == path) return;
+        if(other.type != path.type) return;
+        if(!pathValid(other)) hn.pathEnd(other);
+      });
+
+      // "local" custom paths, we must bridge for
+      if(path.type == "local") hn.bridging = true;
+
+      // track overall if we trust them as local
+      if(isLocalPath(path)) hn.isLocal = true;
+    }
+
+    path.lastIn = Date.now();
+    self.recvAt = Date.now();
+
+    // end any active relay
+    if(hn.to && hn.to.type == "relay" && path.type != "relay") hn.to.relay.fail();
+
+    // update default if better
+    if(!pathValid(hn.to) || pathValid(path)) hn.to = path;
+    hn.alive = pathValid(hn.to);
+
+    return path;
   }
 
 
@@ -3082,6 +3254,11 @@ mkHashContainer hn timeNow randomHexVal =
     , hRecvAt = Nothing
     , hCsid = Nothing
 
+    , hIp = Nothing
+    , hPort = Nothing
+    , hBridging = False
+    , hIsLocal = False
+
     , hLineOut = randomHexVal
     , hLineIV = 0
     , hEncKey = Nothing
@@ -3345,7 +3522,6 @@ validPathTypes
      $ map (\pt -> PathType pt) ["ipv4","ipv6","http","relay","webrtc","local"]
 
 
--- hnPathGet :: HashContainer -> Path -> TeleHash HashContainer
 hnPathGet :: HashContainer -> Path -> TeleHash Path
 hnPathGet hc path = do
 

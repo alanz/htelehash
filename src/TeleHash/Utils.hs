@@ -1,10 +1,13 @@
-{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
 module TeleHash.Utils
   (
    TeleHash
+  , Signal(..)
+  , Reply(..)
   , Switch(..)
   , PathId(..)
   , SeedInfo(..)
@@ -49,6 +52,7 @@ module TeleHash.Utils
 
   , putHN
   , getHN
+  , getHNsafe
   , incPCounter
   ) where
 
@@ -68,6 +72,7 @@ import Data.IP
 import Data.List
 import Data.Maybe
 import Data.String.Utils
+import Data.Typeable
 import Data.Word
 import Network.BSD
 import Network.Socket
@@ -138,6 +143,11 @@ data HashContainer = H
   , hCsid       :: !(Maybe String)
   , hRecvAt     :: !(Maybe ClockTime)
 
+  , hIp         :: !(Maybe IP)
+  , hPort       :: !(Maybe Int)
+  , hBridging   :: !Bool
+  , hIsLocal    :: !Bool
+
   , hLineIV :: !Word32 -- crypto 1a IV value
   , hEncKey :: !(Maybe BC.ByteString)
   , hDecKey :: !(Maybe BC.ByteString)
@@ -187,6 +197,7 @@ data PathType = PathType String
 
 type PathPriority = Int
 
+-- TODO: provide custom Eq instance, checking core vals only
 data Path = Path
       { pType     :: !PathType
       , pIp       :: !(Maybe IP)       -- ipv4,ipv6
@@ -198,7 +209,8 @@ data Path = Path
       , pLastOut  :: !(Maybe ClockTime)
       , pPriority :: !(Maybe PathPriority)
       , pIsSeed   :: !Bool
-      , pGone     :: !Bool
+      , pGone     :: !Bool -- may not be meaningful due to functional
+                           -- nature of haskell
       } deriving (Show,Eq)
 
 -- ---------------------------------------------------------------------
@@ -341,9 +353,20 @@ instance Aeson.FromJSON Id where
 
 -- ---------------------------------------------------------------------
 
+data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx BC.ByteString NS.SockAddr |
+              SignalGetSwitch
+            | SignalSyncPath HashName
+              deriving (Typeable, Show, Eq)
+
+data Reply = ReplyGetSwitch Switch
+           -- deriving (Typeable, Show)
+           deriving (Typeable)
+
+-- ---------------------------------------------------------------------
 data Switch = Switch
 
        { swH      :: !(Maybe SocketHandle)
+       , swChan   :: !(Maybe (Chan Signal))
        , swSender :: !(LinePacket -> SockAddr -> TeleHash ())
 
        , swSeeds :: ![HashName]
@@ -535,6 +558,13 @@ getHN :: HashName -> TeleHash (Maybe HashContainer)
 getHN hashName = do
   sw <- get
   return $ Map.lookup hashName (swAll sw)
+
+-- | get current state of the given HashContainer
+getHNsafe :: HashName -> String -> TeleHash HashContainer
+getHNsafe hashName tag = do
+  sw <- get
+  let mhn = Map.lookup hashName (swAll sw)
+  return $ gfromJust tag mhn
 
 -- | update the stored state of the given HashContainer
 putHN :: HashContainer -> TeleHash ()
