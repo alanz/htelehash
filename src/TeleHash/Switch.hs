@@ -37,6 +37,7 @@ import TeleHash.Convert
 import TeleHash.Crypto1a
 import TeleHash.Packet
 import TeleHash.Utils
+
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Data.Aeson as Aeson
 import qualified Data.Binary as Binary
@@ -52,6 +53,11 @@ import qualified Data.Text as Text
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
+
+-- ---------------------------------------------------------------------
+
+localIP = Just "10.0.0.42"
+-- localIP = Just "10.2.2.83"
 
 -- ---------------------------------------------------------------------
 --
@@ -126,7 +132,7 @@ run ch1 ch2 = do
   let Just hcs = Map.lookup seed0 (swAll sw)
   let path = Path { pType = PathType "ipv4"
                   -- , pIp = Just "208.68.164.253"
-                  , pIp = Just "10.0.0.42"
+                  , pIp = localIP
                   , pPort = 42424
                   , pHttp = ""
                   , pLastIn = Nothing
@@ -321,7 +327,7 @@ seedLocal =
    , sAdmin =  "alanz"
    , sPaths =
        [ Path { pType = PathType "ipv4"
-              , pIp = Just "10.0.0.42"
+              , pIp = localIP
               , pPort = 42424
               , pHttp = ""
               , pLastIn = Nothing
@@ -852,7 +858,7 @@ receive rxPacket path timeNow = do
                                           from2 <- getHNsafe (hHashName from) "deopenize"
                                           let from3 = from2
                                                         { hOpenAt = Just jsAt
-                                                        , hLineIn = Just (valToBs (js HM.! "line"))
+                                                        , hLineIn = Just (b16Tobs $ valToBs (js HM.! "line"))
                                                         }
                                           putHN from3
 
@@ -932,7 +938,6 @@ receive rxPacket path timeNow = do
                       logT $ "couldn't decrypt line:" ++ err
                       assert False undefined
                     Right pkt -> do
-                      assert False undefined
                       putHN $ line { hLineAt = hOpenAt line }
                       line2 <- getHNsafe (hHashName line) "receive.line"
                       hnReceive line2 pkt
@@ -1497,9 +1502,29 @@ function whois(hashname)
 -}
 -- ---------------------------------------------------------------------
 
--- |handle all incoming line packets
-hnReceive :: HashContainer -> Telex -> TeleHash ()
-hnReceive = assert False undefined
+-- |handle all incoming line packets, post decryption
+hnReceive :: HashContainer -> Packet -> TeleHash ()
+hnReceive hn packet = do
+  case paHead packet of
+    HeadEmpty -> do
+      logT $ "dropping invalid channel packet"
+      return ()
+    HeadByte _ -> do
+      logT $ "dropping invalid channel packet"
+      return ()
+    HeadJson js -> do
+      let Just json@(Aeson.Object jsHashMap) = Aeson.decode js :: Maybe Aeson.Value
+      case (HM.lookup "c" jsHashMap) of
+        Nothing -> logT $ "dropping invalid channel packet, c missing"
+        Just (Aeson.Number c) -> do
+          logT $ "LINEIN " ++ (BC.unpack $ lbsTocbs js)
+          timeNow <- io getClockTime
+          putHN hn { hRecvAt = Just timeNow }
+          hn2 <- getHNsafe (hHashName hn) "hnReceive"
+          -- normalize/track sender network path
+          assert False undefined
+        Just _ -> logT $ "dropping invalid channel packet, c not numeric"
+
 {-
   // handle all incoming line packets
   hn.receive = function(packet)

@@ -49,6 +49,7 @@ module TeleHash.Utils
 
   , valToBs
   , valToString
+  , b16Tobs
 
   , putHN
   , getHN
@@ -190,7 +191,7 @@ data CSet = CS
   , csOpenize  :: HashContainer -> Telex -> TeleHash LinePacket
   , csDeopenize :: Packet -> TeleHash DeOpenizeResult
   , csOpenLine :: HashContainer ->  DeOpenizeResult -> TeleHash ()
-  , csDelineize :: HashContainer -> Packet -> TeleHash (Either String Telex)
+  , csDelineize :: HashContainer -> Packet -> TeleHash (Either String Packet)
   }
 
 -- ---------------------------------------------------------------------
@@ -229,7 +230,6 @@ data Relay = Relay deriving (Show,Eq)
 
 -- a Telex gets packed to/from a Packet
 data Telex = Telex { tId     :: !(Maybe HashName)
-                     -- tId     :: !(Maybe HashContainer)
                    , tType   :: !(Maybe String)
                    , tPath   :: !(Maybe Path)
                    , tTo     :: !(Maybe Path) -- Do we need both of these? Need to clarify the type of this one first
@@ -553,6 +553,12 @@ valToBs (Aeson.String val) = BC.pack $ Text.unpack val
 
 valToString :: Aeson.Value -> String
 valToString (Aeson.String val) = Text.unpack val
+
+
+b16Tobs :: BC.ByteString -> BC.ByteString
+b16Tobs str = r
+  where
+   (r,_) = B16.decode str
 
 -- ---------------------------------------------------------------------
 -- Utility

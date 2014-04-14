@@ -227,10 +227,11 @@ Note: 1. the domain parameters are the agreed curve, i.e. SEC_p160r1
     Nothing -> do
       let ((pub,priv) ,g') = generate (swRNG sw) curve
       put $ sw { swRNG = g' } -- must come before next line, else update lost
-      logT $ "crypt_openize_1a:putHN for " ++ show (hHashName to)
+      logT $ "crypt_openize_1a:putHN new ECC for " ++ show (hHashName to)
       putHN $ to { hEcc = Just (Public1a pub,Private1a priv) }
       let (PublicKey _ lpub) = pub
       let (PrivateKey _ lp) = priv
+      logT $ "crypt_openize_1a:eccpriv " ++ show (B16.encode $ privToBs lp)
       return (lpub,lp)
     Just (Public1a (PublicKey _ lpub), Private1a (PrivateKey _ lp)) -> return (lpub,lp)
 
@@ -384,12 +385,11 @@ crypt_deopenize_1a open = do
         pubBs = BC.take 40 $ BC.drop 20 (unBody $ paBody open)
         cbody = BC.drop 60 (unBody $ paBody open)
 
-
         linePubPoint = (bsToPoint pubBs)
         linePub = PublicKey curve linePubPoint
 
       -- logT $ "crypt_deopenize_1a:mac1=" ++ show (mac1)
-      -- logT $ "crypt_deopenize_1a:pubBs=" ++ show (B16.encode pubBs)
+      logT $ "crypt_deopenize_1a:pubBs=" ++ show (B16.encode pubBs)
       -- logT $ "crypt_deopenize_1a:cbody=" ++ show (B16.encode cbody)
 
       -- logT $ "crypt_deopenize_1a:pubBs b64=" ++ show (encode pubBs)
@@ -565,7 +565,8 @@ crypt_lineize_1a to packet = r
 
     -- hmac :: (ByteString -> ByteString) -> Int -> ByteString -> ByteString -> ByteString
     -- hmac f blockSize secret msg
-    h = BC.take 4 $ hmac SHA1.hash 16 (gfromJust "crypt_lineize_1a.1" $ hEncKey to) (BC.append iv cbody)
+    -- h = BC.take 4 $ hmac SHA1.hash 16 (gfromJust "crypt_lineize_1a.1" $ hEncKey to) (BC.append iv cbody)
+    h = BC.take 4 $ hmac SHA1.hash 64 (gfromJust "crypt_lineize_1a.1" $ hEncKey to) (BC.append iv cbody)
 
     final = foldl' BC.append BC.empty [(gfromJust "crypt_lineize_1a.2" $ hLineIn to),h,iv,cbody]
     fc = packet { tPacket = Just (Packet HeadEmpty (Body final)) }
@@ -626,23 +627,26 @@ packet_t crypt_lineize_1a(crypt_t c, packet_t p)
 
 -- |set up the line enc/dec keys
 crypt_openline_1a :: HashContainer -> DeOpenizeResult -> TeleHash ()
-crypt_openline_1a from to = do
+crypt_openline_1a from open = do
   case hEcc from of
     Nothing -> error $ "crypt_openline_1a, expecting hEcc to be populated:" ++ show (hHashName from)
     Just (Public1a _eccPub,Private1a (PrivateKey _ eccPriv)) -> do
-      let Public1a (PublicKey _ linePub) = doLinePub to
+      let Public1a (PublicKey _ linePub) = doLinePub open
           (ECC.Point secretX _Y) = ECC.pointMul curve eccPriv linePub
           Just ecdhe = i2ospOf 20 secretX
           (lineOutB,_) = B16.decode (BC.pack $ hLineOut from)
           lineInB = gfromJust "crypt_openline_1a" (hLineIn from)
 
           encKeyCtx = SHA1.updates SHA1.init [ecdhe,lineOutB,lineInB]
-          encKey = B16.encode $ BC.take 16 (SHA1.finalize encKeyCtx)
+          encKey = BC.take 16 (SHA1.finalize encKeyCtx)
 
           decKeyCtx = SHA1.updates SHA1.init [ecdhe,lineInB,lineOutB]
-          decKey = B16.encode $ BC.take 16 (SHA1.finalize decKeyCtx)
+          decKey = BC.take 16 (SHA1.finalize decKeyCtx)
 
-      logT $ "crypt_openline_1a:(encKey,decKey)=" ++ show (encKey,decKey)
+      logT $ "crypt_openline_1a:linePub=" ++ show (B16.encode $ pointTow8s linePub)
+      logT $ "crypt_openline_1a:eccPriv=" ++ show (B16.encode $ privToBs eccPriv)
+      logT $ "crypt_openline_1a:(lineInB,lineOutB)=" ++ show (B16.encode $ lineInB,B16.encode lineOutB)
+      logT $ "crypt_openline_1a:(ecdhe,encKey,decKey)=" ++ show (B16.encode ecdhe,B16.encode encKey,B16.encode decKey)
       putHN $ from { hLineIV = 0
                    , hEncKey = Just encKey
                    , hDecKey = Just decKey
@@ -704,7 +708,7 @@ int crypt_line_1a(crypt_t c, packet_t inner)
 
 -- ---------------------------------------------------------------------
 
-crypt_delineize_1a :: HashContainer -> Packet -> TeleHash (Either String Telex)
+crypt_delineize_1a :: HashContainer -> Packet -> TeleHash (Either String Packet)
 crypt_delineize_1a from packet = do
   logT $ "crypt_delineize_1a entered for " ++ show (hHashName from)
   if (BC.length (unBody $ paBody packet) < 16)
@@ -714,18 +718,31 @@ crypt_delineize_1a from packet = do
     else do
       -- skip the lineID
       let body = BC.drop 16 (unBody $ paBody packet)
+          decKey = (gfromJust "crypt_delineize_1a.1" $ hDecKey from)
+
       -- logT $ "crypt_delineize_1a:lineID=" ++ show (B16.encode $ BC.take 16 (unBody $ paBody packet))
       -- validate the HMAC
       let mac1 = BC.take 4 body
-          mac2 = BC.take 4 $ hmac SHA1.hash 16 (gfromJust "crypt_delineize_1a.1" $ hDecKey from) (BC.drop 4 body)
+          mac2 = BC.take 4 $ hmac SHA1.hash 64 decKey (BC.drop 4 body)
       -- logT $ "crypt_delineize_1a.1:drop 4 body=" ++ show (B16.encode (BC.drop 4 body))
-      logT $ "crypt_delineize_1a:hDecKey=" ++ show (hDecKey from)
+      -- logT $ "crypt_delineize_1a:hDecKey=" ++ show (hDecKey from)
       if mac1 /= mac2
         then do
           logT $ "invalid hmac:" ++ show (B16.encode mac1,B16.encode mac2)
           return (Left "invalid hmac")
         else do
-          assert False undefined
+          -- decrypt body
+          let iv = BC.take 4 $ BC.drop 4 body
+              Just ivz = i2ospOf 12 0
+              body2 = BC.drop 8 body
+              deciphered = decryptCTR (initAES decKey) (BC.append ivz iv) body2
+          -- logT $ "crypt_delineize_1a:deciphered=" ++ show (B16.encode deciphered)
+          -- logT $ "crypt_delineize_1a:deciphered=" ++ show (deciphered)
+          let mret = fromLinePacket (LP $ cbsTolbs deciphered)
+          -- logT $ "crypt_delineize_1a:ret=" ++ show (mret)
+          case mret of
+            Nothing -> return (Left "invalid decrypted packet")
+            Just ret -> return (Right ret)
 
 {-
 exports.delineize = function(from, packet)
@@ -733,7 +750,7 @@ exports.delineize = function(from, packet)
   if(!packet.body) return "no body";
   // remove lineid
   packet.body = packet.body.slice(16);
-  
+
   // validate the hmac
   var mac1 = packet.body.slice(0,4).toString("hex");
   var mac2 = crypto.createHmac('sha1', from.decKey).update(packet.body.slice(4)).digest().slice(0,4).toString("hex");
@@ -751,6 +768,30 @@ if(!deciphered) return "invalid decrypted packet";
   packet.body = deciphered.body;
   return false;
 }
+-}
+{-
+packet_t crypt_delineize_1a(crypt_t c, packet_t p)
+{
+  packet_t line;
+  aes_context ctx;
+  unsigned char block[16], iv[16], hmac[20];
+  size_t off = 0;
+  crypt_1a_t cs = (crypt_1a_t)c->cs;
+
+  memset(iv,0,16);
+  memcpy(iv+12,p->body+16+4,4);
+
+  sha1_hmac(cs->keyIn,16,p->body+16+4,p->body_len-(16+4),hmac);
+  if(memcmp(hmac,p->body+16,4) != 0) return packet_free(p);
+
+  aes_setkey_enc(&ctx,cs->keyIn,128);
+  aes_crypt_ctr(&ctx,p->body_len-(16+4+4),&off,iv,block,p->body+16+4+4,p->body+16+4+4);
+
+  line = packet_parse(p->body+16+4+4, p->body_len-(16+4+4));
+  packet_free(p);
+  return line;
+}
+
 -}
 -- ---------------------------------------------------------------------
 
@@ -868,6 +909,12 @@ pointTow8s (ECC.Point i1 i2)= B.append i1_20 i2_20
   where
     (Just i1_20) = i2ospOf 20 i1
     (Just i2_20) = i2ospOf 20 i2
+
+-- ---------------------------------------------------------------------
+
+privToBs p = pbs
+  where
+    (Just pbs) = i2ospOf 20 p
 
 -- ---------------------------------------------------------------------
 
@@ -1309,3 +1356,262 @@ testHash = B16.encode r
     r = SHA1.hash $ bs
 
 
+-- ---------------------------------------------------------------------
+-- Checking the generation of line keys
+
+line_private :: [Word8]
+line_private =
+ [
+ 0x02, 0xbd, 0x4c, 0xd9, 0xe2, 0x98, 0xbc, 0x29, 0xd2, 0xb1, 0xf4, 0x64, 0xa7, 0x9e, 0x2a, 0x9e,
+ 0x8b, 0x74, 0xd6, 0x1f
+ ]
+
+line_public :: [Word8]
+line_public =
+ [
+ 0xc2, 0xa6, 0x54, 0xd7, 0xcf, 0x92, 0xfd, 0x89, 0x9a, 0x75, 0x4e, 0x88, 0xf0, 0x7d, 0x5f, 0xea,
+ 0x38, 0xb0, 0xc9, 0xc9, 0x3f, 0xb0, 0x4d, 0x8d, 0xa6, 0x50, 0x60, 0xaf, 0x46, 0xa8, 0x46, 0x2b,
+ 0x12, 0x45, 0x28, 0x7a, 0x09, 0x0e, 0x97, 0xd1
+ ]
+
+line_secret :: [Word8]
+line_secret =
+ [
+ 0x0b, 0x78, 0xb0, 0x59, 0x90, 0xa6, 0x15, 0xda, 0x9a, 0xde, 0x51, 0xd7, 0x31, 0x0d, 0xa9, 0xcf,
+ 0xe2, 0x28, 0xa3, 0xb4
+ ]
+
+test_line_key_gen = r
+  where
+    eccPriv = os2ip $ lbsTocbs $ BL.pack line_private
+    linePub = bsToPoint $ lbsTocbs $ BL.pack line_public
+    (ECC.Point secretX _Y) = ECC.pointMul curve eccPriv linePub
+    Just ecdhe = i2ospOf 20 secretX
+
+    lineOutB = lbsTocbs $ BL.pack line_out
+    lineInB = lbsTocbs $ BL.pack line_in
+
+    encKeyCtx = SHA1.updates SHA1.init [ecdhe,lineOutB,lineInB]
+    encKey = B16.encode $ BC.take 16 (SHA1.finalize encKeyCtx)
+
+    decKeyCtx = SHA1.updates SHA1.init [ecdhe,lineInB,lineOutB]
+    decKey = B16.encode $ BC.take 16 (SHA1.finalize decKeyCtx)
+
+    expected_secret = B16.encode $ lbsTocbs $ BL.pack line_secret
+    -- r = (B16.encode ecdhe,expected_secret)
+    r = (encKey,decKey)
+
+
+line_out :: [Word8]
+line_out =
+ [
+ 0xb8, 0x1c, 0xb3, 0xdb, 0x29, 0xa3, 0x32, 0x16, 0x4c, 0xc8, 0x72, 0xc1, 0xaa, 0xee, 0x18, 0xd5
+ ]
+
+line_in :: [Word8]
+line_in =
+ [
+ 0x8b, 0x9a, 0x33, 0x84, 0xb1, 0xff, 0xec, 0x8c, 0xc0, 0x41, 0xd7, 0xe7, 0x43, 0x64, 0xa7, 0x4f
+ ]
+
+keyIn :: [Word8]
+keyIn =
+ [
+ 0xc6, 0x60, 0x0c, 0x60, 0x13, 0x46, 0xb5, 0x39, 0x77, 0x20, 0x5c, 0x52, 0xf2, 0x5c, 0x84, 0xbd
+ ]
+
+keyOut :: [Word8]
+keyOut =
+ [
+ 0xaf, 0x7a, 0xfc, 0x62, 0x07, 0xd7, 0xd5, 0xb5, 0x45, 0x66, 0x37, 0x46, 0xca, 0xd4, 0x41, 0x3
+ ]
+
+{-
+received open packet 368 {"type":"ipv4","ip":"208.68.164.253","port":42424}
+line:cs->line_private hex dump
+ 0x02, 0xbd, 0x4c, 0xd9, 0xe2, 0x98, 0xbc, 0x29, 0xd2, 0xb1, 0xf4, 0x64, 0xa7, 0x9e, 0x2a, 0x9e,
+ 0x8b, 0x74, 0xd6, 0x1f,
+hex dump done
+line:line_public hex dump
+ 0xc2, 0xa6, 0x54, 0xd7, 0xcf, 0x92, 0xfd, 0x89, 0x9a, 0x75, 0x4e, 0x88, 0xf0, 0x7d, 0x5f, 0xea,
+ 0x38, 0xb0, 0xc9, 0xc9, 0x3f, 0xb0, 0x4d, 0x8d, 0xa6, 0x50, 0x60, 0xaf, 0x46, 0xa8, 0x46, 0x2b,
+ 0x12, 0x45, 0x28, 0x7a, 0x09, 0x0e, 0x97, 0xd1,
+hex dump done
+line:secret hex dump
+ 0x0b, 0x78, 0xb0, 0x59, 0x90, 0xa6, 0x15, 0xda, 0x9a, 0xde, 0x51, 0xd7, 0x31, 0x0d, 0xa9, 0xcf,
+ 0xe2, 0x28, 0xa3, 0xb4,
+hex dump done
+
+
+line:c->lineOut hex dump
+ 0xb8, 0x1c, 0xb3, 0xdb, 0x29, 0xa3, 0x32, 0x16, 0x4c, 0xc8, 0x72, 0xc1, 0xaa, 0xee, 0x18, 0xd5,
+
+hex dump done
+line:c->lineIn hex dump
+ 0x8b, 0x9a, 0x33, 0x84, 0xb1, 0xff, 0xec, 0x8c, 0xc0, 0x41, 0xd7, 0xe7, 0x43, 0x64, 0xa7, 0x4f,
+
+hex dump done
+line:c->keyIn hex dump
+ 0xc6, 0x60, 0x0c, 0x60, 0x13, 0x46, 0xb5, 0x39, 0x77, 0x20, 0x5c, 0x52, 0xf2, 0x5c, 0x84, 0xbd,
+
+hex dump done
+line:c->keyOut hex dump
+ 0xaf, 0x7a, 0xfc, 0x62, 0x07, 0xd7, 0xd5, 0xb5, 0x45, 0x66, 0x37, 0x46, 0xca, 0xd4, 0x41, 0x3a,
+
+
+-}
+
+-- ----------------------------------------------------------------------
+-- Checking verify hmac on delineize
+
+{-
+delineize:ivhex dump
+ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+
+hex dump done
+delineize:cs->keyInhex dump
+ 0xbc, 0x9c, 0xb4, 0x8d, 0x83, 0xa3, 0x14, 0x3c, 0x8e, 0x72, 0x26, 0xe6, 0x41, 0x04, 0x40, 0xaa,
+
+hex dump done
+delineize:p->body+16+4hex dump
+ 0x01, 0x00, 0x00, 0x00, 0x23, 0xaf, 0x1c, 0xfd, 0x24, 0xdb, 0x92, 0x8a, 0xd2, 0x1b, 0x69, 0x6a,
+ 0x81, 0x3d, 0x17, 0xef, 0xde, 0xe5, 0xfd, 0x55, 0x3f, 0x41, 0xac, 0x30, 0x69, 0x76, 0x57, 0x3e,
+ 0x46, 0x03, 0x28, 0x4d, 0xe0, 0x3b, 0xab, 0xd9, 0x66, 0x67, 0x82, 0x2c, 0x90, 0x09, 0x88, 0xef,
+ 0xed, 0xdf, 0xb1, 0x13, 0x89, 0xcf, 0x97, 0xfd, 0x29, 0x2f, 0x8f, 0xca, 0x44, 0xe6, 0xf8, 0x39,
+ 0xea, 0xe3, 0x94, 0xcd, 0x81, 0x29, 0x8f, 0xd5, 0x71, 0x47, 0xe8, 0x8d, 0xb1, 0x0f, 0x61, 0x02,
+ 0x23, 0x3c, 0x7a, 0xc7, 0xe5, 0x6c, 0x3a, 0xe7, 0xcc, 0xfb, 0x2e, 0xd3, 0x56, 0xe3, 0x1d, 0xb0,
+ 0x7f, 0x6f, 0x1a, 0x4e, 0x23, 0x64, 0x99, 0x76, 0x40, 0xea, 0xdf, 0x07, 0x04, 0x6a, 0x09, 0x62,
+ 0xd7, 0x23, 0x37, 0xc7, 0x91, 0x53, 0x94, 0xab, 0x53, 0xb5, 0xbd, 0xb0, 0x6d, 0x3d, 0x73, 0xd0,
+ 0x1a, 0xeb, 0xd7, 0xa0, 0x4c, 0x4d, 0xb8, 0xb9, 0x86, 0x3f, 0xaa, 0xa7, 0x5a, 0x2c, 0x23, 0x50,
+ 0x3c, 0x63, 0xb6, 0xea, 0x42, 0xe1, 0x1b, 0x3d, 0x23, 0x92, 0x6c, 0xc9, 0x6c, 0x11, 0x3d, 0x14,
+ 0xda, 0xa4, 0x0d, 0xf9, 0x49, 0x45, 0x5a, 0x30, 0x44, 0x71, 0x27, 0x63, 0x98, 0xf8, 0xbe, 0xac,
+ 0x99, 0xac, 0xc9, 0x3d, 0xe0, 0xf1, 0x8b, 0x1c, 0x64, 0x0f, 0x81, 0x07, 0x47, 0x01, 0xd1, 0xd3,
+ 0xd2, 0xe5, 0x89, 0x12, 0x1d, 0xa6, 0x22, 0x38, 0x26, 0x2f, 0xa9, 0x7b, 0xc8, 0xad, 0x0e, 0xe7,
+ 0x42, 0x2d, 0x83, 0x05, 0x68, 0x5e, 0x12, 0x65, 0xd9, 0x28, 0xe3, 0xc9, 0x93, 0xcd, 0x8b, 0x95,
+ 0x3c, 0xc0, 0xb0, 0xd4, 0xa4, 0xea, 0xc6, 0xaf, 0xd6, 0xc5, 0x6c, 0x0b, 0xce, 0x39, 0x36, 0xf7,
+ 0x75, 0x96, 0xd8, 0x4a, 0xb0, 0x6d, 0xa3, 0xeb, 0xc5, 0x2f, 0xef, 0xfd, 0x31, 0xc1, 0x5c, 0x41,
+ 0x64, 0xc7, 0x58, 0xc7, 0x83, 0x0b, 0x1f, 0x0b, 0x80, 0x7a, 0xc6, 0x70, 0x1f, 0xdc, 0xf5, 0xb4,
+ 0x7f, 0x6c, 0x9e, 0x48, 0x54, 0xb2, 0xba, 0x59, 0x95, 0x49, 0xdb, 0x95, 0x20, 0x48, 0xdd, 0x66,
+
+hex dump done
+delineize:hmachex dump
+ 0x78, 0x43, 0x11, 0xb7, 0xff, 0x17, 0xdd, 0x71, 0x82, 0x2c, 0x12, 0x13, 0x49, 0x75, 0x6c, 0x3e,
+
+-}
+
+del_iv :: [Word8]
+del_iv =
+ [
+ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00
+ ]
+
+del_keyIn :: [Word8]
+del_keyIn =
+ [
+ 0xbc, 0x9c, 0xb4, 0x8d, 0x83, 0xa3, 0x14, 0x3c, 0x8e, 0x72, 0x26, 0xe6, 0x41, 0x04, 0x40, 0xaa
+ ]
+
+del_body :: [Word8]
+del_body =
+ [
+ 0x01, 0x00, 0x00, 0x00, 0x23, 0xaf, 0x1c, 0xfd, 0x24, 0xdb, 0x92, 0x8a, 0xd2, 0x1b, 0x69, 0x6a,
+ 0x81, 0x3d, 0x17, 0xef, 0xde, 0xe5, 0xfd, 0x55, 0x3f, 0x41, 0xac, 0x30, 0x69, 0x76, 0x57, 0x3e,
+ 0x46, 0x03, 0x28, 0x4d, 0xe0, 0x3b, 0xab, 0xd9, 0x66, 0x67, 0x82, 0x2c, 0x90, 0x09, 0x88, 0xef,
+ 0xed, 0xdf, 0xb1, 0x13, 0x89, 0xcf, 0x97, 0xfd, 0x29, 0x2f, 0x8f, 0xca, 0x44, 0xe6, 0xf8, 0x39,
+ 0xea, 0xe3, 0x94, 0xcd, 0x81, 0x29, 0x8f, 0xd5, 0x71, 0x47, 0xe8, 0x8d, 0xb1, 0x0f, 0x61, 0x02,
+ 0x23, 0x3c, 0x7a, 0xc7, 0xe5, 0x6c, 0x3a, 0xe7, 0xcc, 0xfb, 0x2e, 0xd3, 0x56, 0xe3, 0x1d, 0xb0,
+ 0x7f, 0x6f, 0x1a, 0x4e, 0x23, 0x64, 0x99, 0x76, 0x40, 0xea, 0xdf, 0x07, 0x04, 0x6a, 0x09, 0x62,
+ 0xd7, 0x23, 0x37, 0xc7, 0x91, 0x53, 0x94, 0xab, 0x53, 0xb5, 0xbd, 0xb0, 0x6d, 0x3d, 0x73, 0xd0,
+ 0x1a, 0xeb, 0xd7, 0xa0, 0x4c, 0x4d, 0xb8, 0xb9, 0x86, 0x3f, 0xaa, 0xa7, 0x5a, 0x2c, 0x23, 0x50,
+ 0x3c, 0x63, 0xb6, 0xea, 0x42, 0xe1, 0x1b, 0x3d, 0x23, 0x92, 0x6c, 0xc9, 0x6c, 0x11, 0x3d, 0x14,
+ 0xda, 0xa4, 0x0d, 0xf9, 0x49, 0x45, 0x5a, 0x30, 0x44, 0x71, 0x27, 0x63, 0x98, 0xf8, 0xbe, 0xac,
+ 0x99, 0xac, 0xc9, 0x3d, 0xe0, 0xf1, 0x8b, 0x1c, 0x64, 0x0f, 0x81, 0x07, 0x47, 0x01, 0xd1, 0xd3,
+ 0xd2, 0xe5, 0x89, 0x12, 0x1d, 0xa6, 0x22, 0x38, 0x26, 0x2f, 0xa9, 0x7b, 0xc8, 0xad, 0x0e, 0xe7,
+ 0x42, 0x2d, 0x83, 0x05, 0x68, 0x5e, 0x12, 0x65, 0xd9, 0x28, 0xe3, 0xc9, 0x93, 0xcd, 0x8b, 0x95,
+ 0x3c, 0xc0, 0xb0, 0xd4, 0xa4, 0xea, 0xc6, 0xaf, 0xd6, 0xc5, 0x6c, 0x0b, 0xce, 0x39, 0x36, 0xf7,
+ 0x75, 0x96, 0xd8, 0x4a, 0xb0, 0x6d, 0xa3, 0xeb, 0xc5, 0x2f, 0xef, 0xfd, 0x31, 0xc1, 0x5c, 0x41,
+ 0x64, 0xc7, 0x58, 0xc7, 0x83, 0x0b, 0x1f, 0x0b, 0x80, 0x7a, 0xc6, 0x70, 0x1f, 0xdc, 0xf5, 0xb4,
+ 0x7f, 0x6c, 0x9e, 0x48, 0x54, 0xb2, 0xba, 0x59, 0x95, 0x49, 0xdb, 0x95, 0x20, 0x48, 0xdd, 0x66
+ ]
+
+del_hmac :: [Word8]
+del_hmac =
+ [
+ 0x78, 0x43, 0x11, 0xb7, 0xff, 0x17, 0xdd, 0x71, 0x82, 0x2c, 0x12, 0x13, 0x49, 0x75, 0x6c, 0x3e
+ ]
+
+test_decrypt_hmac = r
+  where
+    body = lbsTocbs $ BL.pack del_body
+    decKey = lbsTocbs $ BL.pack del_keyIn
+    -- mac2 = BC.take 4 $ hmac SHA1.hash 16 decKey (body)
+    mac2 = BC.take 4 $ hmac SHA1.hash 64 decKey (body)
+    r = (B16.encode mac2, B16.encode $ lbsTocbs $ BL.pack del_hmac)
+
+-- ---------------------------------------------------------------------
+
+-- Checking mac calculation, thjs to here
+{-
+line sending 7ecf6a5884d483fde2f6a027e33e6e1756efdb70925557c3e3f776b35329aef5 183851fcae722b04ec68693e1f1d3372
+  console.log("AZ 1a lineize:",to.lineIn,to.encKey,mac,iv,cbody)
+
+AZ 1a lineize: 183851fcae722b04ec68693e1f1d3372 <Buffer 4a e8 37 dc cb 46 b2 d4 ed e7 bb 9b 5e 6c c8 e4> <SlowBuffer a4 06 2a f8 42 97 82 a3 03 37 68 0d be 2a 34 21 9d cb 97 4c> <Buffer 00 00 00 00> <Buffer 32 cf 3b 31 58 d0 f3 33 55 13 b4 da 98 8e c5 b7 1a 5d 46 a3 3e b9 01 02 d9 14 3b a3 3a 17 e6 c7 91 0e 7f 5d bd c8 6a 82 c6 c0 d0 c5 a2 86 1b b5 bb 4e d1 ...>
+<
+
+
+send: must still update stats, and bridge if necessary
+crypt_openline_1a:(encKey,decKey)=("93b663d1ec1b81db4f1d5f8230a6fc20","e5d1ecf569c7000b1099937b0269b8f8")
+line open (HN "3036d9b6f9525660b71d58bacd80d0ef0f6e191f1622daefd461823c366eb4fc","183851fcae722b04ec68693e1f1d3372",Just "351617aa68671f5717ef61b001f08c81")
+deopenize:hEncKey from8=(Just "\147\182c\209\236\ESC\129\219O\GS_\130\&0\166\252 ",Just "\229\209\236\245i\199\NUL\v\DLE\153\147{\STXi\184\248")
+deopenize:not doing last packet resend
+RECV from IPP "10.2.2.83:42424":"0000183851fcae722b04ec68693e1f1d3372a4062af80000000032cf3b3158d0f3335513b4da988ec5b71a5d46a33eb90102d9143ba33a17e6c7910e7f5dbdc86a82c6c0d0c5a2861bb5bb4ed1ae1b575bdfaccde8d773f14eb142568b0a05a693d9002586560f289accbcf22f55c2d4dd56dc42a3e1cbc121e2ec295d814d63f77fbc8a61188e71a0521eafd2c29cff616f29940f5c449682ae286f5161367e651b78c1511c0db0e30f71f82aeee050fab3e5edeea2038db7bc6bc08441da150d3126ccd833596c73b918cea8fcdd879925486d74dcdc6e371287b6b359bdfdad3ebf34b201cf07115b32b427d6fbf9523cccf08a3bd821671c3e1c4b274b816a853a0120bb70540cf55504260ec154dac19c372d9138dddacc7963036d4cce9f67bf6458a1b1f30a9091d84f6da2b17801e481672a9b215720b4a9641a7351c86d1e900dc7d98b7a7b56c59616643db7d05d48ba071153496291c481f337bb780a5499d0249407c8858ba2cdd32587658cb4d65aa4e05349e35f5278001b313b5e24ec385e7ad8d7b3b92599f2187c2341a300418b5b97ae397c1eae034d2e45b88761fcd138904c1f09388919840fb3b6e8f4498be25da82bdd3d4dab53e2d1daab474287333ffcefbf241798caf910d9adb892eed7701e059b8e2a2482628ebad76a944fce2ca74e3a743b39e253dba8df6d7fb170ebe7" at Mon Apr 14 14:04:31 SAST 2014
+>>>>(Mon Apr 14 14:04:31 SAST 2014,505,2,503,(PathType "ipv4",Just 10.2.2.83,42424))
+receive:got line msg
+receive:lineID=183851fcae722b04ec68693e1f1d3372
+crypt_delineize_1a entered for HN "3036d9b6f9525660b71d58bacd80d0ef0f6e191f1622daefd461823c366eb4fc"
+crypt_delineize_1a:hDecKey=Just "\229\209\236\245i\199\NUL\v\DLE\153\147{\STXi\184\248"
+invalid hmac:("a4062af8","6bca90f8")
+couldn't decrypt line:invalid hmac
+<interactive>: src/TeleHash/Switch.hs:938:23-28: Assertion failed
+
+-}
+
+ff_packet_str = "0000183851fcae722b04ec68693e1f1d3372a4062af80000000032cf3b3158d0f3335513b4da988ec5b71a5d46a33eb90102d9143ba33a17e6c7910e7f5dbdc86a82c6c0d0c5a2861bb5bb4ed1ae1b575bdfaccde8d773f14eb142568b0a05a693d9002586560f289accbcf22f55c2d4dd56dc42a3e1cbc121e2ec295d814d63f77fbc8a61188e71a0521eafd2c29cff616f29940f5c449682ae286f5161367e651b78c1511c0db0e30f71f82aeee050fab3e5edeea2038db7bc6bc08441da150d3126ccd833596c73b918cea8fcdd879925486d74dcdc6e371287b6b359bdfdad3ebf34b201cf07115b32b427d6fbf9523cccf08a3bd821671c3e1c4b274b816a853a0120bb70540cf55504260ec154dac19c372d9138dddacc7963036d4cce9f67bf6458a1b1f30a9091d84f6da2b17801e481672a9b215720b4a9641a7351c86d1e900dc7d98b7a7b56c59616643db7d05d48ba071153496291c481f337bb780a5499d0249407c8858ba2cdd32587658cb4d65aa4e05349e35f5278001b313b5e24ec385e7ad8d7b3b92599f2187c2341a300418b5b97ae397c1eae034d2e45b88761fcd138904c1f09388919840fb3b6e8f4498be25da82bdd3d4dab53e2d1daab474287333ffcefbf241798caf910d9adb892eed7701e059b8e2a2482628ebad76a944fce2ca74e3a743b39e253dba8df6d7fb170ebe7"
+
+ff_remote_enckey_str = "4ae837dccb46b2d4ede7bb9b5e6cc8e4"
+
+ff_remote_hmac_str = "a4062af8429782a30337680dbe2a34219dcb974c"
+
+ff_local_deckey_str = "e5d1ecf569c7000b1099937b0269b8f8"
+
+check_mac_verify = r
+  where
+    (remote_enckey,_) = B16.decode $ BC.pack ff_remote_enckey_str
+    (packet,_) = B16.decode $ BC.pack ff_packet_str
+    ivcbody = BC.drop (2+16+4) packet
+    remote_hval = hmac SHA1.hash 64 remote_enckey ivcbody
+    -- r = B16.encode remote_hval -- correct
+    -- r = B16.encode ivcbody
+
+    (local_decKey,_) = B16.decode $ BC.pack ff_local_deckey_str
+    mac2 = BC.take 4 $ hmac SHA1.hash 64 local_decKey ivcbody
+    r = B16.encode mac2
+
+-- ---------------------------------------------------------------------
+
+-- check shared secret generation
+
+check_shared_secret = do
+  g1 <- initRNG
+  let ((PublicKey _ pub1,PrivateKey _ priv1) ,g2) = generate g1  curve
+      ((PublicKey _ pub2,PrivateKey _ priv2) ,g3) = generate g2 curve
+
+  let (ECC.Point sharedX1 _Y) = ECC.pointMul curve priv1 pub2
+  let (ECC.Point sharedX2 _Y) = ECC.pointMul curve priv2 pub1
+
+  let pub1a = (bsToPoint . pointTow8s) pub1
+  let pub2a = (bsToPoint . pointTow8s) pub2
+  let priv1a = (os2ip . privToBs) priv1
+  let priv2a = (os2ip . privToBs) priv2
+
+  putStrLn $ show (sharedX1,sharedX2,pub1a == pub1, pub2a == pub2, priv1a == priv1, priv2a == priv2)
