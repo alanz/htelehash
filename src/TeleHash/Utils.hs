@@ -19,6 +19,7 @@ module TeleHash.Utils
   , Telex(..)
   , emptyTelex
   , RxTelex(..)
+  , rxTelexToTelex
   , DeOpenizeResult(..)
   , Hash(..)
   , unHash
@@ -29,6 +30,7 @@ module TeleHash.Utils
   , Parts(..)
   , Channel(..)
   , ChannelId(..)
+  , channelSlot
   , Line(..)
   , CSet(..)
   , PublicKey(..)
@@ -36,7 +38,9 @@ module TeleHash.Utils
   , Id(..)
   , SocketHandle(..)
   , CallBack
+  , RxCallBack
   , nullCb
+  , nullRxCb
   , IPP(..)
   , unIPP
   , parts2hn
@@ -68,12 +72,14 @@ import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State
 import Crypto.Random
+import Data.Aeson.Encode
 import Data.Bits
 import Data.Char
 import Data.IP
 import Data.List
 import Data.Maybe
 import Data.String.Utils
+import Data.Text.Lazy.Builder
 import Data.Typeable
 import Data.Word
 import Network.BSD
@@ -98,6 +104,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
+import qualified Data.Text.Lazy as TL
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
@@ -270,6 +277,7 @@ data RxTelex = RxTelex { rtId     :: !Int
                        , rtAt     :: !ClockTime
                        , rtJs     :: !(HM.HashMap Text.Text Aeson.Value)
                        , rtPacket :: !Packet
+                       , rtChanId :: !(Maybe ChannelId)
                        } deriving Show
 
 data DeOpenizeResult = DeOpenizeVerifyFail
@@ -280,11 +288,22 @@ data DeOpenizeResult = DeOpenizeVerifyFail
                                  }
                      deriving (Show)
 
+rxTelexToTelex :: RxTelex -> Telex
+rxTelexToTelex rx
+ = emptyTelex
+    { tJson   = Map.fromList js
+    , tPath   = Just (rtSender rx)
+    , tPacket = Just (rtPacket rx)
+    }
+  where
+    js = map (\(k,v) -> (Text.unpack k,TL.unpack $ toLazyText $ encodeToTextBuilder v))
+            $ HM.toList (rtJs rx)
+
 -- ---------------------------------------------------------------------
 
 data Channel = Chan
   { chType     :: !String
-  , chCallBack :: !CallBack
+  , chCallBack :: !RxCallBack
   , chId       :: !ChannelId
   , chHashName :: !HashName -- for convenience
   , chLast     :: !(Maybe Path)
@@ -299,6 +318,12 @@ instance Show (CallBack) where
 instance Eq CallBack where
   _ == _ = True
 
+instance Show (RxCallBack) where
+  show _ = "RxCallBack"
+
+instance Eq RxCallBack where
+  _ == _ = True
+
 type HashDistance = Int
 
 -- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)
@@ -311,6 +336,9 @@ instance Num ChannelId where
   abs (CID a) = CID (abs a)
   signum (CID a) = CID (signum a)
   fromInteger i = CID (fromIntegral i)
+
+channelSlot :: ChannelId -> Int
+channelSlot (CID n) = n `mod` 2
 
 -- ---------------------------------------------------------------------
 
@@ -373,6 +401,8 @@ data Reply = ReplyGetSwitch Switch
            deriving (Typeable)
 
 -- ---------------------------------------------------------------------
+
+
 data Switch = Switch
 
        { swH      :: !(Maybe SocketHandle)
@@ -387,8 +417,8 @@ data Switch = Switch
        , swAll        :: !(Map.Map HashName HashContainer)
        , swBuckets    :: ![Bucket]
        , swCapacity   :: ![String]
-       , swRels       :: ![String]
-       , swRaws       :: !(Map.Map String (String -> Telex -> Channel -> IO ()))
+       , swRels       :: !(Map.Map String (String -> RxTelex -> Channel -> TeleHash ()))
+       , swRaws       :: !(Map.Map String (String -> RxTelex -> Channel -> TeleHash ()))
        , swPaths      :: !(Map.Map PathId Path)
        , swBridgeCache :: ![String]
        , swNetworks :: !(Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashContainer -> TeleHash ())))
@@ -430,13 +460,13 @@ data Switch = Switch
        , swWhois :: HashName -> TeleHash (Maybe HashContainer)
        , swWhokey :: Parts -> Either String (Map.Map String String) -> TeleHash (Maybe HashContainer)
 
-       , swStart :: String -> String -> String -> () -> IO ()
+       , swStart :: HashContainer -> String -> RxTelex -> RxCallBack -> TeleHash Channel
        , swOnline :: CallBack -> TeleHash ()
        , swIsOnline :: !Bool
        , swListen :: String -> () -> IO ()
 
        -- advanced usage only
-       , swRaw :: HashContainer -> String -> Telex -> CallBack -> TeleHash Channel
+       , swRaw :: HashContainer -> String -> RxTelex -> RxCallBack -> TeleHash Channel
 
        -- primarily internal, to seek/connect to a hashname
        , swSeek :: String -> () -> IO ()
@@ -472,6 +502,11 @@ type CallBack = TeleHash ()
 
 nullCb :: TeleHash ()
 nullCb = return ()
+
+type RxCallBack = String -> RxTelex -> Channel -> TeleHash ()
+
+nullRxCb :: String -> RxTelex -> Channel -> TeleHash ()
+nullRxCb _ _ _= return ()
 
 -- ---------------------------------------------------------------------
 
