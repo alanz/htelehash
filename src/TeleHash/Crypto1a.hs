@@ -708,9 +708,10 @@ int crypt_line_1a(crypt_t c, packet_t inner)
 
 -- ---------------------------------------------------------------------
 
-crypt_delineize_1a :: HashContainer -> Packet -> TeleHash (Either String Packet)
-crypt_delineize_1a from packet = do
+crypt_delineize_1a :: HashContainer -> RxTelex -> TeleHash (Either String RxTelex)
+crypt_delineize_1a from rxTelex = do
   logT $ "crypt_delineize_1a entered for " ++ show (hHashName from)
+  let packet = rtPacket rxTelex
   if (BC.length (unBody $ paBody packet) < 16)
     then do
       logT $ "crypt_delineize_1a:no / short body"
@@ -742,7 +743,17 @@ crypt_delineize_1a from packet = do
           -- logT $ "crypt_delineize_1a:ret=" ++ show (mret)
           case mret of
             Nothing -> return (Left "invalid decrypted packet")
-            Just ret -> return (Right ret)
+            Just ret -> do
+              case paHead ret of
+                HeadEmpty -> return (Left "invalid channel packet")
+                HeadByte _ -> return (Left "invalid channel packet")
+                HeadJson js -> do
+                  let mjson = Aeson.decode js :: Maybe Aeson.Value
+                  case mjson of
+                    Nothing -> return (Left "invalid js in packet")
+                    Just (Aeson.Object jsHashMap) ->
+                      return (Right $ rxTelex { rtPacket = ret, rtJs = jsHashMap})
+                    Just _ -> return (Left $ "unexpected js type:" ++ show js)
 
 {-
 exports.delineize = function(from, packet)

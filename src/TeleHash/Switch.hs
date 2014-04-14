@@ -154,7 +154,6 @@ run ch1 ch2 = do
                   , tCsid = Just "1a"
                   , tTo = Just path
                   , tPacket = Nothing
-                  , tRxId = Nothing
                   , tAt = Nothing
                   , tToHash = Nothing
                   , tFrom = Nothing
@@ -748,11 +747,12 @@ receive rxPacket path timeNow = do
     then return () -- Empty packets are NAT pings
     else do
       counterVal <- incPCounter
-      let packet = emptyTelex
-                    { tPath   = Just path
-                    , tRxId   = Just counterVal
-                    , tAt     = Just timeNow
-                    , tPacket = Just rxPacket
+      let packet = RxTelex
+                    { rtSender = path
+                    , rtId     = counterVal
+                    , rtAt     = timeNow
+                    , rtPacket = rxPacket
+                    , rtJs     = HM.empty
                     }
       -- debug(">>>>",Date(),msg.length, packet.head_length, packet.body_length,[path.type,path.ip,path.port,path.id].join(","));
       logT $ ">>>>" ++ show (timeNow, packetLen rxPacket, headLen rxPacket,bodyLen rxPacket,(pType path,pIp path,pPort path))
@@ -932,7 +932,7 @@ receive rxPacket path timeNow = do
                 Nothing -> do
                   logT $ "receive.line:couldn't load cset for:" ++ show (hCsid line)
                 Just cset -> do
-                  res <- (csDelineize cset) line rxPacket
+                  res <- (csDelineize cset) line packet
                   case res of
                     Left err -> do
                       logT $ "couldn't decrypt line:" ++ err
@@ -1503,27 +1503,30 @@ function whois(hashname)
 -- ---------------------------------------------------------------------
 
 -- |handle all incoming line packets, post decryption
-hnReceive :: HashContainer -> Packet -> TeleHash ()
-hnReceive hn packet = do
-  case paHead packet of
-    HeadEmpty -> do
-      logT $ "dropping invalid channel packet"
-      return ()
-    HeadByte _ -> do
-      logT $ "dropping invalid channel packet"
-      return ()
-    HeadJson js -> do
-      let Just json@(Aeson.Object jsHashMap) = Aeson.decode js :: Maybe Aeson.Value
-      case (HM.lookup "c" jsHashMap) of
-        Nothing -> logT $ "dropping invalid channel packet, c missing"
-        Just (Aeson.Number c) -> do
-          logT $ "LINEIN " ++ (BC.unpack $ lbsTocbs js)
-          timeNow <- io getClockTime
-          putHN hn { hRecvAt = Just timeNow }
-          hn2 <- getHNsafe (hHashName hn) "hnReceive"
-          -- normalize/track sender network path
+hnReceive :: HashContainer -> RxTelex -> TeleHash ()
+hnReceive hn rxTelex = do
+  let packet = rtPacket rxTelex
+      jsHashMap = rtJs rxTelex
+  case (HM.lookup "c" jsHashMap) of
+    Nothing -> logT $ "dropping invalid channel packet, c missing"
+    Just (Aeson.Number c) -> do
+      logT $ "LINEIN " ++ show jsHashMap
+      timeNow <- io getClockTime
+      putHN hn { hRecvAt = Just timeNow }
+      hn2 <- getHNsafe (hHashName hn) "hnReceive"
+      -- normalize/track sender network path
+      path <- hnPathIn hn2 (rtSender rxTelex)
+
+      -- find any existing channel
+      case Map.lookup (CID (round c)) (hChans hn2) of
+        Just chan -> do
+          if (chDone chan)
+            then return () -- drop packet for a closed channel
+            else chanReceive $ rxTelex { rtSender = path }
+        Nothing -> do
+          -- start a channel if one doesn't exist, check either reliable or unreliable types
           assert False undefined
-        Just _ -> logT $ "dropping invalid channel packet, c not numeric"
+    Just _ -> logT $ "dropping invalid channel packet, c not numeric"
 
 {-
   // handle all incoming line packets
@@ -1557,6 +1560,15 @@ hnReceive hn packet = do
       }
       return;
     }
+
+    // verify incoming new chan id
+    if(packet.js.c % 2 == hn.chanOut % 2) return warn("channel id incorrect",packet.js.c,hn.chanOut)
+
+    // make the correct kind of channel;
+    var kind = (listening == self.raws) ? "raw" : "start";
+    var chan = hn[kind](packet.js.type, {bare:true,id:packet.js.c}, listening[packet.js.type]);
+    chan.receive(packet);
+  }
 
 
 -}
@@ -2101,8 +2113,6 @@ openize to = do
             , tPacket = Nothing
             , tCsid = Nothing
 
-            , tRxId = Nothing
-
             , tAt = hLineAt to2
             , tToHash = Just (hHashName to2)
             , tFrom = Just (swParts sw)
@@ -2135,9 +2145,9 @@ function openize(self, to)
 
 -- ---------------------------------------------------------------------
 
-deopenize :: Telex -> TeleHash DeOpenizeResult
+deopenize :: RxTelex -> TeleHash DeOpenizeResult
 deopenize open = do
-  let p = gfromJust "deopenize" (tPacket open)
+  let p = rtPacket open
   logT $ "DEOPEN :" ++ show (bodyLen p)
 
   case paHead p of
@@ -2252,6 +2262,7 @@ raw hn typ arg callback = do
                 , chLast = Nothing
                 , chSentAt = Nothing
                 , chEnded = False
+                , chDone = False
                 }
     hn2 = hn' { hChans = Map.insert chanId chan (hChans hn') }
 
@@ -2294,6 +2305,7 @@ raw hn typ arg callback = do
                 , chLast = Nothing
                 , chSentAt = Nothing
                 , chEnded = False
+                , chDone = False
                 }
 
 {-
@@ -2330,17 +2342,6 @@ function raw(type, arg, callback)
 
   debug("new unreliable channel",hn.hashname,chan.type,chan.id);
 
-  // process packets at a raw level, very little to do
-  chan.receive = function(packet)
-  {
-    if(!hn.chans[chan.id]) return debug("dropping receive packet to dead channel",chan.id,packet.js)
-    // if err'd or ended, delete ourselves
-    if(packet.js.err || packet.js.end) chan.fail();
-    chan.last = packet.sender; // cache last received network
-    chan.recvAt = Date.now();
-    chan.callback(packet.js.err||packet.js.end, packet, chan);
-    timer();
-  }
 
 
   // send optional initial packet with type set
@@ -2367,6 +2368,22 @@ function raw(type, arg, callback)
 }
 -}
 
+-- ---------------------------------------------------------------------
+
+chanReceive = assert False undefined
+{-
+  // process packets at a raw level, very little to do
+  chan.receive = function(packet)
+  {
+    if(!hn.chans[chan.id]) return debug("dropping receive packet to dead channel",chan.id,packet.js)
+    // if err'd or ended, delete ourselves
+    if(packet.js.err || packet.js.end) chan.fail();
+    chan.last = packet.sender; // cache last received network
+    chan.recvAt = Date.now();
+    chan.callback(packet.js.err||packet.js.end, packet, chan);
+    timer();
+  }
+-}
 -- ---------------------------------------------------------------------
 
 -- | minimal wrapper to send raw packets

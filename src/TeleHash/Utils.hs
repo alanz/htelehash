@@ -18,6 +18,7 @@ module TeleHash.Utils
   , PathPriority
   , Telex(..)
   , emptyTelex
+  , RxTelex(..)
   , DeOpenizeResult(..)
   , Hash(..)
   , unHash
@@ -93,12 +94,13 @@ import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.Digest.Pure.SHA as SHA
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
-import qualified Data.Text as Text
 
 -- ---------------------------------------------------------------------
 
@@ -191,7 +193,7 @@ data CSet = CS
   , csOpenize  :: HashContainer -> Telex -> TeleHash LinePacket
   , csDeopenize :: Packet -> TeleHash DeOpenizeResult
   , csOpenLine :: HashContainer ->  DeOpenizeResult -> TeleHash ()
-  , csDelineize :: HashContainer -> Packet -> TeleHash (Either String Packet)
+  , csDelineize :: HashContainer -> RxTelex -> TeleHash (Either String RxTelex)
   }
 
 -- ---------------------------------------------------------------------
@@ -237,8 +239,6 @@ data Telex = Telex { tId     :: !(Maybe HashName)
                    , tPacket :: !(Maybe Packet)
                    , tCsid   :: !(Maybe String)
 
-                   -- From rx packet processing
-                   , tRxId   :: !(Maybe Int)
 
                    -- TODO: break Inner out into its own type
                    -- openize stuff, used in 'inner'
@@ -257,8 +257,6 @@ emptyTelex = Telex { tId     = Nothing
                    , tPacket = Nothing
                    , tCsid   = Nothing
 
-                   , tRxId   = Nothing
-
                    -- TODO: break Inner out into its own type
                    -- openize stuff, used in 'inner'
                    , tAt     = Nothing
@@ -266,6 +264,13 @@ emptyTelex = Telex { tId     = Nothing
                    , tFrom   = Nothing
                    , tLine   = Nothing
                    }
+
+data RxTelex = RxTelex { rtId     :: !Int
+                       , rtSender :: !Path
+                       , rtAt     :: !ClockTime
+                       , rtJs     :: !(HM.HashMap Text.Text Aeson.Value)
+                       , rtPacket :: !Packet
+                       } deriving Show
 
 data DeOpenizeResult = DeOpenizeVerifyFail
                      | DeOpenize { doLinePub :: !PublicKey
@@ -285,6 +290,7 @@ data Channel = Chan
   , chLast     :: !(Maybe Path)
   , chSentAt   :: !(Maybe ClockTime)
   , chEnded    :: !Bool
+  , chDone     :: !Bool
   } deriving (Show,Eq)
 
 instance Show (CallBack) where
