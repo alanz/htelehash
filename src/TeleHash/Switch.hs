@@ -56,8 +56,8 @@ import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 
-localIP = Just "10.0.0.42"
--- localIP = Just "10.2.2.83"
+-- localIP = Just "10.0.0.42"
+localIP = Just "10.2.2.83"
 
 -- ---------------------------------------------------------------------
 --
@@ -98,9 +98,9 @@ startSwitchThread = do
 run :: Chan Signal -> Chan Reply -> TeleHash ()
 run ch1 ch2 = do
   -- ch1 <- io (newChan)
-  _ <- io (forkIO (timer (100 * onesec) SignalPingSeeds ch1))
-  _ <- io (forkIO (timer (100 * onesec) SignalScanLines ch1))
-  _ <- io (forkIO (timer (300 * onesec) SignalTapTap ch1))
+  _ <- io (forkIO (timer (1000 * onesec) SignalPingSeeds ch1))
+  _ <- io (forkIO (timer (1000 * onesec) SignalScanLines ch1))
+  _ <- io (forkIO (timer (3000 * onesec) SignalTapTap ch1))
 
   h <- gets swH
   _ <- io (forkIO (dolisten h ch1))
@@ -689,7 +689,7 @@ loadkeys = do
   sw <- get
   put $ sw { swCs = Map.empty, swKeys = Map.empty }
 
-  logT $ "loadkeys:swId=" ++ show (swId sw)
+  -- logT $ "loadkeys:swId=" ++ show (swId sw)
 
   let
     doOne (csid,v) = do
@@ -727,7 +727,7 @@ loadkeys = do
   mapM_ doOne (swParts sw)
   sw' <- get
 
-  logT $ "loadkeys: (swKeys,swCs)=" ++ show (swKeys sw',swCs sw')
+  -- logT $ "loadkeys: (swKeys,swCs)=" ++ show (swKeys sw',swCs sw')
 
   return ()
 
@@ -784,7 +784,7 @@ receive rxPacket path timeNow = do
               logT $ "receive.deopenize: couldn't decode open"
               return ()
             _ -> do
-              logT $ "receive.deopenize verified ok " -- ++ show open
+              -- logT $ "receive.deopenize verified ok " -- ++ show open
               let (Aeson.Object js) = doJs open
               if not (expectedKeysPresent (doJs open) ["line","to","from","at"])
                 then do
@@ -804,9 +804,9 @@ receive rxPacket path timeNow = do
                         else do
                           let (Aeson.Object jsparts) = js HM.! "from"
                               jsparts2 = map (\(k,v) -> (Text.unpack k,valToString v)) $ HM.toList jsparts
-                          logT $ "deopenize:jsparts=" ++ show jsparts2
+                          -- logT $ "deopenize:jsparts=" ++ show jsparts2
                           let mcsid = partsMatch (swParts sw) jsparts2
-                          logT $ "deopenize:mcsid=" ++ show mcsid
+                          -- logT $ "deopenize:mcsid=" ++ show mcsid
                           if mcsid /= Just (doCsid open)
                             then do
                               logT $ "open with mismatch CSID" ++ show (mcsid,doCsid open)
@@ -823,7 +823,7 @@ receive rxPacket path timeNow = do
                                 Just from -> do
                                   -- // make sure this open is legit
                                   -- if (typeof open.js.at != "number") return warn("invalid at", open.js.at);
-                                  logT $ "deopenize:js.at=" ++ show (js HM.! "at")
+                                  -- logT $ "deopenize:js.at=" ++ show (js HM.! "at")
                                   case (js HM.! "at") of
                                     (Data.Aeson.Number atVal) -> do
                                       -- duplicate open and there's newer line packets, ignore it
@@ -832,9 +832,9 @@ receive rxPacket path timeNow = do
                                           showmTod Nothing = "Nothing"
                                           showmTod (Just tod) = "Just " ++ showTod tod
                                       let jsAt = TOD (round (atVal / 1000)) (((round  atVal) `mod` 1000) * 10^9)
-                                      logT $ "deopenize:jsAt=" ++ showTod jsAt
-                                      logT $ "deopenize:hOpenAt=" ++ showmTod (hOpenAt from)
-                                      logT $ "deopenize:hLineAt=" ++ showmTod (hLineAt from)
+                                      -- logT $ "deopenize:jsAt=" ++ showTod jsAt
+                                      -- logT $ "deopenize:hOpenAt=" ++ showmTod (hOpenAt from)
+                                      -- logT $ "deopenize:hLineAt=" ++ showmTod (hLineAt from)
                                       if (isJust (hOpenAt from) && jsAt <= (fromJust (hOpenAt from))
                                          && (hLineAt from == hOpenAt from))
                                         then do
@@ -859,7 +859,7 @@ receive rxPacket path timeNow = do
                                                     case Map.lookup id1 (hChans fm) of
                                                       Nothing -> return ()
                                                       Just c -> chanFail (hHashName from) c Nothing
-                                                    putHN $ fm { hChans = Map.delete id1 (hChans fm) }
+                                                    delChan (hHashName from) id1
                                                 return ()
                                             else return ()
 
@@ -892,16 +892,15 @@ receive rxPacket path timeNow = do
                                               logT $ "deopenize: cset lookup failed"
                                             Just cset -> do
                                               (csOpenLine cset) from5 open
-                                              logT $ "line open " ++ show (hHashName from5,hLineOut from5,hLineIn from5)
+                                              logT $ "line open " ++ show (hHashName from5,hLineOut from5,B16.encode $ gfromJust "deopenize" $ hLineIn from5)
                                               from8 <- getHNsafe (hHashName from) "deopenize.8"
-                                              logT $ "deopenize:hEncKey from8=" ++ show (hEncKey from8,hDecKey from8)
+                                              -- logT $ "deopenize:hEncKey from8=" ++ show (hEncKey from8,hDecKey from8)
                                               sw4 <- get
                                               put $ sw4 { swLines
                                                          = Map.insert (hLineOut from8) (hHashName from8) (swLines sw3)}
 
                                           -- resend the last sent packet again
-                                          logT $ "deopenize:not doing last packet resend"
-{-
+                                          -- logT $ "deopenize:not doing last packet resend"
                                           case (hLastPacket from5) of
                                             Nothing -> return ()
                                             Just msg -> do
@@ -909,11 +908,11 @@ receive rxPacket path timeNow = do
                                               putHN $ from6 { hLastPacket = Nothing }
                                               from7 <- getHNsafe (hHashName from5) "deopenize.10"
                                               logT $ "deopenize:resending packet"
-                                              logT $ "deopenize:hEncKey from6=" ++ show (hEncKey from6)
-                                              logT $ "deopenize:hEncKey from7=" ++ show (hEncKey from7)
+                                              -- logT $ "deopenize:hEncKey from6=" ++ show (hEncKey from6)
+                                              -- logT $ "deopenize:hEncKey from7=" ++ show (hEncKey from7)
 
                                               void $ hnSend from7 msg
--}
+
                                           -- if it was a lan seed, add them
                                           sw4 <- get
                                           if hIsLocal from5 && Set.notMember (hHashName from5) (swLocals sw4)
@@ -1135,7 +1134,7 @@ relay path msg _ = (assert False undefined)
 -- | Do the send, where the Telex has a fully lineized packet in it
 send :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 send mpath msg mto = do
-  logT $ "send entered for path:" ++ show mpath
+  -- logT $ "send entered for path:" ++ showPath mpath
   timeNow <- io getClockTime
   sw <- get
   path <- case mto of
@@ -1145,11 +1144,11 @@ send mpath msg mto = do
     Nothing -> return mpath
     -- if(!path) return debug("send called w/ no valid network, dropping");
     -- debug("<<<<",Date(),msg.length,[path.type,path.ip,path.port,path.id].join(","),to&&to.hashname);
-  logT $ "<<<<" ++ show (timeNow,BL.length $ unLP msg,mpath)
+  logT $ "<<<<" ++ show (timeNow,BL.length $ unLP msg) ++ "," ++ showPath mpath
   -- try to send it via a supported network
   -- if(self.networks[path.type])
      -- self.networks[path.type](path,msg,to);
-  logT $ "send:path=" ++ show path
+  logT $ "send:path=" ++ showPath path
   mpid <- case Map.lookup (pType path) (swNetworks sw) of
     Nothing -> return Nothing
     Just (pid,sender) -> do
@@ -1234,17 +1233,17 @@ function addSeed(arg) {
 -}
 
 addSeed :: SeedInfo -> TeleHash ()
-addSeed args = do
-  logT $ "addSeed:args=" ++ show args
+addSeed arg = do
+  logT $ "addSeed:args=" ++ show (sId arg)
   sw <- get
-  mseed <- (swWhokey sw) (sParts args) (Right (Map.fromList (sKeys args)))
-  logT $ "addSeed:mseed=" ++ show mseed
+  mseed <- (swWhokey sw) (sParts arg) (Right (Map.fromList (sKeys arg)))
+  -- logT $ "addSeed:mseed=" ++ show mseed
   case mseed of
     Nothing -> do
-      logT $ "invalid seed info:" ++ show args
+      logT $ "invalid seed info:" ++ show arg
       return ()
     Just seed -> do
-      forM_ (sPaths args) $ \path -> do
+      forM_ (sPaths arg) $ \path -> do
         void $ hnPathGet seed path
       sw' <- get
       put $ sw' { swSeeds = (swSeeds sw') ++ [(hHashName seed)] }
@@ -1257,26 +1256,26 @@ addSeed args = do
 -- If it creates a new one, this is inserted into the index
 whois :: HashName -> TeleHash (Maybe HashContainer)
 whois hn = do
-  logT $ "whois entered for:" ++ show hn
+  -- logT $ "whois entered for:" ++ show hn
   sw <- get
 
   -- never return ourselves
   if (fromMaybe (HN "") (swHashname sw)) == hn
     then do
-      logT "whois called for self"
+      -- logT "whois called for self"
       return Nothing
     else do
-      logT "whois not called for self"
+      -- logT "whois not called for self"
       -- if we already have it, return it
       case Map.lookup hn (swAll sw) of
         Just hc -> do
-          logT $ "whois got cached val" -- ++ show hc
+          -- logT $ "whois got cached val" -- ++ show hc
           return (Just hc)
         Nothing -> do
-          logT "whois not seen value"
+          -- logT "whois not seen value"
           timeNow <- io getClockTime
           randomHexVal <- randomHEX 16
-          logT $ "whois:randomHexVal=" ++ show randomHexVal
+          -- logT $ "whois:randomHexVal=" ++ show randomHexVal
           let hc = mkHashContainer hn timeNow randomHexVal
               hc' = hc {hBucket = dhash (fromJust $ swHashname sw) hn }
           -- to create a new channels to this hashname
@@ -1531,7 +1530,7 @@ hnReceive hn rxTelex = do
         Just chan -> do
           if (chDone chan)
             then return () -- drop packet for a closed channel
-            else chanReceive chan (rxTelex { rtSender = path })
+            else chanReceive hn chan (rxTelex { rtSender = path })
         Nothing -> do
           -- start a channel if one doesn't exist, check either reliable or unreliable types
           sw <- get
@@ -1560,7 +1559,9 @@ hnReceive hn rxTelex = do
                   let cb = Map.findWithDefault (assert False undefined) ptype listening
                   -- var chan = hn[kind](packet.js.type, {bare:true,id:packet.js.c}, listening[packet.js.type]);
                   chan <- cKind hn2 ptype rxTelex cb
-                  chanReceive chan rxTelex
+                  putChan (hHashName hn2) chan
+                  hn3 <- getHNsafe (hHashName hn2) "hnReceive"
+                  chanReceive hn3 chan rxTelex
     Just _ -> logT $ "dropping invalid channel packet, c not numeric"
 
 {-
@@ -1808,12 +1809,12 @@ hnSend hn packet = do
       logT $ "hnSend:hLineIn = Nothing"
       return False
 
-  logT $ "hnSend:sent=" ++ show sent
+  -- logT $ "hnSend:sent=" ++ show sent
   if sent
     then return True -- we're done
     else do
       -- we've fallen through, either no line, or no valid paths
-      logT $ "alive failthrough" ++ show (hSendSeek hn, Map.keys (hVias hn))
+      -- logT $ "alive failthrough" ++ show (hSendSeek hn, Map.keys (hVias hn))
       let hn' = hn { hIsAlive = False
                    , hLastPacket = Just packet -- will be resent if/when an open is received
                    }
@@ -1827,7 +1828,7 @@ hnSend hn packet = do
           logT $ "hnSend: hnOpen returned Nothing"
           return False
         Just lpacket -> do
-          logT $ "hnSend: hnOpen returned packet" -- ++ show lpacket
+          -- logT $ "hnSend: hnOpen returned packet" -- ++ show lpacket
           forM_ (hPaths hn2) $ \path -> do
             (swSend sw) path lpacket (Just hn2)
           return True
@@ -1921,7 +1922,7 @@ hnOpen hn = do
              op <- openize hn
              hn2 <- getHNsafe (hHashName hn) "hnOpen"
              putHN $ hn2 { hOpened = op}
-             logT $ "hnOpen:hEcc=" ++ show (hEcc hn2)
+             -- logT $ "hnOpen:hEcc=" ++ show (hEcc hn2)
              return op
 {-
   // return the current open packet
@@ -1940,7 +1941,7 @@ telexToPacket telex = do
   case (Map.toList $ tJson telex) of
     [] -> return $ telex { tPacket = Just newPacket}
     js -> do
-      logT $ "telexToPacket: encoded js=" ++ show (encode (tJson telex))
+      -- logT $ "telexToPacket: encoded js=" ++ show (encode (tJson telex))
       let packet = newPacket { paHead = HeadJson (encode (tJson telex)) }
       return $ telex { tPacket = Just packet}
 
@@ -1971,7 +1972,7 @@ whokey :: Parts -> Either String (Map.Map String String) -> TeleHash (Maybe Hash
 whokey parts keyVal = do
   sw <- get
   let mcsid = partsMatch (swParts sw) parts
-  logT $ "whokey:mcsid=" ++ show mcsid
+  -- logT $ "whokey:mcsid=" ++ show mcsid
   -- TODO: put this bit in the Maybe Monad
   r <- case mcsid of
     Nothing -> return Nothing
@@ -2204,7 +2205,7 @@ deopenize open = do
     HeadByte csHex -> do
       sw <- get
       let csid = BC.unpack $ B16.encode (BC.pack [w2c csHex])
-      logT $ "deopenize got cs:" ++ csid
+      -- logT $ "deopenize got cs:" ++ csid
       case Map.lookup csid (swCSets sw) of
         Nothing -> return DeOpenizeVerifyFail
         Just cs -> do
@@ -2307,16 +2308,18 @@ raw hn typ arg callback = do
                 , chHashName = hHashName hn
                 , chLast = Nothing
                 , chSentAt = Nothing
+                , chRxAt = Nothing
                 , chEnded = False
                 , chDone = False
                 }
-    hn2 = hn' { hChans = Map.insert chanId chan (hChans hn') }
-  putHN hn2
+  putHN hn'
+  putChan (hHashName hn) chan
+  hn2 <- getHNsafe (hHashName hn) "raw"
 
   logT "raw:must implement timeout"
 
   -- debug("new unreliable channel",hn.hashname,chan.type,chan.id);
-  logT $ "new unreliable channel" ++ show (hHashName hn ,chType chan,chId chan)
+  logT $ "new unreliable channel" ++ show (hHashName hn,chType chan,chId chan)
 
   if not (HM.null (rtJs arg))
     then do
@@ -2411,9 +2414,29 @@ function raw(type, arg, callback)
 
 -- ---------------------------------------------------------------------
 
-chanReceive :: Channel -> RxTelex -> TeleHash ()
-chanReceive chan packet = do
-  assert False undefined
+-- !process packets at a raw level, very little to do
+chanReceive :: HashContainer -> Channel -> RxTelex -> TeleHash ()
+chanReceive hn chan packet = do
+  logT $ "chanReceive on " ++ show (hHashName hn,chId chan)
+  case (Map.lookup (chId chan) (hChans hn)) of
+    Nothing -> do
+      logT $ "dropping receive packet to dead channel" ++ show (chId chan,rtJs packet)
+      return ()
+    Just _ -> do
+      --  if err'd or ended, delete ourselves
+      let errOrFail = (HM.member "err" (rtJs packet)) || (HM.member "end" (rtJs packet))
+      if errOrFail
+        then do
+          chanFail (hHashName hn) chan Nothing
+        else return ()
+      -- cache last received network
+      timeNow <- io getClockTime
+      let chan' = chan { chLast = Just (rtSender packet)
+                       , chRxAt = Just timeNow
+                       }
+      putChan (hHashName hn) chan'
+      (chCallBack chan') errOrFail packet chan'
+
 {-
   // process packets at a raw level, very little to do
   chan.receive = function(packet)
@@ -2439,13 +2462,12 @@ sendChanRaw hn chan packet = do
       logT $ "dropping send packet to dead channel " ++ show (chId chan,packet)
     Just ch -> do
       logT $ "sendChanRaw got chan"
-      let js = Map.insert "c" (show (chId chan)) (tJson packet)
-      logT $ "SEND " ++ show (chType chan,js)
+      -- let js = BC.unpack $ lbsTocbs $ encode $ Map.insert "c" (show (chId chan)) (tJson packet)
+      let js = showJson $ Map.insert "c" (show (chId chan)) (tJson packet)
+      logT $ "SEND " ++ show (chType chan) ++ "," ++ js
       timeNow <- io getClockTime
-      -- TODO: break out the storing/updating into separate API calls
       let ch' = ch { chSentAt = Just timeNow }
-          hn'= hn { hChans = Map.insert (chId chan) ch' (hChans hn) }
-      put $ sw { swAll = Map.insert (hHashName hn) hn' (swAll sw) }
+      putChan (hHashName hn) ch'
       let packet' =
            case tTo packet of
              Just _ -> packet
@@ -2490,7 +2512,7 @@ chanFail hn chan mpacket = do
       case mpacket of
         Nothing -> return ()
         Just packet -> do
-          (chCallBack chan) "err" packet chan
+          (chCallBack chan) True packet chan
 
 {-
   chan.fail = function(packet){
@@ -2507,8 +2529,13 @@ chanFail hn chan mpacket = do
 
 hnChanDone :: HashName -> ChannelId -> TeleHash ()
 hnChanDone hn chid = do
-  hc <- getHNsafe hn "hnChanDone"
-  putHN $ hc {hChans = Map.delete chid (hChans hc)}
+  mchan <- getChan hn chid
+  case mchan of
+    Nothing -> do
+      logT $ "hnChanDone: channel not found:" ++ show chid
+      return ()
+    Just chan -> do
+      putChan hn (chan { chDone = True })
 
 {-
   hn.chanDone = function(id)
@@ -2798,7 +2825,7 @@ function channel(type, arg, callback)
 
 -- ---------------------------------------------------------------------
 
-inPeer :: String -> RxTelex -> Channel -> TeleHash ()
+inPeer :: Bool -> RxTelex -> Channel -> TeleHash ()
 inPeer = (assert False undefined)
 {-
 // be the middleman to help NAT hole punch
@@ -2838,7 +2865,7 @@ function inPeer(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
-inConnect :: String -> RxTelex -> Channel -> TeleHash ()
+inConnect :: Bool -> RxTelex -> Channel -> TeleHash ()
 inConnect = (assert False undefined)
 
 {-
@@ -2874,7 +2901,7 @@ function inConnect(err, packet, chan)
 -}
 -- ---------------------------------------------------------------------
 
-inSeek :: String -> RxTelex -> Channel -> TeleHash ()
+inSeek :: Bool -> RxTelex -> Channel -> TeleHash ()
 inSeek = (assert False undefined)
 {-
 
@@ -2919,8 +2946,9 @@ function inSeek(err, packet, chan)
 -- ---------------------------------------------------------------------
 
 -- update/respond to network state
-inPath :: String -> RxTelex -> Channel -> TeleHash ()
+inPath :: Bool -> RxTelex -> Channel -> TeleHash ()
 inPath err packet chan = do
+  logT $ "inPath:" ++ show (err,packet,chId chan)
   assert False undefined
 
 {-
@@ -2966,7 +2994,7 @@ function inPath(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
-inBridge :: String -> RxTelex -> Channel -> TeleHash ()
+inBridge :: Bool -> RxTelex -> Channel -> TeleHash ()
 inBridge = (assert False undefined)
 
 {-
@@ -3000,7 +3028,7 @@ function inBridge(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
-inLink :: String -> RxTelex -> Channel -> TeleHash ()
+inLink :: Bool -> RxTelex -> Channel -> TeleHash ()
 inLink = (assert False undefined)
 
 {-
@@ -3779,7 +3807,7 @@ hnPathGet hc path = do
       case pathMatch path (hPaths hc) of
         Just p -> return path
         Nothing -> do
-          logT $ "adding new path:" ++ show (length $ hPaths hc,path)
+          logT $ "adding new path:" ++ show (length $ hPaths hc) ++ "," ++ showPath path
           -- always default to minimum priority
           let path' = path { pPriority = Just (if pType path == PathType "relay" then (-1) else 0)}
           putHN $ hc { hPaths = (hPaths hc) ++ [path']
@@ -3956,7 +3984,7 @@ doNullSendDgram msgJson addr = do
 
 doSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
 doSendDgram (LP msgJson) addr = do
-  logT $ "doSendDgram to:" ++ show addr
+  -- logT $ "doSendDgram to:" ++ show addr
   Just socketh <- gets swH
   io (sendDgram socketh (lbsTocbs msgJson) addr)
 
@@ -4032,7 +4060,7 @@ recvTelex msg rinfo = do
 
     timeNow <- io getClockTime
     --console.log(["RECV from ", remoteipp, ": ", JSON.stringify(telex)].join(""));
-    logT ("RECV from " ++ (show remoteipp) ++ ":"++ (show $ B16.encode msg)
+    logT ("RECV from " ++ (show remoteipp) ++ ":" -- ++ (show $ B16.encode msg)
                   ++ " at " ++ (show timeNow))
     let
       maybeRxTelex = fromLinePacket (LP (cbsTolbs msg))

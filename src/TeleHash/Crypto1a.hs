@@ -158,7 +158,7 @@ crypt_loadkey_1a pub mpriv = do
                       , hcPrivate = privkey
                       }
 
-          logT $ "crypt_loadkey_1a:parts=" ++ show (hcParts $ hc)
+          -- logT $ "crypt_loadkey_1a:parts=" ++ (hcParts $ hc)
           return $ Just hc
 
 mkHashFromBS :: BC.ByteString -> Hash
@@ -227,11 +227,11 @@ Note: 1. the domain parameters are the agreed curve, i.e. SEC_p160r1
     Nothing -> do
       let ((pub,priv) ,g') = generate (swRNG sw) curve
       put $ sw { swRNG = g' } -- must come before next line, else update lost
-      logT $ "crypt_openize_1a:putHN new ECC for " ++ show (hHashName to)
+      -- logT $ "crypt_openize_1a:putHN new ECC for " ++ show (hHashName to)
       putHN $ to { hEcc = Just (Public1a pub,Private1a priv) }
       let (PublicKey _ lpub) = pub
       let (PrivateKey _ lp) = priv
-      logT $ "crypt_openize_1a:eccpriv " ++ show (B16.encode $ privToBs lp)
+      -- logT $ "crypt_openize_1a:eccpriv " ++ show (B16.encode $ privToBs lp)
       return (lpub,lp)
     Just (Public1a (PublicKey _ lpub), Private1a (PrivateKey _ lp)) -> return (lpub,lp)
 
@@ -240,7 +240,7 @@ Note: 1. the domain parameters are the agreed curve, i.e. SEC_p160r1
 
   let (ECC.Point sharedX _Y) = ECC.pointMul curve linePriv toPublic
 
-  logT $ "crypt_openize_1a:(sharedX)=" ++ show (sharedX)
+  -- logT $ "crypt_openize_1a:(sharedX)=" ++ show (sharedX)
 
   --  encrypt the inner
   let ourCrypto = gfromJust "crypt_openize_1a" (swIdCrypto sw)
@@ -270,7 +270,7 @@ crypt_openize_1a:js=
 
   logT $ "crypt_openize_1a:js=" ++ js
 
-  logT $ "crypt_openize_1a:ourPub hex=" ++ (show $ B16.encode $ pointTow8s ourPub)
+  -- logT $ "crypt_openize_1a:ourPub hex=" ++ (show $ B16.encode $ pointTow8s ourPub)
 
   let innerPacket = Packet (HeadJson (cbsTolbs $ BC.pack js)) (Body $ pointTow8s ourPub)
       (LP innerPacketBody) = toLinePacket innerPacket
@@ -282,11 +282,11 @@ crypt_openize_1a:js=
       cbody = encryptCTR (initAES key) iv body
 
   let (Packet h b) = innerPacket
-  logT $ "crypt_openize_1a:body=" ++ show innerPacket
-  logT $ "crypt_openize_1a:body.h=" ++ (show $ B16.encode $ lbsTocbs $ myencode h)
+  -- logT $ "crypt_openize_1a:body=" ++ show innerPacket
+  -- logT $ "crypt_openize_1a:body.h=" ++ (show $ B16.encode $ lbsTocbs $ myencode h)
   -- logT $ "crypt_openize_1a:body.b=" ++ (show $ B16.encode $ lbsTocbs $ Binary.encode b)
   let (LP xx) = toLinePacket innerPacket
-  logT $ "crypt_openize_1a:innerPacket=" ++ (show $ B16.encode $ lbsTocbs xx)
+  -- logT $ "crypt_openize_1a:innerPacket=" ++ (show $ B16.encode $ lbsTocbs xx)
 
   -- prepend the line public key and hmac it
 
@@ -297,7 +297,7 @@ crypt_openize_1a:js=
       macd = BC.append (pointTow8s linePub) cbody
       hmacVal = hmac SHA1.hash 64 secretMac macd
 
-  logT $ "crypt_openize_1a:hmac=" ++ (show $ B16.encode hmacVal)
+  -- logT $ "crypt_openize_1a:hmac=" ++ (show $ B16.encode hmacVal)
 
   -- create final body
   let bodyFinal = BC.append hmacVal macd
@@ -389,7 +389,7 @@ crypt_deopenize_1a open = do
         linePub = PublicKey curve linePubPoint
 
       -- logT $ "crypt_deopenize_1a:mac1=" ++ show (mac1)
-      logT $ "crypt_deopenize_1a:pubBs=" ++ show (B16.encode pubBs)
+      -- logT $ "crypt_deopenize_1a:pubBs=" ++ show (B16.encode pubBs)
       -- logT $ "crypt_deopenize_1a:cbody=" ++ show (B16.encode cbody)
 
       -- logT $ "crypt_deopenize_1a:pubBs b64=" ++ show (encode pubBs)
@@ -643,10 +643,10 @@ crypt_openline_1a from open = do
           decKeyCtx = SHA1.updates SHA1.init [ecdhe,lineInB,lineOutB]
           decKey = BC.take 16 (SHA1.finalize decKeyCtx)
 
-      logT $ "crypt_openline_1a:linePub=" ++ show (B16.encode $ pointTow8s linePub)
-      logT $ "crypt_openline_1a:eccPriv=" ++ show (B16.encode $ privToBs eccPriv)
-      logT $ "crypt_openline_1a:(lineInB,lineOutB)=" ++ show (B16.encode $ lineInB,B16.encode lineOutB)
-      logT $ "crypt_openline_1a:(ecdhe,encKey,decKey)=" ++ show (B16.encode ecdhe,B16.encode encKey,B16.encode decKey)
+      -- logT $ "crypt_openline_1a:linePub=" ++ show (B16.encode $ pointTow8s linePub)
+      -- logT $ "crypt_openline_1a:eccPriv=" ++ show (B16.encode $ privToBs eccPriv)
+      -- logT $ "crypt_openline_1a:(lineInB,lineOutB)=" ++ show (B16.encode $ lineInB,B16.encode lineOutB)
+      -- logT $ "crypt_openline_1a:(ecdhe,encKey,decKey)=" ++ show (B16.encode ecdhe,B16.encode encKey,B16.encode decKey)
       putHN $ from { hLineIV = 0
                    , hEncKey = Just encKey
                    , hDecKey = Just decKey
@@ -710,7 +710,7 @@ int crypt_line_1a(crypt_t c, packet_t inner)
 
 crypt_delineize_1a :: HashContainer -> RxTelex -> TeleHash (Either String RxTelex)
 crypt_delineize_1a from rxTelex = do
-  logT $ "crypt_delineize_1a entered for " ++ show (hHashName from)
+  -- logT $ "crypt_delineize_1a entered for " ++ show (hHashName from)
   let packet = rtPacket rxTelex
   if (BC.length (unBody $ paBody packet) < 16)
     then do

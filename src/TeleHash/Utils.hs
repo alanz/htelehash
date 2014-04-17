@@ -16,6 +16,7 @@ module TeleHash.Utils
   , Path(..)
   , PathType(..)
   , PathPriority
+  , showPath
   , Telex(..)
   , emptyTelex
   , RxTelex(..)
@@ -56,9 +57,14 @@ module TeleHash.Utils
   , valToString
   , b16Tobs
 
+  , showJson
+
   , putHN
   , getHN
   , getHNsafe
+  , putChan
+  , getChan
+  , delChan
   , incPCounter
   ) where
 
@@ -89,6 +95,7 @@ import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
+import TeleHash.Convert
 import TeleHash.Packet
 
 import qualified Crypto.Hash.SHA256 as SHA256
@@ -208,6 +215,9 @@ data CSet = CS
 data PathType = PathType String
               deriving (Show,Eq,Ord)
 
+unPathType :: PathType -> String
+unPathType (PathType str) = str
+
 type PathPriority = Int
 
 -- TODO: provide custom Eq instance, checking core vals only
@@ -230,6 +240,12 @@ data Path = Path
 
 data PathId = PId Int
             deriving (Ord,Eq,Show)
+
+-- ---------------------------------------------------------------------
+
+showPath :: Path -> String
+showPath p
+  = "(" ++ (unPathType (pType p)) ++ " " ++ show (gfromJust "showPath" (pIp p)) ++ ":" ++ show (pPort p) ++ ")"
 
 -- ---------------------------------------------------------------------
 
@@ -308,6 +324,7 @@ data Channel = Chan
   , chHashName :: !HashName -- for convenience
   , chLast     :: !(Maybe Path)
   , chSentAt   :: !(Maybe ClockTime)
+  , chRxAt     :: !(Maybe ClockTime)
   , chEnded    :: !Bool
   , chDone     :: !Bool
   } deriving (Show,Eq)
@@ -417,8 +434,8 @@ data Switch = Switch
        , swAll        :: !(Map.Map HashName HashContainer)
        , swBuckets    :: ![Bucket]
        , swCapacity   :: ![String]
-       , swRels       :: !(Map.Map String (String -> RxTelex -> Channel -> TeleHash ()))
-       , swRaws       :: !(Map.Map String (String -> RxTelex -> Channel -> TeleHash ()))
+       , swRels       :: !(Map.Map String (Bool -> RxTelex -> Channel -> TeleHash ()))
+       , swRaws       :: !(Map.Map String (Bool -> RxTelex -> Channel -> TeleHash ()))
        , swPaths      :: !(Map.Map PathId Path)
        , swBridgeCache :: ![String]
        , swNetworks :: !(Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashContainer -> TeleHash ())))
@@ -503,9 +520,9 @@ type CallBack = TeleHash ()
 nullCb :: TeleHash ()
 nullCb = return ()
 
-type RxCallBack = String -> RxTelex -> Channel -> TeleHash ()
+type RxCallBack = Bool -> RxTelex -> Channel -> TeleHash ()
 
-nullRxCb :: String -> RxTelex -> Channel -> TeleHash ()
+nullRxCb :: Bool -> RxTelex -> Channel -> TeleHash ()
 nullRxCb _ _ _= return ()
 
 -- ---------------------------------------------------------------------
@@ -602,7 +619,14 @@ b16Tobs str = r
    (r,_) = B16.decode str
 
 -- ---------------------------------------------------------------------
+
+showJson j = BC.unpack $ lbsTocbs $ encode $ j
+
+-- ---------------------------------------------------------------------
+
 -- Utility
+
+-- ---------------------------------------------------------------------
 
 -- | get current state of the given HashContainer
 getHN :: HashName -> TeleHash (Maybe HashContainer)
@@ -627,6 +651,8 @@ putHN hn = do
   put $ sw { swAll = Map.insert (hHashName hn) hn (swAll sw)}
 
 
+-- ---------------------------------------------------------------------
+
 incPCounter :: TeleHash Int
 incPCounter = do
   sw <- get
@@ -634,3 +660,25 @@ incPCounter = do
   put $ sw {swPCounter = r }
   return r
 
+
+-- ---------------------------------------------------------------------
+
+putChan :: HashName -> Channel -> TeleHash ()
+putChan hn chan = do
+  logT $ "putChan:" ++ show (hn,chId chan)
+  hc <- getHNsafe hn ("putChan " ++ show hn)
+  let chans = Map.insert (chId chan) chan (hChans hc)
+  putHN $ hc { hChans = chans }
+
+getChan :: HashName -> ChannelId -> TeleHash (Maybe Channel)
+getChan hn cid = do
+  logT $ "getChan:" ++ show (hn,cid)
+  hc <- getHNsafe hn "getChan"
+  return $ Map.lookup cid (hChans hc)
+
+delChan :: HashName -> ChannelId -> TeleHash ()
+delChan hn cid = do
+  logT $ "delChan:" ++ show (hn,cid)
+  hc <- getHNsafe hn "delChan"
+  let chans = Map.delete cid (hChans hc)
+  putHN $ hc { hChans = chans }

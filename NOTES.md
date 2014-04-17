@@ -104,3 +104,39 @@ channel new 55 path
 
 https://stackoverflow.com/questions/4702325/best-way-to-convert-between-char-and-word8
 
+
+
+
+-------------------------------------------
+
+Normal line setup from remote seed, as reported by the node version
+
+>>>> Thu Apr 17 2014 12:02:06 GMT+0200 (SAST) 71 0 ipv4,208.68.164.253,42424,
+unknown line received 4429b958adce73f77093f39460b390ab
+>>>> Thu Apr 17 2014 12:03:01 GMT+0200 (SAST) 71 0 ipv4,208.68.164.253,42424,
+unknown line received 4429b958adce73f77093f39460b390ab
+>>>> Thu Apr 17 2014 12:03:01 GMT+0200 (SAST) 1094 1 ipv4,208.68.164.253,42424,
+AZ our hashname: 3036d9b6f9525660b71d58bacd80d0ef0f6e191f1622daefd461823c366eb4fc
+inOpen verified 89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de
+adding new path 0 {"type":"ipv4","ip":"208.68.164.253","port":42424}
+89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de ipv4 {"type":"ipv4","ip":"208.68.164.253","port":42424}
+PATH INNEW {"type":"ipv4","ip":"208.68.164.253","port":42424} [ '{"type":"ipv4","ip":"208.68.164.253","port":42424}' ]
+new line
+<<<< Thu Apr 17 2014 12:03:01 GMT+0200 (SAST) 1166 ipv4,208.68.164.253,42424, 89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de
+line open 89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de 36722f8135083a9d3a2d443f4e5d85ec 4485b0484e2d29166b65cf86a2dcf877
+SYNCING 89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de [ '{"type":"ipv4","ip":"208.68.164.253","port":42424}' ]
+PATHLOOP 1 {"type":"ipv4","ip":"208.68.164.253","port":42424}
+new unreliable channel 89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de path 2
+SEND path {"path":{"type":"ipv4","ip":"208.68.164.253","port":42424},"priority":1,"paths":[{"type":"http","http":"http://172.17.42.1:42424"}],"type":"path","c":2}
+line sending 89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de 4485b0484e2d29166b65cf86a2dcf877
+<<<< Thu Apr 17 2014 12:03:01 GMT+0200 (SAST) 204 ipv4,208.68.164.253,42424, 89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de
+>>>> Thu Apr 17 2014 12:03:01 GMT+0200 (SAST) 1094 1 ipv4,208.68.164.253,42424,
+AZ our hashname: 3036d9b6f9525660b71d58bacd80d0ef0f6e191f1622daefd461823c366eb4fc
+inOpen verified 89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de
+<<<< Thu Apr 17 2014 12:03:01 GMT+0200 (SAST) 1166 ipv4,208.68.164.253,42424, 89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de
+line open 89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de 36722f8135083a9d3a2d443f4e5d85ec 4485b0484e2d29166b65cf86a2dcf877
+>>>> Thu Apr 17 2014 12:03:01 GMT+0200 (SAST) 71 0 ipv4,208.68.164.253,42424,
+LINEIN {"seed":true,"c":2}
+>>>> Thu Apr 17 2014 12:03:01 GMT+0200 (SAST) 141 0 ipv4,208.68.164.253,42424,
+LINEIN {"end":true,"priority":2,"path":{"type":"ipv4","ip":"105.236.67.202","port":42424},"c":2}
+
