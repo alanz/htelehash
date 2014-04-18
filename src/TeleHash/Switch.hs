@@ -17,6 +17,7 @@ import Control.Monad.Error
 import Control.Monad.State
 import Crypto.Random
 import Data.Aeson
+import Data.Aeson.Types
 import Data.Bits
 import Data.ByteString.Internal (w2c)
 import Data.Char
@@ -2452,6 +2453,7 @@ chanReceive hn chan packet = do
                        }
       putChan (hHashName hn) chan'
       (chCallBack chan') errOrFail packet chan'
+      logT $ "chanReceive:must do timer()"
 
 {-
   // process packets at a raw level, very little to do
@@ -2961,19 +2963,51 @@ function inSeek(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
+
+-- parseMaybe :: (a -> Parser b) -> a -> Maybe b
+-- fromJSON :: FromJSON a => Value -> Result a
+{-
+data Result a
+
+  The result of running a Parser.
+
+Constructors
+   Error String
+   Success a
+
+-}
+
 -- update/respond to network state
 inPath :: Bool -> RxTelex -> Channel -> TeleHash ()
 inPath err packet chan = do
   logT $ "inPath:" ++ show (err,packet,chId chan)
+  hn <- getHNsafe (chHashName chan) "inPath"
+
   -- check/try any alternate paths
   case (HM.lookup "paths" (rtJs packet)) of
     Nothing -> return ()
-    Just (Array p) -> do
-      V.forM_ p $ \path -> do
-        assert False undefined
+    Just p -> do
+      let mp = (fromJSON p) :: Result [PathJson] -- :: Result [PathJson]
+      case mp of
+        Error err -> do
+          logT $ "inPath: could not parse paths:" ++ err
+          return ()
+        Success paths -> do
+          logT $ "inPath:packet=" ++ show packet
+          forM_ paths $ \pathJson -> do
+            let path = pathFromPathJson pathJson
+            case pathMatch path (hPaths hn) of
+              Just _ -> return ()
+              Nothing -> do
+                -- a new one, experimentally send it a path
+                logT $ "inPath: must stil build alternate path:" ++ show path
+            return ()
     Just wtf -> do
       logT $ "inPath:got unexpected type for path:" ++ show wtf
       return ()
+
+  -- if path info from a seed, update our public ip/port
+  assert False undefined
 {-
 // update/respond to network state
 function inPath(err, packet, chan)

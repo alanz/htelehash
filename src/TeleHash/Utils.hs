@@ -15,6 +15,7 @@ module TeleHash.Utils
   , HashDistance
   , Path(..)
   -- , PathType(..)
+  , pathFromPathJson
   , PathPriority
   , showPath
   , pathType
@@ -246,6 +247,20 @@ data Path = Path
       , pGone     :: !Bool -- may not be meaningful due to functional
                            -- nature of haskell
       } deriving (Show,Eq)
+
+-- ---------------------------------------------------------------------
+
+pathFromPathJson :: PathJson -> Path
+pathFromPathJson pj
+  = Path { pJson = pj
+         , pRelay = Nothing
+         , pId = Nothing
+         , pLastIn = Nothing
+         , pLastOut = Nothing
+         , pPriority = Nothing
+         , pIsSeed = False
+         , pGone = False
+         }
 
 -- ---------------------------------------------------------------------
 
