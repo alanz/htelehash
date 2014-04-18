@@ -60,6 +60,7 @@ Library
                    , text
                    , scientific
                    -- , tls
+                   , vector
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:

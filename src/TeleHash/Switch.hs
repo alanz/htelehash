@@ -50,14 +50,15 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
+import qualified Data.Vector as V
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 
--- localIP = Just "10.0.0.42"
-localIP = Just "10.2.2.83"
+localIP = Just "10.0.0.42"
+-- localIP = Just "10.2.2.83"
 
 -- ---------------------------------------------------------------------
 --
@@ -2949,8 +2950,15 @@ function inSeek(err, packet, chan)
 inPath :: Bool -> RxTelex -> Channel -> TeleHash ()
 inPath err packet chan = do
   logT $ "inPath:" ++ show (err,packet,chId chan)
-  assert False undefined
-
+  -- check/try any alternate paths
+  case (HM.lookup "paths" (rtJs packet)) of
+    Nothing -> return ()
+    Just (Array p) -> do
+      V.forM_ p $ \path -> do
+        assert False undefined
+    Just wtf -> do
+      logT $ "inPath:got unexpected type for path:" ++ show wtf
+      return ()
 {-
 // update/respond to network state
 function inPath(err, packet, chan)

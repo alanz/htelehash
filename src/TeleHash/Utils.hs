@@ -224,8 +224,8 @@ type PathPriority = Int
 data Path = Path
       { pType     :: !PathType
       , pIp       :: !(Maybe IP)       -- ipv4,ipv6
-      , pPort     :: !Int            -- ipv4,ipv6
-      , pHttp     :: !String         -- http
+      , pPort     :: !Int              -- ipv4,ipv6
+      , pHttp     :: !String           -- http
       , pRelay    :: !(Maybe Channel)  -- relay
       , pId       :: !(Maybe HashName) -- local
       , pLastIn   :: !(Maybe ClockTime)
