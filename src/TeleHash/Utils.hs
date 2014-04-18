@@ -14,9 +14,13 @@ module TeleHash.Utils
   , Bucket(..)
   , HashDistance
   , Path(..)
-  , PathType(..)
+  -- , PathType(..)
   , PathPriority
   , showPath
+  , pathType
+  , pathIp
+  , pathPort
+  , pathHttp
   , Telex(..)
   , emptyTelex
   , RxTelex(..)
@@ -97,6 +101,7 @@ import System.Log.Logger
 import System.Time
 import TeleHash.Convert
 import TeleHash.Packet
+import TeleHash.Paths
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -161,7 +166,7 @@ data HashContainer = H
   , hRecvAt     :: !(Maybe ClockTime)
 
   , hIp         :: !(Maybe IP)
-  , hPort       :: !(Maybe Int)
+  , hPort       :: !(Maybe Port)
   , hBridging   :: !Bool
   , hIsLocal    :: !Bool
 
@@ -212,20 +217,26 @@ data CSet = CS
 
 -- ---------------------------------------------------------------------
 
+{-
 data PathType = PathType String
               deriving (Show,Eq,Ord)
 
 unPathType :: PathType -> String
 unPathType (PathType str) = str
+-}
 
 type PathPriority = Int
 
 -- TODO: provide custom Eq instance, checking core vals only
 data Path = Path
-      { pType     :: !PathType
+      { pJson     :: !PathJson
+{-
+        pType     :: !PathType
       , pIp       :: !(Maybe IP)       -- ipv4,ipv6
       , pPort     :: !Int              -- ipv4,ipv6
       , pHttp     :: !String           -- http
+-}
+
       , pRelay    :: !(Maybe Channel)  -- relay
       , pId       :: !(Maybe HashName) -- local
       , pLastIn   :: !(Maybe ClockTime)
@@ -238,14 +249,28 @@ data Path = Path
 
 -- ---------------------------------------------------------------------
 
+pathType :: Path -> PathType
+pathType p = pjsonType $ pJson p
+
+pathIp :: Path -> Maybe IP
+pathIp p = pjsonIp $ pJson p
+
+pathPort :: Path -> Maybe Port
+pathPort p = pjsonPort $ pJson p
+
+pathHttp :: Path -> Maybe Url
+pathHttp p = pjsonHttp $ pJson p
+
+-- ---------------------------------------------------------------------
+
 data PathId = PId Int
             deriving (Ord,Eq,Show)
 
 -- ---------------------------------------------------------------------
 
 showPath :: Path -> String
-showPath p
-  = "(" ++ (unPathType (pType p)) ++ " " ++ show (gfromJust "showPath" (pIp p)) ++ ":" ++ show (pPort p) ++ ")"
+showPath p = show p
+  -- = "(" ++ (unPathType (pType p)) ++ " " ++ show (gfromJust "showPath" (pIp p)) ++ ":" ++ show (pPort p) ++ ")"
 
 -- ---------------------------------------------------------------------
 

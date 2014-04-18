@@ -2,11 +2,18 @@
 
 module TeleHash.Paths
   (
-    Path(..)
+    PathJson(..)
   , PathIPv4(..)
   , PathIPv6(..)
   , PathHttp(..)
   , PathWebRtc(..)
+  , PathType(..)
+  , pjsonType
+  , pjsonIp
+  , pjsonPort
+  , pjsonHttp
+  , Port
+  , Url
   ) where
 
 import Control.Applicative
@@ -28,29 +35,62 @@ type Url  = String
 data PathIPv4 = PathIPv4
                  { v4Ip :: IP
                  , v4Port :: Port
-                 } deriving Show
+                 } deriving (Show,Eq)
 
 data PathIPv6 = PathIPv6
                  { v6Ip :: IP
                  , v6Port :: Port
-                 } deriving Show
+                 } deriving (Show,Eq)
 
 data PathHttp = PathHttp
                  { url :: Url
-                 } deriving Show
+                 } deriving (Show,Eq)
 
 data PathWebRtc = PathWebRtc
                  { webrtcId :: String
-                 } deriving Show
+                 } deriving (Show,Eq)
 
 
 -- ---------------------------------------------------------------------
 
-data Path = PtIPv4   PathIPv4
-          | PtIPv6   PathIPv6
-          | PtHttp   PathHttp
-          | PtWebRtc PathWebRtc
-          deriving Show
+data PathJson = PIPv4   PathIPv4
+          | PIPv6   PathIPv6
+          | PHttp   PathHttp
+          | PWebRtc PathWebRtc
+          deriving (Show,Eq)
+
+-- ---------------------------------------------------------------------
+
+data PathType = PtIPv4
+          | PtIPv6
+          | PtHttp
+          | PtWebRtc
+          | PtRelay -- unmatched
+          | PtLocal -- unmatched
+          | PtBlueTooth -- unmatched
+          deriving (Show,Eq,Ord)
+
+-- ---------------------------------------------------------------------
+
+pjsonType :: PathJson -> PathType
+pjsonType (PIPv4 _) = PtIPv4
+pjsonType (PIPv6 _) = PtIPv6
+pjsonType (PHttp _) = PtHttp
+pjsonType (PWebRtc _) = PtWebRtc
+
+pjsonIp :: PathJson -> Maybe IP
+pjsonIp (PIPv4 (PathIPv4 ip _port)) = Just ip
+pjsonIp (PIPv6 (PathIPv6 ip _port)) = Just ip
+pjsonIp _ = Nothing
+
+pjsonPort :: PathJson -> Maybe Port
+pjsonPort (PIPv4 (PathIPv4 _ip port)) = Just port
+pjsonPort (PIPv6 (PathIPv6 _ip port)) = Just port
+pjsonPort _ = Nothing
+
+pjsonHttp :: PathJson -> Maybe Url
+pjsonHttp (PHttp (PathHttp u)) = Just u
+pjsonHttp _ = Nothing
 
 -- ---------------------------------------------------------------------
 
@@ -66,7 +106,7 @@ instance FromJSON PathIPv4 where
          (v .: "port")
       _ -> fail "wrong or missing type:ipv4"
   parseJSON _ = fail "parseJSON PathIPv4 expecting Object"
- 
+
 instance FromJSON PathIPv6 where
   parseJSON (Object v) =
     case (HM.lookup "type" v) of
@@ -96,13 +136,13 @@ instance FromJSON PathWebRtc where
       _ -> fail "wrong or missing type:id"
   parseJSON _ = fail "parseJSON PathWebRtc expecting Object"
 
-instance FromJSON Path where
+instance FromJSON PathJson where
   parseJSON v = mIP4 <|> mIP6 <|> mHttp <|> mWebRtc
      where
-       mIP4 = PtIPv4 <$> (parseJSON v)
-       mIP6 = PtIPv6 <$> (parseJSON v)
-       mHttp = PtHttp <$> (parseJSON v)
-       mWebRtc = PtWebRtc <$> (parseJSON v)
+       mIP4 = PIPv4 <$> (parseJSON v)
+       mIP6 = PIPv6 <$> (parseJSON v)
+       mHttp = PHttp <$> (parseJSON v)
+       mWebRtc = PWebRtc <$> (parseJSON v)
 
 
 instance FromJSON IP where
@@ -131,7 +171,7 @@ pathsJs = cbsTolbs $ BC.pack (
 pathJs = cbsTolbs $ BC.pack "{\"type\":\"ipv4\",\"ip\":\"10.0.0.42\",\"port\":55794}"
 
 tIpv4 = decode pathJs :: Maybe PathIPv4
-tPath = decode pathJs :: Maybe Path
+tPath = decode pathJs :: Maybe PathJson
 
 pathaJs = cbsTolbs $ BC.pack (
    -- "{\"path\":" ++
@@ -146,7 +186,7 @@ pathaJs = cbsTolbs $ BC.pack (
    -- "}"
    )
 
-tPaths = decode pathaJs :: Maybe [Path]
+tPaths = decode pathaJs :: Maybe [PathJson]
 
 pathhJs = cbsTolbs $ BC.pack (
      "{\"type\":\"http\",\"http\":\"http://172.17.42.1:42424\"}"

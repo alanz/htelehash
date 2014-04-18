@@ -36,6 +36,7 @@ import System.Time
 import TeleHash.Convert
 import TeleHash.Crypto1a
 import TeleHash.Packet
+import TeleHash.Paths
 import TeleHash.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
@@ -57,8 +58,8 @@ import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 
-localIP = Just "10.0.0.42"
--- localIP = Just "10.2.2.83"
+localIP = "10.0.0.42"
+-- localIP = "10.2.2.83"
 
 -- ---------------------------------------------------------------------
 --
@@ -131,11 +132,14 @@ run ch1 ch2 = do
   sw <- get
   let seed0 = head (swSeeds sw)
   let Just hcs = Map.lookup seed0 (swAll sw)
-  let path = Path { pType = PathType "ipv4"
+  let path = Path { {- pType = PathType "ipv4"
                   -- , pIp = Just "208.68.164.253"
                   , pIp = localIP
                   , pPort = 42424
                   , pHttp = ""
+                  -}
+                  pJson = PIPv4 (PathIPv4 localIP 42424)
+
                   , pLastIn = Nothing
                   , pLastOut = Nothing
                   , pRelay = Nothing
@@ -337,10 +341,14 @@ seedLocal =
    { sId = "3036d9b6f9525660b71d58bacd80d0ef0f6e191f1622daefd461823c366eb4fc"
    , sAdmin =  "alanz"
    , sPaths =
-       [ Path { pType = PathType "ipv4"
+       [ Path { {-
+                pType = PathType "ipv4"
               , pIp = localIP
               , pPort = 42424
               , pHttp = ""
+              -}
+
+                pJson = PIPv4 (PathIPv4 localIP 42424)
               , pLastIn = Nothing
               , pLastOut = Nothing
               , pRelay = Nothing
@@ -373,10 +381,14 @@ seed195 =
    { sId = "f50f423ce7f94fe98cdd09268c7e57001aed300b23020840a84a881c76739471"
    , sAdmin =  "http://github.com/quartzjer"
    , sPaths =
-       [ Path { pType = PathType "ipv4"
+       [ Path { {-
+                pType = PathType "ipv4"
               , pIp = Just "208.126.199.195"
               , pPort = 42424
               , pHttp = ""
+              -}
+                pJson = PIPv4 (PathIPv4 "208.126.199.195" 42424)
+
               , pLastIn = Nothing
               , pLastOut = Nothing
               , pRelay = Nothing
@@ -415,10 +427,13 @@ seed253 =
     { sId = "89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de"
     , sAdmin = "http://github.com/quartzjer"
     , sPaths =
-       [ Path { pType = PathType "ipv4"
+       [ Path { {- pType = PathType "ipv4"
               , pIp = Just "208.68.164.253"
               , pPort = 42424
               , pHttp = ""
+              -}
+                pJson = PIPv4 (PathIPv4 "208.68.164.253" 42424)
+
               , pLastIn = Nothing
               , pLastOut = Nothing
               , pRelay = Nothing
@@ -544,8 +559,8 @@ initial_switch = do
 
       -- outgoing packets to the network
       , swDeliver = deliver
-      , swNetworks = Map.fromList [(PathType "relay", (relayPid,relay))
-                                  ,(PathType "ipv4", (ipv4Pid,ipv4Send))]
+      , swNetworks = Map.fromList [(PtRelay, (relayPid,relay))
+                                  ,(PtIPv4, (ipv4Pid,ipv4Send))]
       , swSend = send
       , swPathSet = pathset
 
@@ -767,7 +782,7 @@ receive rxPacket path timeNow = do
                     , rtChanId = Nothing
                     }
       -- debug(">>>>",Date(),msg.length, packet.head_length, packet.body_length,[path.type,path.ip,path.port,path.id].join(","));
-      logT $ ">>>>" ++ show (timeNow, packetLen rxPacket, headLen rxPacket,bodyLen rxPacket,(pType path,pIp path,pPort path))
+      logT $ ">>>>" ++ show (timeNow, packetLen rxPacket, headLen rxPacket,bodyLen rxPacket,(showPath path))
 
       case paHead rxPacket of
         HeadJson j -> do
@@ -1150,7 +1165,7 @@ send mpath msg mto = do
   -- if(self.networks[path.type])
      -- self.networks[path.type](path,msg,to);
   logT $ "send:path=" ++ showPath path
-  mpid <- case Map.lookup (pType path) (swNetworks sw) of
+  mpid <- case Map.lookup (pathType path) (swNetworks sw) of
     Nothing -> return Nothing
     Just (pid,sender) -> do
       sender path msg mto
@@ -1614,7 +1629,7 @@ hnReceive hn rxTelex = do
 hnPathOut :: HashContainer -> Path -> TeleHash (Maybe Path)
 hnPathOut hn path = do
   path' <- hnPathGet hn path
-  if (pType path' == PathType "relay")
+  if (pathType path' == PtRelay)
      && isJust (pRelay path') && chEnded (fromJust (pRelay path'))
     then do
       hnPathEnd hn path'
@@ -1684,14 +1699,14 @@ hnPathIn hn path = do
       -- for every new incoming path, trigger a sync (delayed so caller can continue/respond first)
       oneShotTimer (1 * onesec) (SignalSyncPath (hHashName hn))
       -- update public ipv4 info
-      let hn1 = if (pType path1 == PathType "ipv4" && not (isLocalIP (gfromJust "hnPathIn" (pIp path1))))
-                  then hn {hIp = pIp path1, hPort = Just (pPort path1)}
+      let hn1 = if (pathType path1 == PtIPv4 && not (isLocalIP (gfromJust "hnPathIn" (pathIp path1))))
+                  then hn {hIp = pathIp path1, hPort = pathPort path1}
                   else hn
       putHN hn1
       -- cull any invalid paths of the same type
       forM_ (hPaths hn1) $ \other -> do
         if ((other == path1) -- ++AZ++ TODO: check what we define as equality
-           || (pType other /= pType path1))
+           || (pathType other /= pathType path1))
           then return ()
           else do
             if not (pathValid timeNow (Just other))
@@ -1702,7 +1717,7 @@ hnPathIn hn path = do
               else return ()
 
       -- "local" custom paths we must bridge for
-      if pType path1 == PathType "local"
+      if pathType path1 == PtLocal
         then do
           hnNow <- getHNsafe (hHashName hn1) "hnPathIn.1"
           putHN $ hnNow {hBridging = True}
@@ -2560,7 +2575,7 @@ pathValid timeNow (Just path) =
   if pGone path
     then False
     else
-      if (pType path == PathType "relay") && pRelay path == Nothing
+      if (pathType path == PtRelay) && pRelay path == Nothing
         then True -- active relays are always valid
         else
           if pLastIn path == Nothing
@@ -3351,26 +3366,26 @@ function pdecode(packet)
 pathMatch :: Path -> [Path] -> Maybe Path
 pathMatch path1 paths = r
   where
-    mtypes = filter (\p -> pType path1 == pType p) paths
+    mtypes = filter (\p -> pathType path1 == pathType p) paths
     m :: Path -> Path -> Maybe Path
     m p1 p2
-      | pType p1 == PathType "relay"
+      | pathType p1 == PtRelay
          && pRelay p1 == pRelay p2 = Just p2
 
-      | (pType p1 == PathType "ipv4" ||
-         pType p1 == PathType "ipv6")
-         && (pIp p1 == pIp p2)
-         && (pPort p1 == pPort p2)
+      | (pathType p1 == PtIPv4 ||
+         pathType p1 == PtIPv6)
+         && (pathIp p1 == pathIp p2)
+         && (pathPort p1 == pathPort p2)
          = Just p2
 
-      | pType p1 == PathType "http"
-         && pHttp p1 == pHttp p2 = Just p2
+      | pathType p1 == PtHttp
+         && pathHttp p1 == pathHttp p2 = Just p2
 
-      | pType p1 == PathType "local"
+      | pathType p1 == PtLocal
          && pId p1 == pId p2 = Just p2
 
       -- webrtc always matches
-      | pType p1 == PathType "webrtc" = Just p2
+      | pathType p1 == PtWebRtc = Just p2
 
       | otherwise = Nothing
 
@@ -3443,9 +3458,9 @@ function partsMatch(parts1, parts2)
 
 isLocalPath :: Path -> Bool
 isLocalPath path
-  | pType path == PathType "bluetooth" = True
-  | (pType path == PathType "ipv4") ||
-    (pType path == PathType "ipv6") = isLocalIP (fromJust $ pIp path)
+  | pathType path == PtBlueTooth = True
+  | (pathType path == PtIPv4) ||
+    (pathType path == PtIPv6) = isLocalIP (fromJust $ pathIp path)
   -- http?
   | otherwise = False
 
@@ -3798,26 +3813,29 @@ function linkMaint(self)
 
 -- ---------------------------------------------------------------------
 
+{-
 validPathTypes :: Set.Set PathType
 validPathTypes
    = Set.fromList
      $ map (\pt -> PathType pt) ["ipv4","ipv6","http","relay","webrtc","local"]
-
+-}
 
 hnPathGet :: HashContainer -> Path -> TeleHash Path
 hnPathGet hc path = do
 
+{-
   if Set.notMember (pType path) validPathTypes
     then do
       logT $ "unknown path type:" ++ show (pType path)
       return path
     else do
+-}
       case pathMatch path (hPaths hc) of
         Just p -> return path
         Nothing -> do
           logT $ "adding new path:" ++ show (length $ hPaths hc) ++ "," ++ showPath path
           -- always default to minimum priority
-          let path' = path { pPriority = Just (if pType path == PathType "relay" then (-1) else 0)}
+          let path' = path { pPriority = Just (if pathType path == PtRelay then (-1) else 0)}
           putHN $ hc { hPaths = (hPaths hc) ++ [path']
                      , hIsPublic = not $ isLocalPath path
                      }
@@ -3950,7 +3968,9 @@ ipv4Send :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 ipv4Send path msg _ = do
   -- logT $ "ipv4Send:" ++ show (path)
   -- logT $ "ipv4Send:" ++ show (B16.encode $ lbsTocbs $ unLP msg)
-  addr <- io (addrFromHostPort (show $ gfromJust "ipv4Send" $ pIp path) (show $ pPort path))
+  -- logT $ "ipv4Send:" ++ (show $ gfromJust "ipv4Send" $ pathIp path) ++ ":" ++ (show $ pathPort path)
+  addr <- io (addrFromHostPort (show $ gfromJust "ipv4Send.1" $ pathIp path)
+                               (show $ gfromJust "ipv4Send.2" $ pathPort path))
 
   sender <- gets swSender
   sender msg addr
@@ -4074,10 +4094,13 @@ recvTelex msg rinfo = do
       maybeRxTelex = fromLinePacket (LP (cbsTolbs msg))
     -- logT $ "recvTelex:maybeRxTelex:" ++ show maybeRxTelex
       path = Path
-        { pType    = PathType "ipv4"
+        { {-
+          pType    = PathType "ipv4"
         , pIp      = Just (read hostIP)
         , pPort    = read port
         , pHttp    = ""
+        -}
+          pJson    = PIPv4 (PathIPv4 (read hostIP) (read port))
         , pRelay   = Nothing
         , pId      = Nothing
         , pLastIn  = Nothing
