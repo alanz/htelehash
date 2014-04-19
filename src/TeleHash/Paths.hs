@@ -54,10 +54,10 @@ data PathWebRtc = PathWebRtc
 -- ---------------------------------------------------------------------
 
 data PathJson = PIPv4   PathIPv4
-          | PIPv6   PathIPv6
-          | PHttp   PathHttp
-          | PWebRtc PathWebRtc
-          deriving (Show,Eq)
+              | PIPv6   PathIPv6
+              | PHttp   PathHttp
+              | PWebRtc PathWebRtc
+              deriving (Show,Eq)
 
 -- ---------------------------------------------------------------------
 

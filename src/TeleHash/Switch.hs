@@ -59,7 +59,7 @@ import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 
-localIP = "10.0.0.42"
+localIP = "10.0.0.28"
 -- localIP = "10.2.2.83"
 
 -- ---------------------------------------------------------------------
@@ -544,7 +544,8 @@ initial_switch = do
       , swCSets = Map.fromList [("1a",cset_1a)]
       , swParts = []
 
-
+      , swPub4 = Nothing
+      , swPriority = Nothing
       , swLoad = loadId
       , swMake = keysgen
 
@@ -563,7 +564,7 @@ initial_switch = do
       , swNetworks = Map.fromList [(PtRelay, (relayPid,relay))
                                   ,(PtIPv4, (ipv4Pid,ipv4Send))]
       , swSend = send
-      , swPathSet = pathset
+      , swPathSet = pathSet
 
       -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
       , swAddSeed = addSeed
@@ -1212,6 +1213,9 @@ send mpath msg mto = do
 
 -- ---------------------------------------------------------------------
 
+pathSet :: Path -> TeleHash ()
+pathSet path = (assert False undefined)
+
 {-
   self.pathSet = function(path)
   {
@@ -1228,9 +1232,6 @@ send mpath msg mto = do
   }
 
 -}
-
-pathset :: Path -> IO ()
-pathset path = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 
@@ -3001,12 +3002,45 @@ inPath err packet chan = do
               Nothing -> do
                 -- a new one, experimentally send it a path
                 logT $ "inPath: must stil build alternate path:" ++ show path
+                -- packet.from.raw("path",{js:{priority:1},to:path}, inPath);
+                let msg = packet { rtJs = HM.empty }
+                void $ raw hn "path" msg inPath
             return ()
     Just wtf -> do
       logT $ "inPath:got unexpected type for path:" ++ show wtf
       return ()
 
   -- if path info from a seed, update our public ip/port
+  if hIsSeed hn
+    then do
+      case HM.lookup "path" (rtJs packet) of
+        Nothing -> return ()
+        Just p -> do
+          let mp = (fromJSON p) :: Result PathJson -- :: Result [PathJson]
+          case mp of
+            Error err -> do
+              logT $ "inPath: could not parse path:" ++ err
+              return ()
+            Success pj@(PIPv4 (PathIPv4 ip _)) -> do
+              if not (isLocalIP ip)
+                then do
+                  sw <- get
+                  logT $ "updating public ipv4" ++ show (swPub4 sw,ip)
+                  pathSet (pathFromPathJson pj)
+                else return ()
+            Success _ -> return ()
+        Just wtf -> do
+          logT $ "inPath: got strange path type:" ++ show wtf
+          return ()
+    else return ()
+
+  -- update any optional priority information
+  case HM.lookup "priority" (rtJs packet) of
+    Nothing -> return ()
+    Just (Number p) -> do
+      
+      assert False undefined
+    
   assert False undefined
 {-
 // update/respond to network state

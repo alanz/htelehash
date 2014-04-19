@@ -500,6 +500,10 @@ data Switch = Switch
        , swNat :: !Bool
        , swSeed :: !Bool
        , swLanToken :: !(Maybe String)
+       , swPub4 :: !(Maybe IP) -- Our public IPv4 address, behind
+                               -- NATting etc.
+
+       , swPriority :: !(Maybe PathPriority)
 
        -- udp socket stuff
        , swPcounter :: !Int
@@ -508,7 +512,7 @@ data Switch = Switch
        -- outgoing packets to the network
        , swDeliver :: String -> () -> ()
        , swSend    :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
-       , swPathSet :: Path -> IO ()
+       , swPathSet :: Path -> TeleHash ()
 
        -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
        , swAddSeed :: SeedInfo -> TeleHash ()
