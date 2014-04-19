@@ -165,6 +165,7 @@ data HashContainer = H
   , hOpenAt     :: !(Maybe ClockTime)
   , hCsid       :: !(Maybe String)
   , hRecvAt     :: !(Maybe ClockTime)
+  , hPriority   :: !(Maybe PathPriority)
 
   , hIp         :: !(Maybe IP)
   , hPort       :: !(Maybe Port)

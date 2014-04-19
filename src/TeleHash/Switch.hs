@@ -3038,10 +3038,24 @@ inPath err packet chan = do
   case HM.lookup "priority" (rtJs packet) of
     Nothing -> return ()
     Just (Number p) -> do
-      
-      assert False undefined
-    
-  assert False undefined
+      putHN $ hn { hPriority = Just (round p)}
+      logT $ "inPath:must still adjust relative priorities. Once it clarifies."
+      -- if(packet.from.to && packet.sender.priority > packet.from.to.priority) packet.from.to = packet.sender; // make the default!
+  if err
+    then return () -- bye bye bye!
+    else do
+      -- need to respond, prioritize everything above relay
+      let priority = 2
+      logT $ "inPath: must still prioritise over relay"
+      -- var priority = (packet.sender.type == "relay") ? 0 : 2;
+
+      hn2 <- getHNsafe (hHashName hn) "inPath"
+      let msg1 = rxTelexToTelex packet
+          msg2 = msg1 { tJson = Map.fromList [("end","true"),("priority",show priority)] }
+          msg3 = msg2 { tTo = Just (rtSender packet) }
+      -- chan.send({js:{end:true, priority:priority, path:packet.sender.json}});
+      sendChanRaw hn2 chan msg3
+
 {-
 // update/respond to network state
 function inPath(err, packet, chan)
@@ -3618,6 +3632,7 @@ mkHashContainer hn timeNow randomHexVal =
     , hOpenAt = Nothing
     , hRecvAt = Nothing
     , hCsid = Nothing
+    , hPriority = Nothing
 
     , hIp = Nothing
     , hPort = Nothing
