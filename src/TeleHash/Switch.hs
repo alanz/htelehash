@@ -152,10 +152,10 @@ run ch1 ch2 = do
   let msg = Telex { tId = Nothing
                   , tType = Just "seek"
                   , tPath = Nothing
-                  , tJson = Map.fromList
-                       [("type","seek")
-                       ,("c","0")
-                       ,("seek",unHN $ hHashName hcs)
+                  , tJson = HM.fromList
+                       [("type",String "seek")
+                       ,("c", Number 0)
+                       ,("seek",String (Text.pack $ unHN $ hHashName hcs))
                        ]
                   , tCsid = Just "1a"
                   , tTo = Just path
@@ -1918,6 +1918,8 @@ hnSync hn = do
   paths <- hnPathsOut hn
   logT $ "hnSync:paths=" ++ (intercalate "," $ map showPath paths)
 
+  timeNow <- io getClockTime
+
   -- check all paths at once
   forM_ paths $ \path -> do
     logT $ "PATHLOOP" ++ show (length (hPaths hc)) ++ "," ++ showPath path
@@ -1925,7 +1927,31 @@ hnSync hn = do
     -- if(["relay","local"].indexOf(path.type) == -1) js.path = path.json;
 
     -- our outgoing priority of this path
-    assert False undefined
+    --  js.priority = (path.type == "relay") ? 0 : 1;
+    let js = HM.fromList [("priority",Number 1)] :: (HM.HashMap Text.Text Aeson.Value)
+    let js2 = HM.insert "paths" (toJSON paths) js
+
+    let cb :: Bool -> RxTelex -> Channel -> TeleHash ()
+        cb err packet chan = do
+          -- when it actually errored and hasn't been active, invalidate it
+          if err
+            then do
+              logT $ "hnSync:must check for lastIn activity since the send"
+            else do
+              inPath True packet chan
+
+    let msg = RxTelex { rtId = 0
+                      , rtSender = path
+                      , rtAt = timeNow
+                      , rtJs = js2
+                      , rtPacket = newPacket
+                      , rtChanId = Nothing
+                      }
+
+    -- raw :: HashContainer -> String -> RxTelex -> RxCallBack -> TeleHash Channel
+    hc2 <- getHNsafe hn "hnSync.2"
+    raw hc2 "path" msg cb
+
 {-
 
   // send a full network path sync
@@ -2009,7 +2035,7 @@ hnPathsOut hn = do
 
 telexToPacket :: Telex -> TeleHash Telex
 telexToPacket telex = do
-  case (Map.toList $ tJson telex) of
+  case (HM.toList $ tJson telex) of
     [] -> return $ telex { tPacket = Just newPacket}
     js -> do
       -- logT $ "telexToPacket: encoded js=" ++ show (encode (tJson telex))
@@ -2229,7 +2255,7 @@ openize to = do
             , tType = Nothing
             , tPath = Nothing
             , tTo = Nothing
-            , tJson = Map.empty
+            , tJson = HM.empty
             , tPacket = Nothing
             , tCsid = Nothing
 
@@ -2534,7 +2560,7 @@ chanSendRaw hn chan packet = do
       logT $ "dropping send packet to dead channel " ++ show (chId chan,packet)
     Just ch -> do
       logT $ "chanSendRaw got chan to:" ++ show (chHashName ch)
-      let js = showJson $ Map.insert "c" (show (chId chan)) (tJson packet)
+      let js = showJson $ HM.insert "c" (Number $ fromIntegral $ unChannelId (chId chan)) (tJson packet)
       logT $ "SEND " ++ show (chType chan) ++ "," ++ js
       timeNow <- io getClockTime
       let ch' = ch { chSentAt = Just timeNow }
@@ -2547,7 +2573,7 @@ chanSendRaw hn chan packet = do
                           then packet { tTo = chLast ch' }
                           else packet
       sentChan <- hnSend hn packet'
-      if Map.member "err" (tJson packet') || Map.member "end" (tJson packet')
+      if HM.member "err" (tJson packet') || HM.member "end" (tJson packet')
         then chanFail (hHashName hn) ch' Nothing
         else return ()
       chanTimer ch'
@@ -3103,7 +3129,7 @@ inPath err packet chan = do
 
       hn2 <- getHNsafe (hHashName hn) "inPath"
       let msg1 = rxTelexToTelex packet
-          msg2 = msg1 { tJson = Map.fromList [("end","true"),("priority",show priority)] }
+          msg2 = msg1 { tJson = HM.fromList [("end",String "true"),("priority",Number priority)] }
           msg3 = msg2 { tTo = Just (rtSender packet) }
       -- chan.send({js:{end:true, priority:priority, path:packet.sender.json}});
       chanSendRaw hn2 chan msg3

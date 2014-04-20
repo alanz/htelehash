@@ -36,6 +36,7 @@ module TeleHash.Utils
   , Parts(..)
   , Channel(..)
   , ChannelId(..)
+  , unChannelId
   , channelSlot
   , Line(..)
   , CSet(..)
@@ -243,6 +244,9 @@ data Path = Path
                            -- nature of haskell
       } deriving (Show,Eq)
 
+instance Aeson.ToJSON Path where
+  toJSON p = Aeson.toJSON (pJson p)
+
 -- ---------------------------------------------------------------------
 
 pathFromPathJson :: PathJson -> Path
@@ -292,7 +296,8 @@ data Telex = Telex { tId     :: !(Maybe HashName)
                    , tType   :: !(Maybe String)
                    , tPath   :: !(Maybe Path)
                    , tTo     :: !(Maybe Path) -- Do we need both of these? Need to clarify the type of this one first
-                   , tJson   :: !(Map.Map String String)
+                   -- , tJson   :: !(Map.Map String String)
+                   , tJson   :: !(HM.HashMap Text.Text Aeson.Value)
                    , tPacket :: !(Maybe Packet)
                    , tCsid   :: !(Maybe String)
 
@@ -310,7 +315,7 @@ emptyTelex = Telex { tId     = Nothing
                    , tType   = Nothing
                    , tPath   = Nothing
                    , tTo     = Nothing
-                   , tJson   = Map.empty
+                   , tJson   = HM.empty
                    , tPacket = Nothing
                    , tCsid   = Nothing
 
@@ -341,7 +346,7 @@ data DeOpenizeResult = DeOpenizeVerifyFail
 rxTelexToTelex :: RxTelex -> Telex
 rxTelexToTelex rx
  = emptyTelex
-    { tJson   = Map.fromList js
+    { tJson   = rtJs rx
     , tPath   = Just (rtSender rx)
     , tPacket = Just (rtPacket rx)
     }
@@ -379,6 +384,7 @@ type HashDistance = Int
 
 -- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)
 data ChannelId = CID Int deriving (Eq,Show,Ord)
+unChannelId (CID c) = c
 
 instance Num ChannelId where
   (CID a) + (CID b) = CID (a + b)
@@ -658,6 +664,7 @@ b16Tobs str = r
 
 -- ---------------------------------------------------------------------
 
+showJson :: Aeson.ToJSON a => a -> String
 showJson j = BC.unpack $ lbsTocbs $ encode $ j
 
 -- ---------------------------------------------------------------------

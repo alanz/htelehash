@@ -65,6 +65,16 @@ showPathJson (PIPv4 (PathIPv4 ip port)) = "{ type: 'ipv4', ip: '" ++ show ip ++ 
 showPathJson (PIPv6 (PathIPv6 ip port)) = "{ type: 'ipv6', ip: '" ++ show ip ++ "', port: " ++ show port ++ "}"
 showPathJson p = show p
 
+instance ToJSON PathJson where
+  toJSON (PIPv4 (PathIPv4 ip port))
+       = Object $ HM.fromList [("type",String "ipv4")
+                              ,("ip",String $ T.pack $ show ip)
+                              ,("port",Number $ fromIntegral port)]
+  toJSON (PIPv6 (PathIPv6 ip port))
+       = Object $ HM.fromList [("type",String "ipv6")
+                              ,("ip",String $ T.pack $ show ip)
+                              ,("port",Number $ fromIntegral port)]
+
 -- ---------------------------------------------------------------------
 
 data PathType = PtIPv4
