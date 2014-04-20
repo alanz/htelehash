@@ -8,6 +8,7 @@ module TeleHash.Paths
   , PathHttp(..)
   , PathWebRtc(..)
   , PathType(..)
+  , showPathJson
   , pjsonType
   , pjsonIp
   , pjsonPort
@@ -58,6 +59,11 @@ data PathJson = PIPv4   PathIPv4
               | PHttp   PathHttp
               | PWebRtc PathWebRtc
               deriving (Show,Eq)
+
+showPathJson :: PathJson -> String
+showPathJson (PIPv4 (PathIPv4 ip port)) = "{ type: 'ipv4', ip: '" ++ show ip ++ "', port: " ++ show port ++ "}"
+showPathJson (PIPv6 (PathIPv6 ip port)) = "{ type: 'ipv6', ip: '" ++ show ip ++ "', port: " ++ show port ++ "}"
+showPathJson p = show p
 
 -- ---------------------------------------------------------------------
 

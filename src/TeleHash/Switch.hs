@@ -200,6 +200,7 @@ run ch1 ch2 = do
       -- SignalPingSeeds      -> pingSeeds
       -- SignalScanLines      -> scanlines timeNow
       -- SignalTapTap         -> taptap timeNow
+      SignalSyncPath hn    -> hnSync hn
       SignalMsgRx msg addr -> recvTelex msg addr
       -- External commands
       SignalGetSwitch      -> do
@@ -1497,35 +1498,13 @@ function whois(hashname)
     return paths;
   }
 
-  // send a full network path sync
-  hn.sync = function()
-  {
-    debug("SYNCING",hn.hashname,hn.paths.map(function(p){return JSON.stringify(p.json)}));
-
-    // compose all of our known paths we can send to them
-    var paths = hn.pathsOut();
-
-    // check all paths at once
-    hn.paths.forEach(function(path){
-      debug("PATHLOOP",hn.paths.length,JSON.stringify(path.json));
-      var js = {};
-      if(["relay","local"].indexOf(path.type) == -1) js.path = path.json;
-      // our outgoing priority of this path
-      js.priority = (path.type == "relay") ? 0 : 1;
-      if(paths.length > 0) js.paths = paths;
-      var lastIn = path.lastIn;
-      hn.raw("path",{js:js, timeout:3000, to:path}, function(err, packet){
-        // when it actually errored and hasn't been active, invalidate it
-        if(err && err !== true && path.lastIn == lastIn) path.lastIn = 0;
-        else inPath(true, packet); // handles any response .priority and .paths
-      });
-    });
-  }
 
   return hn;
 }
 
 -}
+-- ---------------------------------------------------------------------
+
 -- ---------------------------------------------------------------------
 
 -- |handle all incoming line packets, post decryption
@@ -1929,6 +1908,56 @@ hnSend hn packet = do
 
 -- ---------------------------------------------------------------------
 
+-- |send a full network path sync
+hnSync :: HashName -> TeleHash ()
+hnSync hn = do
+  hc <- getHNsafe hn "hnSync"
+  logT $ "SYNCING:" ++ show hn ++ " " ++ (intercalate "," $ map showPath (hPaths hc))
+
+  -- compose all of our known paths we can send to them
+  paths <- hnPathsOut hn
+  logT $ "hnSync:paths=" ++ (intercalate "," $ map showPath paths)
+
+  -- check all paths at once
+  forM_ paths $ \path -> do
+    logT $ "PATHLOOP" ++ show (length (hPaths hc)) ++ "," ++ showPath path
+    logT $ "hnSync: must process local/relay paths when implemented"
+    -- if(["relay","local"].indexOf(path.type) == -1) js.path = path.json;
+
+    -- our outgoing priority of this path
+    assert False undefined
+{-
+
+  // send a full network path sync
+  hn.sync = function()
+  {
+    debug("SYNCING",hn.hashname,hn.paths.map(function(p){return JSON.stringify(p.json)}));
+
+    // compose all of our known paths we can send to them
+    var paths = hn.pathsOut();
+
+    // check all paths at once
+    hn.paths.forEach(function(path){
+      debug("PATHLOOP",hn.paths.length,JSON.stringify(path.json));
+      var js = {};
+      if(["relay","local"].indexOf(path.type) == -1) js.path = path.json;
+      // our outgoing priority of this path
+      js.priority = (path.type == "relay") ? 0 : 1;
+      if(paths.length > 0) js.paths = paths;
+      var lastIn = path.lastIn;
+      hn.raw("path",{js:js, timeout:3000, to:path}, function(err, packet){
+        // when it actually errored and hasn't been active, invalidate it
+        if(err && err !== true && path.lastIn == lastIn) path.lastIn = 0;
+        else inPath(true, packet); // handles any response .priority and .paths
+      });
+    });
+  }
+
+-}
+
+
+-- ---------------------------------------------------------------------
+
 -- |return the current open packet
 hnOpen :: HashContainer -> TeleHash (Maybe LinePacket)
 hnOpen hn = do
@@ -1952,6 +1981,30 @@ hnOpen hn = do
     return hn.opened;
   }
 -}
+
+-- ---------------------------------------------------------------------
+
+hnPathsOut :: HashName -> TeleHash [Path]
+hnPathsOut hn = do
+  hc <- getHNsafe hn "hnPathsOut"
+  if (hIsLocal hc)
+    then return []
+    else return $ filter isLocalPath (hPaths hc)
+
+{-
+  // generate current paths array to them, for peer and paths requests
+  hn.pathsOut = function()
+  {
+    var paths = [];
+    self.paths.forEach(function(path){
+      if(isLocalPath(path) && !hn.isLocal) return;
+      paths.push(path);
+    });
+    return paths;
+  }
+
+-}
+
 -- ---------------------------------------------------------------------
 
 telexToPacket :: Telex -> TeleHash Telex
@@ -2342,7 +2395,7 @@ raw hn typ arg callback = do
   if not (HM.null (rtJs arg))
     then do
       let msg = rxTelexToTelex arg
-      sendChanRaw hn2 chan msg
+      chanSendRaw hn2 chan msg
     else return ()
 
   -- WIP: carry on here with the send
@@ -2472,16 +2525,15 @@ chanReceive hn chan packet = do
 -- ---------------------------------------------------------------------
 
 -- | minimal wrapper to send raw packets
-sendChanRaw :: HashContainer -> Channel -> Telex -> TeleHash ()
-sendChanRaw hn chan packet = do
-  logT $ "sendChanRaw entered for " ++ show (chId chan,hChans hn)
+chanSendRaw :: HashContainer -> Channel -> Telex -> TeleHash ()
+chanSendRaw hn chan packet = do
+  logT $ "chanSendRaw entered for " ++ show (chId chan)
   sw <- get
   case Map.lookup (chId chan) (hChans hn) of
     Nothing -> do
       logT $ "dropping send packet to dead channel " ++ show (chId chan,packet)
     Just ch -> do
-      logT $ "sendChanRaw got chan"
-      -- let js = BC.unpack $ lbsTocbs $ encode $ Map.insert "c" (show (chId chan)) (tJson packet)
+      logT $ "chanSendRaw got chan to:" ++ show (chHashName ch)
       let js = showJson $ Map.insert "c" (show (chId chan)) (tJson packet)
       logT $ "SEND " ++ show (chType chan) ++ "," ++ js
       timeNow <- io getClockTime
@@ -2495,9 +2547,9 @@ sendChanRaw hn chan packet = do
                           then packet { tTo = chLast ch' }
                           else packet
       sentChan <- hnSend hn packet'
-      if sentChan
-        then return ()
-        else chanFail (hHashName hn) ch' Nothing
+      if Map.member "err" (tJson packet') || Map.member "end" (tJson packet')
+        then chanFail (hHashName hn) ch' Nothing
+        else return ()
       chanTimer ch'
 
 {-
@@ -3054,7 +3106,7 @@ inPath err packet chan = do
           msg2 = msg1 { tJson = Map.fromList [("end","true"),("priority",show priority)] }
           msg3 = msg2 { tTo = Just (rtSender packet) }
       -- chan.send({js:{end:true, priority:priority, path:packet.sender.json}});
-      sendChanRaw hn2 chan msg3
+      chanSendRaw hn2 chan msg3
 
 {-
 // update/respond to network state

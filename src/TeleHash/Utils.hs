@@ -232,12 +232,6 @@ type PathPriority = Int
 -- TODO: provide custom Eq instance, checking core vals only
 data Path = Path
       { pJson     :: !PathJson
-{-
-        pType     :: !PathType
-      , pIp       :: !(Maybe IP)       -- ipv4,ipv6
-      , pPort     :: !Int              -- ipv4,ipv6
-      , pHttp     :: !String           -- http
--}
 
       , pRelay    :: !(Maybe Channel)  -- relay
       , pId       :: !(Maybe HashName) -- local
@@ -285,8 +279,7 @@ data PathId = PId Int
 -- ---------------------------------------------------------------------
 
 showPath :: Path -> String
-showPath p = show p
-  -- = "(" ++ (unPathType (pType p)) ++ " " ++ show (gfromJust "showPath" (pIp p)) ++ ":" ++ show (pPort p) ++ ")"
+showPath p = showPathJson (pJson p)
 
 -- ---------------------------------------------------------------------
 
