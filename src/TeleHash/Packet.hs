@@ -20,7 +20,9 @@ module TeleHash.Packet
 
 import Crypto.Number.Serialize
 import Data.Binary
+import Data.Bits
 import Data.Binary.Get
+import Data.Binary.Put
 import TeleHash.Convert
 
 import qualified Data.ByteString.Base16 as B16
@@ -135,7 +137,7 @@ toLinePacket :: Packet -> LinePacket
 toLinePacket (Packet h (Body b)) = LP $ BL.append (myencode h) (cbsTolbs b)
 
 myencode :: Head -> BL.ByteString
-myencode (HeadEmpty) = BL.pack [0,0]
+myencode (HeadEmpty)  = BL.pack [0,0]
 myencode (HeadByte b) = BL.pack [0,1,b]
 myencode (HeadJson x) = BL.append (cbsTolbs bb) x
   where
@@ -143,7 +145,16 @@ myencode (HeadJson x) = BL.append (cbsTolbs bb) x
     xlen = fromIntegral (BL.length x)
 
     Just bb = i2ospOf 2 xlen
+{-
+  where
+    lw16 =  (fromIntegral (BL.length x)) :: Word16
+    hb = (lw16 `div` 256) .&. 0xff
+    lb = lw16 .&. 0xff
+    bb = BL.pack [fromIntegral hb, fromIntegral lb]
 
+-}
+
+--
 -- ---------------------------------------------------------------------
 
 -- |Note: this will throw an exception is the decode fails
@@ -253,3 +264,4 @@ bodyok = decode $ b16ToLbs "dee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b467
 decodeok = fromLinePacket lp_rx_open
 
 decodefail = fromLinePacket (LP (b16ToLbs "08011adee339dc7ca422"))
+

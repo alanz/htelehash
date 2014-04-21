@@ -1763,7 +1763,8 @@ hnSend hn packet = do
       timeNow <- io getClockTime
       -- TODO: dispatch this via CSets
       msg <- telexToPacket packet
-      let (hn',lined) = crypt_lineize_1a hn msg
+      (hn',lined) <- crypt_lineize_1a hn msg
+      putHN hn'
       -- directed packets are preferred, just dump and done
       case tTo packet of
         Just to -> do (swSend sw) to lined (Just hn')
@@ -3132,6 +3133,7 @@ inPath err packet chan = do
                 logT $ "inPath: must still build alternate path:" ++ show path
                 -- packet.from.raw("path",{js:{priority:1},to:path}, inPath);
                 let msg = packet { rtJs = HM.empty }
+                logT $ "inPath:sending 1" ++ (show $ rxTelexToTelex msg)
                 void $ raw hn "path" (rxTelexToTelex msg) inPath
             return ()
 
@@ -3172,10 +3174,15 @@ inPath err packet chan = do
       -- var priority = (packet.sender.type == "relay") ? 0 : 2;
 
       hn2 <- getHNsafe (hHashName hn) "inPath"
-      let msg1 = rxTelexToTelex packet
-          msg2 = msg1 { tJson = HM.fromList [("end",String "true"),("priority",Number priority)] }
+      let rxPathJson = HM.lookupDefault (Object HM.empty) "path" (rtJs packet)
+          msg1 = rxTelexToTelex packet
+          msg2 = msg1 { tJson = HM.fromList [("end",toJSON True)
+                                            ,("priority",Number priority)
+                                            ,("path", rxPathJson)
+                                            ] }
           msg3 = msg2 { tTo = Just (rtSender packet) }
       -- chan.send({js:{end:true, priority:priority, path:packet.sender.json}});
+      logT $ "inPath:sending 2" ++ (show msg3)
       chanSendRaw hn2 chan msg3
 
 {-

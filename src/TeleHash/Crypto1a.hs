@@ -548,20 +548,23 @@ using that key with the IV the channel packet can be
 encrypted/decrypted.
 
 -}
-crypt_lineize_1a :: HashContainer -> Telex -> (HashContainer,LinePacket)
-crypt_lineize_1a to packet = r
-  where
+crypt_lineize_1a :: HashContainer -> Telex -> TeleHash (HashContainer,LinePacket)
+crypt_lineize_1a to packet = do
+  let
     -- TODO: look at using ByteString.Builder for performance, and
     --       everything needs to be Data.ByteString.Char8
 
     -- iv is a 16 byte value, made up of 12 zero bytes followed by a
     -- uint32 counter value
-    ivPrefix = BL.pack $ take 12 (repeat (0::Word8))
-    iv = lbsTocbs $ BL.append ivPrefix (Binary.encode (hLineIV to))
+    ivPrefix = lbsTocbs $ BL.pack $ take 12 (repeat (0::Word8))
+    iv = lbsTocbs $ Binary.encode (hLineIV to)
+    ivc = BC.append ivPrefix iv
 
-    body = lbsTocbs $ Binary.encode (tPacket packet)
+    -- body = lbsTocbs $ Binary.encode (tPacket packet)
+    (LP bodyl) = toLinePacket (gfromJust "crypt_lineize_1a.0" $ tPacket packet)
+    body = lbsTocbs bodyl
     ctx = initAES (gfromJust "crypt_lineize_1a" (hEncKey to))
-    cbody = encryptCTR ctx iv body
+    cbody = encryptCTR ctx ivc body
 
     -- hmac :: (ByteString -> ByteString) -> Int -> ByteString -> ByteString -> ByteString
     -- hmac f blockSize secret msg
@@ -571,7 +574,15 @@ crypt_lineize_1a to packet = r
     final = foldl' BC.append BC.empty [(gfromJust "crypt_lineize_1a.2" $ hLineIn to),h,iv,cbody]
     fc = packet { tPacket = Just (Packet HeadEmpty (Body final)) }
 
-    r = (to,toLinePacket (Packet HeadEmpty (Body final)))
+    to' = to {hLineIV = (hLineIV to) + 1}
+    r = (to',toLinePacket (Packet HeadEmpty (Body final)))
+
+  logT $ "crypt_lineize_1a:final=" ++ (BC.unpack $ B16.encode (final))
+  logT $ "crypt_lineize_1a:body=" ++ (BC.unpack $ B16.encode (body))
+  logT $ "crypt_lineize_1a:iv=" ++ (BC.unpack $ B16.encode (iv))
+  logT $ "crypt_lineize_1a:cbody=" ++ (BC.unpack $ B16.encode (cbody))
+  logT $ "crypt_lineize_1a:hEncKey=" ++ (BC.unpack $ B16.encode (fromJust $ hEncKey to))
+  return r
 
 {-
 exports.lineize = function(to, packet)
@@ -1626,3 +1637,80 @@ check_shared_secret = do
   let priv2a = (os2ip . privToBs) priv2
 
   putStrLn $ show (sharedX1,sharedX2,pub1a == pub1, pub2a == pub2, priv1a == priv1, priv2a == priv2)
+
+-- ---------------------------------------------------------------------
+
+b16ToLbs str = cbsTolbs r
+  where (r,_) = B16.decode $ BC.pack str
+
+ttt = fromLinePacket $ LP (b16ToLbs "01004e7b22656e64223a747275652c227072696f72697479223a322c2270617468223a7b226970223a2231302e302e302e3238222c22706f7274223a33383137322c2274797065223a2269707634227d7d")
+
+-- ---------------------------------------------------------------------
+{-
+
+chanSendRaw got chan to:HN "3036d9b6f9525660b71d58bacd80d0ef0f6e191f1622daefd461823c366eb4fc"
+SEND "path",{"end":true,"c":3,"priority":2,"path":{"ip":"10.0.0.28","port":38172,"type":"ipv4"}}
+line sending (HN "3036d9b6f9525660b71d58bacd80d0ef0f6e191f1622daefd461823c366eb4fc","\SO\219\178g\151\ETX\144O\187V\143\DC2\NAK'\221\249")
+crypt_lineize_1a:final=0edbb2679703904fbb568f121527ddf9d465721f000000007ffdafd54da9d865dc149f72e1b1c991484a93c40a49470191badbe76d9453ee3284e1418a423c232ee0d2726fea25d91d8ff5617f8b3d54281983f108af0eec4205ae230da473dfaa3673896403a0803a
+crypt_lineize_1a:body=01004e7b22656e64223a747275652c227072696f72697479223a322c2270617468223a7b226970223a2231302e302e302e3238222c22706f7274223a33383137322c2274797065223a2269707634227d7d
+crypt_lineize_1a:iv=00000000
+crypt_lineize_1a:cbody=7ffdafd54da9d865dc149f72e1b1c991484a93c40a49470191badbe76d9453ee3284e1418a423c232ee0d2726fea25d91d8ff5617f8b3d54281983f108af0eec4205ae230da473dfaa3673896403a0803a
+crypt_lineize_1a:hEncKey=ae93db1e0a4e7b4bed4c71cc6d12213f
+<<<<(Mon Apr 21 20:26:04 SAST 2014,107),{ type: 'ipv4', ip: '10.0.0.28', port: 42424}
+
+thjs side
+
+>>>> Mon Apr 21 2014 20:26:04 GMT+0200 (SAST) 107 0 ipv4,10.0.0.28,38172,
+AZ 1a delineize:decKey ae93db1e0a4e7b4bed4c71cc6d12213f
+AZ 1a delineize:iv 00000000000000000000000000000000
+AZ 1a delineize:cbody 7ffdafd54da9d865dc149f72e1b1c991484a93c40a49470191badbe76d9453ee3284e1418a423c232ee0d2726fea25d91d8ff5617f8b3d54281983f108af0eec4205ae230da473dfaa3673896403a0803a
+AZ 1a delineize:body 01004e7b22656e64223a747275652c227072696f72697479223a322c2270617468223a7b226970223a2231302e302e302e3238222c22706f7274223a33383137322c2274797065223a2269707634227d7d
+couldn't decrypt line invalid decrypted packet { type: 'ipv4', ip: '10.0.0.28', port: 38172 }
+>>>> Mon Apr 21 2014 20:26:05 GMT+0200 (SAST) 293 1 ipv4,10.0.0.28,38172,
+
+-- -------------------------------------------------------------
+
+0edbb2679703904fbb568f121527ddf9 -- lineid
+
+body::
+
+  d465721f -- hmac
+
+  00000000 -- iv
+
+  body2:
+  7ffdafd54da9d865dc149f72e1b1c991484a93c40a49470191badbe76d9453ee3284e1418a423c232ee0d2726fea25d91d8ff5617f8b3d54281983f108af0eec4205ae230da473dfaa3673896403a0803a
+
+
+----------------------------------------------------------------
+
+exports.delineize = function(from, packet)
+{
+  if(!packet.body) return "no body";
+  // remove lineid
+  packet.body = packet.body.slice(16);
+  
+  // validate the hmac
+  var mac1 = packet.body.slice(0,4).toString("hex");
+  var mac2 = crypto.createHmac('sha1', from.decKey).update(packet.body.slice(4)).digest().slice(0,4).toString("hex");
+  if(mac1 != mac2) return "invalid hmac";
+
+  // decrypt body
+  var iv = packet.body.slice(4,8);
+  var ivz = new Buffer(12);
+  ivz.fill(0);
+  var body = packet.body.slice(8);
+
+  console.log("AZ 1a delineize:decKey",from.decKey)
+  console.log("AZ 1a delineize:iv",Buffer.concat([ivz,iv]).toString("hex"));
+  console.log("AZ 1a delineize:cbody",body.toString("hex"));
+  console.log("AZ 1a delineize:body",(crypto.aes(false,from.decKey,Buffer.concat([ivz,iv]),body)).toString("hex") );
+
+  var deciphered = self.pdecode(crypto.aes(false,from.decKey,Buffer.concat([ivz,iv]),body));
+	if(!deciphered) return "invalid decrypted packet";
+
+  packet.js = deciphered.js;
+  packet.body = deciphered.body;
+
+
+-}
