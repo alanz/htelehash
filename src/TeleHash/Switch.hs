@@ -3133,7 +3133,7 @@ inPath err packet chan = do
                 logT $ "inPath: must still build alternate path:" ++ show path
                 -- packet.from.raw("path",{js:{priority:1},to:path}, inPath);
                 let msg = packet { rtJs = HM.empty }
-                logT $ "inPath:sending 1" ++ (show $ rxTelexToTelex msg)
+                -- logT $ "inPath:sending 1" ++ (show $ rxTelexToTelex msg)
                 void $ raw hn "path" (rxTelexToTelex msg) inPath
             return ()
 
@@ -3182,7 +3182,7 @@ inPath err packet chan = do
                                             ] }
           msg3 = msg2 { tTo = Just (rtSender packet) }
       -- chan.send({js:{end:true, priority:priority, path:packet.sender.json}});
-      logT $ "inPath:sending 2" ++ (show msg3)
+      -- logT $ "inPath:sending 2" ++ (show msg3)
       chanSendRaw hn2 chan msg3
 
 {-

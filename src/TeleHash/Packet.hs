@@ -145,14 +145,6 @@ myencode (HeadJson x) = BL.append (cbsTolbs bb) x
     xlen = fromIntegral (BL.length x)
 
     Just bb = i2ospOf 2 xlen
-{-
-  where
-    lw16 =  (fromIntegral (BL.length x)) :: Word16
-    hb = (lw16 `div` 256) .&. 0xff
-    lb = lw16 .&. 0xff
-    bb = BL.pack [fromIntegral hb, fromIntegral lb]
-
--}
 
 --
 -- ---------------------------------------------------------------------

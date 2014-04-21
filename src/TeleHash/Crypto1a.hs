@@ -577,11 +577,11 @@ crypt_lineize_1a to packet = do
     to' = to {hLineIV = (hLineIV to) + 1}
     r = (to',toLinePacket (Packet HeadEmpty (Body final)))
 
-  logT $ "crypt_lineize_1a:final=" ++ (BC.unpack $ B16.encode (final))
-  logT $ "crypt_lineize_1a:body=" ++ (BC.unpack $ B16.encode (body))
-  logT $ "crypt_lineize_1a:iv=" ++ (BC.unpack $ B16.encode (iv))
-  logT $ "crypt_lineize_1a:cbody=" ++ (BC.unpack $ B16.encode (cbody))
-  logT $ "crypt_lineize_1a:hEncKey=" ++ (BC.unpack $ B16.encode (fromJust $ hEncKey to))
+  -- logT $ "crypt_lineize_1a:final=" ++ (BC.unpack $ B16.encode (final))
+  -- logT $ "crypt_lineize_1a:body=" ++ (BC.unpack $ B16.encode (body))
+  -- logT $ "crypt_lineize_1a:iv=" ++ (BC.unpack $ B16.encode (iv))
+  -- logT $ "crypt_lineize_1a:cbody=" ++ (BC.unpack $ B16.encode (cbody))
+  -- logT $ "crypt_lineize_1a:hEncKey=" ++ (BC.unpack $ B16.encode (fromJust $ hEncKey to))
   return r
 
 {-
