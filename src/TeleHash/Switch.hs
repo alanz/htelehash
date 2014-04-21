@@ -120,7 +120,9 @@ run ch1 ch2 = do
   mapM_ addSeed initialSeeds
   logT $ "loading seeds done"
 
-  -- online nullCb
+  logT $ "going online.."
+  online nullCb
+  logT $ "online done"
 
   -- -------------- this bit from ping.c -------------------------------
   {-
@@ -158,6 +160,7 @@ run ch1 ch2 = do
                        ,("seek",String (Text.pack $ unHN $ hHashName hcs))
                        ]
                   , tCsid = Just "1a"
+                  , tChanId = Nothing
                   , tTo = Just path
                   , tPacket = Nothing
                   , tAt = Nothing
@@ -165,6 +168,9 @@ run ch1 ch2 = do
                   , tFrom = Nothing
                   , tLine = Nothing
                   }
+
+  -- io $ threadDelay (5 * onesec)
+{-
   logT $ "AZ starting ping inject"
   -- AZ carry on here: use send, not raw
   packet <- telexToPacket msg
@@ -182,13 +188,12 @@ run ch1 ch2 = do
                      , rtChanId = Nothing
                      }
 
-  c <- raw hcs "seek" msg' nullRxCb
+  -- c <- raw hcs "seek" msg' nullRxCb
   -- logT $ "sending msg returned :" ++ show c
   -- xxxxxxxxxxxxxxxxxxxx
+-}
   -- -------------- ping.c end -----------------------------------------
 
-  -- Get the ball rolling immediately
-  -- pingSeeds
 
   -- Process the async messages from the various sources above
   forever $ do
@@ -529,8 +534,9 @@ initial_switch = do
       , swLines = Map.empty
       , swBridges = []
       , swBridgeLine = []
+      , swBridging = False
       , swAll = Map.empty
-      , swBuckets = []
+      , swBuckets = Map.empty
       , swCapacity = []
       , swRels = Map.empty
       , swPaths = Map.empty
@@ -1236,40 +1242,6 @@ pathSet path = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 
-{-
-function addSeed(arg) {
-  var self = this;
-  if(!arg.parts) return warn("invalid args to addSeed",arg);
-  var seed = self.whokey(arg.parts,false,arg.keys);
-  if(!seed) return warn("invalid seed info",arg);
-  if(Array.isArray(arg.paths)) arg.paths.forEach(function(path){
-    path = seed.pathGet(path);
-    path.seed = true;
-  });
-  seed.isSeed = true;
-  self.seeds.push(seed);
-}
--}
-
-addSeed :: SeedInfo -> TeleHash ()
-addSeed arg = do
-  logT $ "addSeed:args=" ++ show (sId arg)
-  sw <- get
-  mseed <- (swWhokey sw) (sParts arg) (Right (Map.fromList (sKeys arg)))
-  -- logT $ "addSeed:mseed=" ++ show mseed
-  case mseed of
-    Nothing -> do
-      logT $ "invalid seed info:" ++ show arg
-      return ()
-    Just seed -> do
-      forM_ (sPaths arg) $ \path -> do
-        void $ hnPathGet seed path
-      sw' <- get
-      put $ sw' { swSeeds = (swSeeds sw') ++ [(hHashName seed)] }
-
-
--- ---------------------------------------------------------------------
-
 
 -- | this creates a hashname identity object (or returns existing)
 -- If it creates a new one, this is inserted into the index
@@ -1515,7 +1487,7 @@ hnReceive hn rxTelex = do
   case (HM.lookup "c" jsHashMap) of
     Nothing -> logT $ "dropping invalid channel packet, c missing"
     Just (Aeson.Number c) -> do
-      logT $ "LINEIN " ++ show jsHashMap
+      logT $ "LINEIN " ++ showJson jsHashMap
       timeNow <- io getClockTime
       putHN hn { hRecvAt = Just timeNow }
       hn2 <- getHNsafe (hHashName hn) "hnReceive"
@@ -1555,7 +1527,7 @@ hnReceive hn rxTelex = do
                   -- make the correct kind of channel
                   let cb = Map.findWithDefault (assert False undefined) ptype listening
                   -- var chan = hn[kind](packet.js.type, {bare:true,id:packet.js.c}, listening[packet.js.type]);
-                  chan <- cKind hn2 ptype rxTelex cb
+                  chan <- cKind hn2 ptype (rxTelexToTelex rxTelex) cb
                   putChan (hHashName hn2) chan
                   hn3 <- getHNsafe (hHashName hn2) "hnReceive"
                   chanReceive hn3 chan rxTelex
@@ -1676,7 +1648,7 @@ hnPathIn hn path = do
   if (pLastIn path1 == Nothing && pLastOut path1 == Nothing)
     then do
       -- debug("PATH INNEW",JSON.stringify(path.json),hn.paths.map(function(p){return JSON.stringify(p.json)}));
-      logT $ "PATH INNEW " ++ show path1
+      logT $ "PATH INNEW " ++ showPath path1
       -- for every new incoming path, trigger a sync (delayed so caller can continue/respond first)
       oneShotTimer (1 * onesec) (SignalSyncPath (hHashName hn))
       -- update public ipv4 info
@@ -1950,7 +1922,7 @@ hnSync hn = do
 
     -- raw :: HashContainer -> String -> RxTelex -> RxCallBack -> TeleHash Channel
     hc2 <- getHNsafe hn "hnSync.2"
-    raw hc2 "path" msg cb
+    raw hc2 "path" (rxTelexToTelex msg) cb
 
 {-
 
@@ -2129,8 +2101,79 @@ partsMatch parts1 parts2 = r
   }
 
 -}
-start :: HashContainer -> String -> RxTelex -> RxCallBack -> TeleHash Channel
+-- TODO: This is the switch level one, that just calls the hn one
+start :: HashContainer -> String -> a -> RxCallBack -> TeleHash Channel
 start hashname typ arg cb = (assert False undefined)
+
+-- ---------------------------------------------------------------------
+
+-- |configures or checks
+isBridge :: Maybe Bool -> Maybe HashName -> TeleHash Bool
+isBridge arg mhn = do
+  sw <- get
+  if arg == Just True
+    then put $ sw {swBridging = True}
+    else return ()
+  sw2 <- get
+  if (swBridging sw2)
+    then return True
+    else do
+      case mhn of
+        Nothing -> return $ swBridging sw2
+        Just hn -> do
+          mhc <- whois hn
+          case mhc of
+            Nothing -> return False
+            Just hc -> return (hBridging hc)
+
+{-
+// configures or checks
+function isBridge(arg)
+{
+  var self = this;
+  if(arg === true) self.bridging = true;
+  if(self.bridging) return true;
+  if(!arg) return self.bridging;
+
+  var check = (typeof arg == "string")?self.whois(arg):arg;
+  if(check && check.bridging) return true;
+  return false;
+}
+
+-}
+-- ---------------------------------------------------------------------
+{-
+
+function addSeed(arg) {
+  var self = this;
+  if(!arg.parts) return warn("invalid args to addSeed",arg);
+  var seed = self.whokey(arg.parts,false,arg.keys);
+  if(!seed) return warn("invalid seed info",arg);
+  if(Array.isArray(arg.paths)) arg.paths.forEach(function(path){
+    path = seed.pathGet(path);
+    path.seed = true;
+  });
+  seed.isSeed = true;
+  self.seeds.push(seed);
+}
+-}
+
+addSeed :: SeedInfo -> TeleHash ()
+addSeed arg = do
+  logT $ "addSeed:args=" ++ show (sId arg)
+  sw <- get
+  mseed <- (swWhokey sw) (sParts arg) (Right (Map.fromList (sKeys arg)))
+  -- logT $ "addSeed:mseed=" ++ show mseed
+  case mseed of
+    Nothing -> do
+      logT $ "invalid seed info:" ++ show arg
+      return ()
+    Just seed -> do
+      forM_ (sPaths arg) $ \path -> do
+        void $ hnPathGet seed path
+      sw' <- get
+      put $ sw' { swSeeds = (swSeeds sw') ++ [(hHashName seed)] }
+
 
 -- ---------------------------------------------------------------------
 
@@ -2142,11 +2185,11 @@ online callback = do
     else do
       setIsOnline True
       -- ping lan
-      -- self.lanToken = randomHEX(16);
       token <- randomHEX 16
       setLanToken $ token
 
       -- TODO: send the lan packet too
+      logT $ "online: must still send the lan token message"
       -- (swSend sw) (PathType "lan") (pencode Telex BL.empty) Nothing
       -- error "call swSend"
 
@@ -2158,12 +2201,17 @@ online callback = do
           let
             -- safely callback only once or when all seeds return
             done = (assert False undefined)
-          forM seeds $ \ seed -> do
-            let fn = nullCb
+          forM_ seeds $ \ seed -> do
+            logT $ "online:processing:" ++ show seed
+            let fn hn = do
+                  hc <- getHNsafe hn "online"
+                  if hIsAlive hc
+                    then hnSync hn
+                    else return ()
+                  done
             Just hcSeed <- whois seed
-            link hcSeed fn
-          return (assert False undefined)
--- WIP here
+            hnLink (hHashName hcSeed) (Just fn)
+
 {-
 
 function online(callback)
@@ -2258,6 +2306,7 @@ openize to = do
             , tJson = HM.empty
             , tPacket = Nothing
             , tCsid = Nothing
+            , tChanId = Nothing
 
             , tAt = hLineAt to2
             , tToHash = Just (hHashName to2)
@@ -2392,10 +2441,10 @@ chan_t chan_new(switch_t s, hn_t to, char *type, uint32_t id)
 -}
 
 -- create an unreliable channel
-raw :: HashContainer -> String -> RxTelex -> RxCallBack -> TeleHash Channel
+raw :: HashContainer -> String -> Telex -> RxCallBack -> TeleHash Channel
 raw hn typ arg callback = do
   sw <- get
-  (hn',chanId) <- case rtChanId arg of
+  (hn',chanId) <- case tChanId arg of
     Just i  -> return (hn,i)
     Nothing -> return (hn { hChanOut = (hChanOut hn) + 2},hChanOut hn)
   let
@@ -2418,9 +2467,10 @@ raw hn typ arg callback = do
   -- debug("new unreliable channel",hn.hashname,chan.type,chan.id);
   logT $ "new unreliable channel" ++ show (hHashName hn,chType chan,chId chan)
 
-  if not (HM.null (rtJs arg))
+  if not (HM.null (tJson arg))
     then do
-      let msg = rxTelexToTelex arg
+      -- let msg = rxTelexToTelex arg
+      let msg = arg
       chanSendRaw hn2 chan msg
     else return ()
 
@@ -3059,7 +3109,7 @@ Constructors
 -- update/respond to network state
 inPath :: Bool -> RxTelex -> Channel -> TeleHash ()
 inPath err packet chan = do
-  logT $ "inPath:" ++ show (err,packet,chId chan)
+  logT $ "inPath:" ++ show (err,chId chan) ++ showPath (rtSender packet)
   hn <- getHNsafe (chHashName chan) "inPath"
 
   -- check/try any alternate paths
@@ -3072,21 +3122,18 @@ inPath err packet chan = do
           logT $ "inPath: could not parse paths:" ++ err
           return ()
         Success paths -> do
-          logT $ "inPath:packet=" ++ show packet
+          -- logT $ "inPath:packet=" ++ show packet
           forM_ paths $ \pathJson -> do
             let path = pathFromPathJson pathJson
             case pathMatch path (hPaths hn) of
               Just _ -> return ()
               Nothing -> do
                 -- a new one, experimentally send it a path
-                logT $ "inPath: must stil build alternate path:" ++ show path
+                logT $ "inPath: must still build alternate path:" ++ show path
                 -- packet.from.raw("path",{js:{priority:1},to:path}, inPath);
                 let msg = packet { rtJs = HM.empty }
-                void $ raw hn "path" msg inPath
+                void $ raw hn "path" (rxTelexToTelex msg) inPath
             return ()
-    Just wtf -> do
-      logT $ "inPath:got unexpected type for path:" ++ show wtf
-      return ()
 
   -- if path info from a seed, update our public ip/port
   if hIsSeed hn
@@ -3107,9 +3154,6 @@ inPath err packet chan = do
                   pathSet (pathFromPathJson pj)
                 else return ()
             Success _ -> return ()
-        Just wtf -> do
-          logT $ "inPath: got strange path type:" ++ show wtf
-          return ()
     else return ()
 
   -- update any optional priority information
@@ -3254,27 +3298,111 @@ function inLink(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
--- |Request a new link to the given HashContainer
+{-
+
+From https://github.com/telehash/telehash.org/blob/master/switch.md#seek
+
+The response is a compact "see":[...] array of addresses that are
+closest to the hash value (based on the DHT rules). The addresses are
+a compound comma-delimited string containing the "hash,cs,ip,port"
+(these are intentionally not JSON as the verbosity is not helpful
+here), for example
+"1700b2d3081151021b4338294c9cec4bf84a2c8bdf651ebaa976df8cff18075c,1a,123.45.67.89,10111".
+The "cs" is the Cipher Set ID and is required. The ip and port parts
+are optional and only act as hints for NAT hole punching.
+
+-}
+
+hnAddress :: HashName -> HashName -> TeleHash Aeson.Value
+hnAddress hn to = assert False undefined
+{-
+
+  // return our address to them
+  hn.address = function(to)
+  {
+    if(!to) return "";
+    var csid = partsMatch(hn.parts,to.parts);
+    if(!csid) return "";
+    if(!hn.ip) return [hn.hashname,csid].join(",");
+    return [hn.hashname,csid,hn.ip,hn.port].join(",");
+  }
+
+
+
+-}
+-- ---------------------------------------------------------------------
+-- |Request a new link to them
 -- TODO: perhaps pass in HashName, and do whois here
-link :: HashContainer -> CallBack -> TeleHash ()
-link hn cb = do
+hnLink :: HashName -> Maybe HnCallBack -> TeleHash ()
+hnLink hn mcb = do
   sw <- get
+  hc <- getHNsafe hn "hnLink"
+  timeNow <- io getClockTime
+
+  let callback = case mcb of
+                   Just cb -> cb
+                   Nothing -> nullHnCb
 
   -- TODO:
     -- Set the JS 'see' value to
       -- sort the buckets by age
       -- pull out the seed values
       -- for each seed get the address associated with this hn
-      -- take the first 9 -- (0,8)
+      -- take the first 8 -- (0,8)
+  let buckets = (Map.findWithDefault [] (hBucket hc) (swBuckets sw))
+      ageComp a b = compare (lineAge a) (lineAge b)
+      buckets2 = sortBy ageComp buckets
+      seeds = map lineSeed buckets2
+  see1 <- mapM (hnAddress hn) seeds
+  logT $ "hnLink:see1=" ++ show see1
+
+  -- add some distant ones if none or too few
+  let allBuckets = Set.fromList $ concat $ Map.elems (swBuckets sw)
+      buckets3 = Set.fromList $ take 8 buckets2
+      allOtherBuckets = sortBy ageComp $ Set.toList (allBuckets Set.\\ buckets3)
+  let see = take 8 (buckets2 ++ allOtherBuckets)
+  logT $ "hnLink:see=" ++ show see
+  seeVal <- mapM (hnAddress hn) $ map lineSeed see
 
   -- TODO: sort out relay/bridge
+  isBr <- isBridge Nothing (Just hn)
+  let  toBridge :: PathType -> [Aeson.Value]
+       toBridge (PtRelay) = ["relay"]
+       toBridge (PtLocal) = ["local"]
+       toBridge _ = []
 
-  -- TOOO: handle case when already linked
+       bridges = concatMap toBridge $ nub
+                   $ filter (\pt -> pt == PtRelay || pt == PtLocal)
+                   $ Map.keys (swNetworks sw)
 
-  let msg = (assert False undefined)
-  c <- raw hn "link" msg nullRxCb
-  logT $ "link: raw returned c=" ++ show c
-  return ()
+       brVals
+        = if isBr
+            then [("bridges",Array $ V.fromList bridges)]
+            else []
+
+  let js = HM.fromList $ ([("seed", toJSON (hIsSeed hc))
+                          ,("see",Aeson.Array $ V.fromList seeVal)]
+                          ++ brVals
+                         )
+  let msg = emptyTelex
+             {
+               tJson = js
+             }
+
+  case hLinked hc of
+    Just linkHn -> do
+      linkHc <- getHNsafe linkHn "hnLink.2"
+      hnSend linkHc msg
+      callback hn
+    Nothing -> do
+      let rawCb err packet chan = do
+            inLink err packet chan
+            -- TODO: return packet.js.err in the callback
+            callback hn
+      logT $ "hnLink: must set retries"
+      c <- raw hc "link" msg rawCb
+      logT $ "link: raw returned c=" ++ show c
+      return ()
 
 {-
   // request a new link to them
@@ -3293,7 +3421,7 @@ link hn cb = do
       });
     });
 
-    if(self.bridging || hn.bridging) js.bridges = Object.keys(self.networks).filter(function(type){return (["local","relay"].indexOf(type) >= 0)?false:true});
+    if(self.isBridge(hn)) js.bridges = Object.keys(self.networks).filter(function(type){return (["local","relay"].indexOf(type) >= 0)?false:true});
 
     if(hn.linked)
     {
@@ -3716,6 +3844,7 @@ mkHashContainer hn timeNow randomHexVal =
     , hPort = Nothing
     , hBridging = False
     , hIsLocal = False
+    , hLinked = Nothing
 
     , hLineOut = randomHexVal
     , hLineIV = 0
@@ -4038,7 +4167,7 @@ linkMaint :: TeleHash ()
 linkMaint = do
   sw <- get
   -- process every bucket
-  forM (swBuckets sw) $ \bucket -> do
+  forM (Map.elems $ swBuckets sw) $ \bucket -> do
     -- sort the bucket contents on age
     let sorted = sortBy sf bucket
         sf a b = compare (lineAge a) (lineAge b)

@@ -46,8 +46,10 @@ module TeleHash.Utils
   , SocketHandle(..)
   , CallBack
   , RxCallBack
+  , HnCallBack
   , nullCb
   , nullRxCb
+  , nullHnCb
   , IPP(..)
   , unIPP
   , parts2hn
@@ -172,6 +174,8 @@ data HashContainer = H
   , hPort       :: !(Maybe Port)
   , hBridging   :: !Bool
   , hIsLocal    :: !Bool
+  , hLinked     :: !(Maybe HashName)
+
 
   , hLineIV  :: !Word32 -- crypto 1a IV value
   -- , hlineInB :: !BC.ByteString
@@ -242,7 +246,7 @@ data Path = Path
       , pIsSeed   :: !Bool
       , pGone     :: !Bool -- may not be meaningful due to functional
                            -- nature of haskell
-      } deriving (Show,Eq)
+      } deriving (Show,Eq,Ord)
 
 instance Aeson.ToJSON Path where
   toJSON p = Aeson.toJSON (pJson p)
@@ -295,11 +299,11 @@ data Relay = Relay deriving (Show,Eq)
 data Telex = Telex { tId     :: !(Maybe HashName)
                    , tType   :: !(Maybe String)
                    , tPath   :: !(Maybe Path)
-                   , tTo     :: !(Maybe Path) -- Do we need both of these? Need to clarify the type of this one first
-                   -- , tJson   :: !(Map.Map String String)
+                   , tTo     :: !(Maybe Path)
                    , tJson   :: !(HM.HashMap Text.Text Aeson.Value)
                    , tPacket :: !(Maybe Packet)
                    , tCsid   :: !(Maybe String)
+                   , tChanId :: !(Maybe ChannelId)
 
 
                    -- TODO: break Inner out into its own type
@@ -318,6 +322,7 @@ emptyTelex = Telex { tId     = Nothing
                    , tJson   = HM.empty
                    , tPacket = Nothing
                    , tCsid   = Nothing
+                   , tChanId = Nothing
 
                    -- TODO: break Inner out into its own type
                    -- openize stuff, used in 'inner'
@@ -366,7 +371,7 @@ data Channel = Chan
   , chRxAt     :: !(Maybe ClockTime)
   , chEnded    :: !Bool
   , chDone     :: !Bool
-  } deriving (Show,Eq)
+  } deriving (Show,Eq,Ord)
 
 instance Show (CallBack) where
   show _ = "CallBack"
@@ -379,6 +384,8 @@ instance Show (RxCallBack) where
 
 instance Eq RxCallBack where
   _ == _ = True
+
+instance Ord RxCallBack where
 
 type HashDistance = Int
 
@@ -402,12 +409,12 @@ channelSlot (CID n) = n `mod` 2
 type Bucket = [Line]
 
 data Line = Line { lineAge     :: !ClockTime
-                 , lineSeed    :: !String
+                 , lineSeed    :: !HashName
                  , lineAddress :: !String
                  , lineLinked  :: !(Maybe Path)
                  , lineAlive   :: !Bool
                  , lineSentat  :: !(Maybe ClockTime)
-                 } deriving Show
+                 } deriving (Show,Eq,Ord)
 
 -- ---------------------------------------------------------------------
 
@@ -471,14 +478,15 @@ data Switch = Switch
        , swLines      :: !(Map.Map String HashName)
        , swBridges    :: ![String]
        , swBridgeLine :: ![String]
+       , swBridging   :: !Bool
        , swAll        :: !(Map.Map HashName HashContainer)
-       , swBuckets    :: ![Bucket]
+       , swBuckets    :: !(Map.Map HashDistance Bucket)
        , swCapacity   :: ![String]
        , swRels       :: !(Map.Map String (Bool -> RxTelex -> Channel -> TeleHash ()))
        , swRaws       :: !(Map.Map String (Bool -> RxTelex -> Channel -> TeleHash ()))
        , swPaths      :: !(Map.Map PathId Path)
        , swBridgeCache :: ![String]
-       , swNetworks :: !(Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashContainer -> TeleHash ())))
+       , swNetworks    :: !(Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashContainer -> TeleHash ())))
 
        , swHashname :: !(Maybe HashName)
 
@@ -527,7 +535,7 @@ data Switch = Switch
        , swListen :: String -> () -> IO ()
 
        -- advanced usage only
-       , swRaw :: HashContainer -> String -> RxTelex -> RxCallBack -> TeleHash Channel
+       , swRaw :: HashContainer -> String -> Telex -> RxCallBack -> TeleHash Channel
 
        -- primarily internal, to seek/connect to a hashname
        , swSeek :: String -> () -> IO ()
@@ -568,6 +576,11 @@ type RxCallBack = Bool -> RxTelex -> Channel -> TeleHash ()
 
 nullRxCb :: Bool -> RxTelex -> Channel -> TeleHash ()
 nullRxCb _ _ _= return ()
+
+type HnCallBack = HashName -> TeleHash ()
+
+nullHnCb :: HnCallBack
+nullHnCb _ = return ()
 
 -- ---------------------------------------------------------------------
 
@@ -710,20 +723,22 @@ incPCounter = do
 
 putChan :: HashName -> Channel -> TeleHash ()
 putChan hn chan = do
-  logT $ "putChan:" ++ show (hn,chId chan)
+  -- logT $ "putChan:" ++ show (hn,chId chan)
   hc <- getHNsafe hn ("putChan " ++ show hn)
   let chans = Map.insert (chId chan) chan (hChans hc)
   putHN $ hc { hChans = chans }
 
 getChan :: HashName -> ChannelId -> TeleHash (Maybe Channel)
 getChan hn cid = do
-  logT $ "getChan:" ++ show (hn,cid)
+  -- logT $ "getChan:" ++ show (hn,cid)
   hc <- getHNsafe hn "getChan"
   return $ Map.lookup cid (hChans hc)
 
 delChan :: HashName -> ChannelId -> TeleHash ()
 delChan hn cid = do
-  logT $ "delChan:" ++ show (hn,cid)
+  -- logT $ "delChan:" ++ show (hn,cid)
   hc <- getHNsafe hn "delChan"
   let chans = Map.delete cid (hChans hc)
   putHN $ hc { hChans = chans }
+
+-- ---------------------------------------------------------------------

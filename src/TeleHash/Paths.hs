@@ -36,20 +36,20 @@ type Url  = String
 data PathIPv4 = PathIPv4
                  { v4Ip :: IP
                  , v4Port :: Port
-                 } deriving (Show,Eq)
+                 } deriving (Show,Eq,Ord)
 
 data PathIPv6 = PathIPv6
                  { v6Ip :: IP
                  , v6Port :: Port
-                 } deriving (Show,Eq)
+                 } deriving (Show,Eq,Ord)
 
 data PathHttp = PathHttp
                  { url :: Url
-                 } deriving (Show,Eq)
+                 } deriving (Show,Eq,Ord)
 
 data PathWebRtc = PathWebRtc
                  { webrtcId :: String
-                 } deriving (Show,Eq)
+                 } deriving (Show,Eq,Ord)
 
 
 -- ---------------------------------------------------------------------
@@ -58,7 +58,7 @@ data PathJson = PIPv4   PathIPv4
               | PIPv6   PathIPv6
               | PHttp   PathHttp
               | PWebRtc PathWebRtc
-              deriving (Show,Eq)
+              deriving (Show,Eq,Ord)
 
 showPathJson :: PathJson -> String
 showPathJson (PIPv4 (PathIPv4 ip port)) = "{ type: 'ipv4', ip: '" ++ show ip ++ "', port: " ++ show port ++ "}"
