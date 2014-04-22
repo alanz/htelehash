@@ -7,6 +7,9 @@ import Data.Char (chr)
 import Data.ByteString.Lazy as BL (ByteString, unpack,fromChunks)
 import Data.ByteString.Char8 as BC (ByteString,pack)
 import Data.ByteString.Internal (w2c)
+import Prelude hiding (scanl)
+
+-- ---------------------------------------------------------------------
 
 strToBS :: String -> S.ByteString
 strToBS = C8.pack
