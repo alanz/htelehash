@@ -149,8 +149,9 @@ unHN (HN s) = s
 
 data HashContainer = H
   { hHashName   :: !HashName
-  , hChans      :: !(Map.Map ChannelId Channel)
   , hSelf       :: !(Maybe HashCrypto)
+  , hCsid       :: !(Maybe String)
+  , hChans      :: !(Map.Map ChannelId Channel)
   , hPaths      :: ![Path]
   , hTo         :: !(Maybe Path)
   , hIsAlive    :: !Bool
@@ -168,7 +169,6 @@ data HashContainer = H
   , hParts      :: !(Maybe Parts)
   , hOpened     :: !(Maybe LinePacket)
   , hOpenAt     :: !(Maybe ClockTime)
-  , hCsid       :: !(Maybe String)
   , hRecvAt     :: !(Maybe ClockTime)
   , hPriority   :: !(Maybe PathPriority)
 
@@ -179,6 +179,7 @@ data HashContainer = H
   , hLinked     :: !(Maybe HashName)
 
 
+  -- CS 1a stuff
   , hLineIV  :: !Word32 -- crypto 1a IV value
   -- , hlineInB :: !BC.ByteString
   , hEncKey  :: !(Maybe BC.ByteString)
@@ -533,8 +534,6 @@ data Switch = Switch
        -- crypto
        , swRNG :: !SystemRNG
 
-       , swPCounter :: !Int
-
        , swCountOnline :: !Int
        , swCountTx :: !Int
        , swCountRx :: !Int
@@ -689,8 +688,8 @@ putHN hn = do
 incPCounter :: TeleHash Int
 incPCounter = do
   sw <- get
-  let r = 1 + (swPCounter sw)
-  put $ sw {swPCounter = r }
+  let r = 1 + (swPcounter sw)
+  put $ sw {swPcounter = r }
   return r
 
 

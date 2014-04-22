@@ -563,30 +563,11 @@ initial_switch = do
       , swPcounter = 1
       -- , swReceive = receive
 
-      -- outgoing packets to the network
-      -- , swDeliver = deliver
       , swNetworks = Map.fromList [(PtRelay, (relayPid,relay))
-                                  ,(PtIPv4, (ipv4Pid,ipv4Send))]
-      -- , swSend = send
-      -- , swPathSet = pathSet
-
-      -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
-      -- , swAddSeed = addSeed
-
-
-      --  map a hashname to an object, whois(hashname)
-      -- , swWhois = whois
-      -- , swWhokey = whokey
-
-      -- , swStart = start
+                                  ,(PtIPv4,  (ipv4Pid,ipv4Send))]
 
       -- connect to the network, online(callback(err))
       , swIsOnline = False
-      -- , swOnline = online
-
-      -- handle new reliable channels coming in from anyone
-      -- , swListen = listen
-      -- , swRaw = raw
 
       --  internal listening unreliable channels
       , swRaws = Map.fromList
@@ -598,28 +579,12 @@ initial_switch = do
                , ("link",   inLink)
                ]
 
-      -- primarily internal, to seek/connect to a hashname
-      -- , swSeek = seek
-      -- , swBridge = bridge
-
-      -- for modules
-      -- , swPencode = pencode
-      -- , swPdecode = pdecode
-      -- , swIsLocalIP = isLocalIP
-      -- , swRandomHEX = randomHEX
-      -- , swUriparse = uriparse
-
-      -- for modules
-      -- , swIsHashname = isHashName
-      -- , swWraps = channelWraps
       , swWaits = []
       , swWaiting = Nothing
-      -- , swWait = wait
+
 
       -- crypto
       , swRNG = rng
-
-      , swPCounter = 0
 
       , swCountOnline = 0
       , swCountTx = 0
@@ -3337,13 +3302,12 @@ hnAddress hn to = assert False undefined
 
 -}
 -- ---------------------------------------------------------------------
--- |Request a new link to them
--- TODO: perhaps pass in HashName, and do whois here
+
+-- |DHT action: request to be stored on their side
 hnLink :: HashName -> Maybe HnCallBack -> TeleHash ()
 hnLink hn mcb = do
   sw <- get
   hc <- getHNsafe hn "hnLink"
-  timeNow <- io getClockTime
 
   let callback = case mcb of
                    Just cb -> cb
@@ -3411,6 +3375,7 @@ hnLink hn mcb = do
       return ()
 
 {-
+
   // request a new link to them
   hn.link = function(callback)
   {
@@ -4366,8 +4331,6 @@ addrFromHostPort hostname port = do
 
 -- ---------------------------------------------------------------------
 
--- ---------------------------------------------------------------------
-
 -- Dispatch incoming raw messages
 
 recvTelex :: BC.ByteString -> NS.SockAddr -> TeleHash ()
@@ -4390,7 +4353,7 @@ recvTelex msg rinfo = do
                   ++ " at " ++ (show timeNow))
     let
       maybeRxTelex = fromNetworkPacket (LP msg)
-    logT $ "recvTelex:maybeRxTelex:" ++ show maybeRxTelex
+    -- logT $ "recvTelex:maybeRxTelex:" ++ show maybeRxTelex
     let
        path = Path
         {
@@ -4416,7 +4379,7 @@ recvTelex msg rinfo = do
 isHEX :: BC.ByteString -> Int -> Bool
 isHEX str len = r
   where
-   (f,b) = B16.decode str
+   (_f,b) = B16.decode str
    r = BC.length b == 0 && BC.length str == len
 
 -- ---------------------------------------------------------------------
