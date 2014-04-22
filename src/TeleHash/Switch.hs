@@ -274,7 +274,7 @@ oneShotTimer :: Int -> Signal -> TeleHash ()
 oneShotTimer timeoutVal signalValue  = do
   mchannel <- gets swChan
   let Just channel = mchannel
-  io $ forkIO (threadDelay timeoutVal >> writeChan channel signalValue)
+  void $ io $ forkIO (threadDelay timeoutVal >> writeChan channel signalValue)
   return ()
 
 
@@ -329,9 +329,10 @@ testSeeds = do
 
 -- ---------------------------------------------------------------------
 
-data Msg = Msg String
-
+relayPid :: PathId
 relayPid = PId 1
+
+ipv4Pid :: PathId
 ipv4Pid  = PId 2
 
 
@@ -717,7 +718,7 @@ loadkeys = do
   -- logT $ "loadkeys:swId=" ++ show (swId sw)
 
   let
-    doOne (csid,v) = do
+    doOne (csid,_v) = do
       sw <- get
       let cs' = Map.delete csid (swCs sw)
       put sw {swCs = cs'}
@@ -794,7 +795,7 @@ receive rxPacket path timeNow = do
       logT $ ">>>>" ++ show (timeNow, packetLen rxPacket, headLen rxPacket,bodyLen rxPacket,(showPath path))
 
       case paHead rxPacket of
-        HeadJson j -> do
+        HeadJson _j -> do
 
           -- handle any LAN notifications
           logT $ "receive: not processing JSON"
