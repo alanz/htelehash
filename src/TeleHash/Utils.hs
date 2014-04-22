@@ -22,6 +22,7 @@ module TeleHash.Utils
   , pathIp
   , pathPort
   , pathHttp
+  , NetworkTelex(..)
   , Telex(..)
   , emptyTelex
   , RxTelex(..)
@@ -217,9 +218,9 @@ data PrivateKey = Private1a ECDSA.PrivateKey deriving Show
 data CSet = CS
   { csLoadkey :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
   , csOpenize  :: HashContainer -> Telex -> TeleHash LinePacket
-  , csDeopenize :: Packet -> TeleHash DeOpenizeResult
+  , csDeopenize :: NetworkPacket -> TeleHash DeOpenizeResult
   , csOpenLine :: HashContainer ->  DeOpenizeResult -> TeleHash ()
-  , csDelineize :: HashContainer -> RxTelex -> TeleHash (Either String RxTelex)
+  , csDelineize :: HashContainer -> NetworkTelex -> TeleHash (Either String RxTelex)
   }
 
 -- ---------------------------------------------------------------------
@@ -340,6 +341,13 @@ data RxTelex = RxTelex { rtId     :: !Int
                        , rtChanId :: !(Maybe ChannelId)
                        } deriving Show
 
+data NetworkTelex = NetworkTelex
+                       { ntId     :: !Int
+                       , ntSender :: !Path
+                       , ntAt     :: !ClockTime
+                       , ntPacket :: !NetworkPacket
+                       } deriving Show
+
 data DeOpenizeResult = DeOpenizeVerifyFail
                      | DeOpenize { doLinePub :: !PublicKey
                                  , doKey     :: !BC.ByteString
@@ -353,7 +361,8 @@ rxTelexToTelex rx
  = emptyTelex
     { tJson   = rtJs rx
     , tPath   = Just (rtSender rx)
-    , tPacket = Just (rtPacket rx)
+    -- , tPacket = Just (rtPacket rx)
+    , tPacket = Nothing
     }
   where
     js = map (\(k,v) -> (Text.unpack k,TL.unpack $ toLazyText $ encodeToTextBuilder v))
@@ -513,46 +522,14 @@ data Switch = Switch
 
        , swPriority :: !(Maybe PathPriority)
 
-       -- udp socket stuff
        , swPcounter :: !Int
-       , swReceive :: Packet -> Path -> ClockTime -> TeleHash ()
 
-       -- outgoing packets to the network
-       , swDeliver :: String -> () -> ()
-       , swSend    :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
-       , swPathSet :: Path -> TeleHash ()
-
-       -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
-       , swAddSeed :: SeedInfo -> TeleHash ()
-
-       --  map a hashname to an object, whois(hashname)
-       , swWhois :: HashName -> TeleHash (Maybe HashContainer)
-       , swWhokey :: Parts -> Either String (Map.Map String String) -> TeleHash (Maybe HashContainer)
-
-       , swStart :: HashContainer -> String -> RxTelex -> RxCallBack -> TeleHash Channel
-       , swOnline :: CallBack -> TeleHash ()
        , swIsOnline :: !Bool
-       , swListen :: String -> () -> IO ()
 
-       -- advanced usage only
-       , swRaw :: HashContainer -> String -> Telex -> RxCallBack -> TeleHash Channel
 
-       -- primarily internal, to seek/connect to a hashname
-       , swSeek :: String -> () -> IO ()
-
-       , swBridge :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
-
-       -- for modules
-       , swPencode :: Telex -> Body -> Telex
-       , swPdecode :: Packet -> (Telex,Body)
-       , swIsLocalIP :: IP -> Bool
-       , swRandomHEX :: Int -> TeleHash String
-       , swUriparse :: String -> String
-       , swIsHashname :: String -> String
-       , swWraps :: IO ()
        , swWaits :: [String]
        , swWaiting :: Maybe (TeleHash ())
-       , swWait :: Bool -> IO ()
+       -- , swWait :: Bool -> IO ()
 
 
        -- crypto

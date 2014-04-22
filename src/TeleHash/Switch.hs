@@ -565,32 +565,32 @@ initial_switch = do
 
       -- udp socket stuff
       , swPcounter = 1
-      , swReceive = receive
+      -- , swReceive = receive
 
       -- outgoing packets to the network
-      , swDeliver = deliver
+      -- , swDeliver = deliver
       , swNetworks = Map.fromList [(PtRelay, (relayPid,relay))
                                   ,(PtIPv4, (ipv4Pid,ipv4Send))]
-      , swSend = send
-      , swPathSet = pathSet
+      -- , swSend = send
+      -- , swPathSet = pathSet
 
       -- need some seeds to connect to, addSeed({ip:"1.2.3.4", port:5678, public:"PEM"})
-      , swAddSeed = addSeed
+      -- , swAddSeed = addSeed
 
 
       --  map a hashname to an object, whois(hashname)
-      , swWhois = whois
-      , swWhokey = whokey
+      -- , swWhois = whois
+      -- , swWhokey = whokey
 
-      , swStart = start
+      -- , swStart = start
 
       -- connect to the network, online(callback(err))
       , swIsOnline = False
-      , swOnline = online
+      -- , swOnline = online
 
       -- handle new reliable channels coming in from anyone
-      , swListen = listen
-      , swRaw = raw
+      -- , swListen = listen
+      -- , swRaw = raw
 
       --  internal listening unreliable channels
       , swRaws = Map.fromList
@@ -603,22 +603,22 @@ initial_switch = do
                ]
 
       -- primarily internal, to seek/connect to a hashname
-      , swSeek = seek
-      , swBridge = bridge
+      -- , swSeek = seek
+      -- , swBridge = bridge
 
       -- for modules
-      , swPencode = pencode
-      , swPdecode = pdecode
-      , swIsLocalIP = isLocalIP
-      , swRandomHEX = randomHEX
-      , swUriparse = uriparse
+      -- , swPencode = pencode
+      -- , swPdecode = pdecode
+      -- , swIsLocalIP = isLocalIP
+      -- , swRandomHEX = randomHEX
+      -- , swUriparse = uriparse
 
       -- for modules
-      , swIsHashname = isHashName
-      , swWraps = channelWraps
+      -- , swIsHashname = isHashName
+      -- , swWraps = channelWraps
       , swWaits = []
       , swWaiting = Nothing
-      , swWait = wait
+      -- , swWait = wait
 
       -- crypto
       , swRNG = rng
@@ -776,25 +776,25 @@ function loadkeys(self)
 -- ---------------------------------------------------------------------
 
 -- |process the incoming packet
-receive :: Packet -> Path -> ClockTime -> TeleHash ()
+-- was swReceive
+receive :: NetworkPacket -> Path -> ClockTime -> TeleHash ()
 receive rxPacket path timeNow = do
   -- logT $ "receive: (rxTelex,remoteipp,timeNow):" ++ show (rxPacket,path,timeNow)
-  if (packetLen rxPacket) == 2
+  if (networkPacketLen rxPacket) == 2
     then return () -- Empty packets are NAT pings
     else do
       counterVal <- incPCounter
-      let packet = RxTelex
-                    { rtSender = path
-                    , rtId     = counterVal
-                    , rtAt     = timeNow
-                    , rtPacket = rxPacket
-                    , rtJs     = HM.empty
-                    , rtChanId = Nothing
+      let packet = NetworkTelex
+                    { ntSender = path
+                    , ntId     = counterVal
+                    , ntAt     = timeNow
+                    , ntPacket = rxPacket
                     }
       -- debug(">>>>",Date(),msg.length, packet.head_length, packet.body_length,[path.type,path.ip,path.port,path.id].join(","));
-      logT $ ">>>>" ++ show (timeNow, packetLen rxPacket, headLen rxPacket,bodyLen rxPacket,(showPath path))
+      logT $ ">>>>" ++ show (timeNow, networkPacketLen rxPacket,(showPath path))
 
-      case paHead rxPacket of
+      case rxPacket of
+       {-
         HeadJson _j -> do
 
           -- handle any LAN notifications
@@ -802,7 +802,8 @@ receive rxPacket path timeNow = do
           assert False undefined
 
           return ()
-        HeadByte b -> do
+        -}
+        OpenPacket b bs -> do
           -- process open packet
           open <- deopenize packet
           case open of
@@ -905,7 +906,7 @@ receive rxPacket path timeNow = do
                                               return ()
                                             Just msg -> do
                                               sw2 <- get
-                                              (swSend sw2) path msg (Just from3)
+                                              send path msg (Just from3)
                                           -- self.send(path,from.open(),from);
 
                                           -- line is open now!
@@ -949,10 +950,10 @@ receive rxPacket path timeNow = do
                                      logT $ "deopenize:invalid is, need Number:" ++ show (js HM.! "at")
                                      return ()
               return ()
-        HeadEmpty -> do
+        LinePacket pbody -> do
           -- its a line
           logT $ "receive:got line msg"
-          let lineID = BC.unpack $ B16.encode $ BC.take 16 (unBody $ paBody rxPacket)
+          let lineID = BC.unpack $ B16.encode $ BC.take 16 pbody
           logT $ "receive:lineID=" ++ lineID
           sw <- get
           case Map.lookup lineID (swLines sw) of
@@ -1123,7 +1124,7 @@ function receive(msg, path)
 {-
   self.deliver = function(type, callback){ self.networks[type] = callback};
 -}
-
+-- was swDeliver
 deliver :: String -> () -> ()
 deliver = (assert False undefined)
 
@@ -1158,6 +1159,7 @@ relay path msg _ = (assert False undefined)
 -}
 
 -- | Do the send, where the Telex has a fully lineized packet in it
+-- was swSend
 send :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 send mpath msg mto = do
   -- logT $ "send entered for path:" ++ showPath mpath
@@ -1170,7 +1172,7 @@ send mpath msg mto = do
     Nothing -> return mpath
     -- if(!path) return debug("send called w/ no valid network, dropping");
     -- debug("<<<<",Date(),msg.length,[path.type,path.ip,path.port,path.id].join(","),to&&to.hashname);
-  logT $ "<<<<" ++ show (timeNow,BL.length $ unLP msg) ++ "," ++ showPath mpath
+  logT $ "<<<<" ++ show (timeNow,BC.length $ unLP msg) ++ "," ++ showPath mpath
   -- try to send it via a supported network
   -- if(self.networks[path.type])
      -- self.networks[path.type](path,msg,to);
@@ -1221,6 +1223,7 @@ send mpath msg mto = do
 
 -- ---------------------------------------------------------------------
 
+-- was swPathSet
 pathSet :: Path -> TeleHash ()
 pathSet path = (assert False undefined)
 
@@ -1246,6 +1249,7 @@ pathSet path = (assert False undefined)
 
 -- | this creates a hashname identity object (or returns existing)
 -- If it creates a new one, this is inserted into the index
+-- was swWhois
 whois :: HashName -> TeleHash (Maybe HashContainer)
 whois hn = do
   -- logT $ "whois entered for:" ++ show hn
@@ -1768,12 +1772,12 @@ hnSend hn packet = do
       putHN hn'
       -- directed packets are preferred, just dump and done
       case tTo packet of
-        Just to -> do (swSend sw) to lined (Just hn')
+        Just to -> do send to lined (Just hn')
                       return True
         Nothing -> do
           -- send to the default best path
           case hTo hn of
-            Just to -> do (swSend sw) to lined (Just hn')
+            Just to -> do send to lined (Just hn')
                           return True
             Nothing -> do return False -- need to fall through
     Nothing -> do
@@ -1801,7 +1805,7 @@ hnSend hn packet = do
         Just lpacket -> do
           -- logT $ "hnSend: hnOpen returned packet" -- ++ show lpacket
           forM_ (hPaths hn2) $ \path -> do
-            (swSend sw) path lpacket (Just hn2)
+            send path lpacket (Just hn2)
           return True
 
       logT $ "hnSend: must still do send using vias, and retry backoff"
@@ -2013,7 +2017,7 @@ telexToPacket telex = do
     [] -> return $ telex { tPacket = Just newPacket}
     js -> do
       -- logT $ "telexToPacket: encoded js=" ++ show (encode (tJson telex))
-      let packet = newPacket { paHead = HeadJson (encode (tJson telex)) }
+      let packet = newPacket { paHead = HeadJson (lbsTocbs $ encode (tJson telex)) }
       return $ telex { tPacket = Just packet}
 
 -- ---------------------------------------------------------------------
@@ -2039,6 +2043,7 @@ function whokey(parts, key, keys)
 
 -}
 
+-- was swWhokey
 whokey :: Parts -> Either String (Map.Map String String) -> TeleHash (Maybe HashContainer)
 whokey parts keyVal = do
   sw <- get
@@ -2048,7 +2053,7 @@ whokey parts keyVal = do
   r <- case mcsid of
     Nothing -> return Nothing
     Just csid -> do
-      mhn <- (swWhois sw) (parts2hn parts)
+      mhn <- whois (parts2hn parts)
       -- logT $ "whokey:whois returned:" ++ show mhn
       case mhn of
         Nothing -> return Nothing
@@ -2104,6 +2109,7 @@ partsMatch parts1 parts2 = r
 
 -}
 -- TODO: This is the switch level one, that just calls the hn one
+-- was swStart
 start :: HashContainer -> String -> a -> RxCallBack -> TeleHash Channel
 start hashname typ arg cb = (assert False undefined)
 
@@ -2160,11 +2166,12 @@ function addSeed(arg) {
 }
 -}
 
+-- was swAddSeed
 addSeed :: SeedInfo -> TeleHash ()
 addSeed arg = do
   logT $ "addSeed:args=" ++ show (sId arg)
   sw <- get
-  mseed <- (swWhokey sw) (sParts arg) (Right (Map.fromList (sKeys arg)))
+  mseed <- whokey (sParts arg) (Right (Map.fromList (sKeys arg)))
   -- logT $ "addSeed:mseed=" ++ show mseed
   case mseed of
     Nothing -> do
@@ -2179,6 +2186,7 @@ addSeed arg = do
 
 -- ---------------------------------------------------------------------
 
+-- was swOnline
 online :: CallBack -> TeleHash ()
 online callback = do
   sw <- get
@@ -2281,6 +2289,7 @@ setLanToken v = do
   };
 -}
 
+-- was swListen
 listen :: String -> () -> IO ()
 listen typ callback = (assert False undefined)
 
@@ -2342,15 +2351,14 @@ function openize(self, to)
 
 -- ---------------------------------------------------------------------
 
-deopenize :: RxTelex -> TeleHash DeOpenizeResult
+deopenize :: NetworkTelex -> TeleHash DeOpenizeResult
 deopenize open = do
-  let p = rtPacket open
-  logT $ "DEOPEN :" ++ show (bodyLen p)
+  let p = ntPacket open
+  logT $ "DEOPEN :" ++ show (networkPacketLen p)
 
-  case paHead p of
-    HeadEmpty  -> return DeOpenizeVerifyFail
-    HeadJson _ -> return DeOpenizeVerifyFail
-    HeadByte csHex -> do
+  case p of
+    LinePacket _ -> return DeOpenizeVerifyFail
+    OpenPacket csHex pbody -> do
       sw <- get
       let csid = BC.unpack $ B16.encode (BC.pack [w2c csHex])
       -- logT $ "deopenize got cs:" ++ csid
@@ -2443,6 +2451,7 @@ chan_t chan_new(switch_t s, hn_t to, char *type, uint32_t id)
 -}
 
 -- create an unreliable channel
+-- was swRaw
 raw :: HashContainer -> String -> Telex -> RxCallBack -> TeleHash Channel
 raw hn typ arg callback = do
   sw <- get
@@ -3446,6 +3455,7 @@ hnLink hn mcb = do
 -}
 -- ---------------------------------------------------------------------
 
+-- was swSeek
 seek :: String -> () -> IO ()
 seek = (assert False undefined)
 
@@ -3549,6 +3559,7 @@ function seek(hn, callback)
 
 -- ---------------------------------------------------------------------
 
+-- was swBridge
 bridge :: Path -> LinePacket -> Maybe HashContainer -> TeleHash ()
 bridge = (assert False undefined)
 
@@ -4309,23 +4320,23 @@ doNullSendDgram msgJson addr = do
 -- ---------------------------------------------------------------------
 
 doSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
-doSendDgram (LP msgJson) addr = do
+doSendDgram (LP msgJson) address = do
   -- logT $ "doSendDgram to:" ++ show addr
   Just socketh <- gets swH
-  io (sendDgram socketh (lbsTocbs msgJson) addr)
+  io (sendDgram socketh msgJson address)
 
 
 -- ---------------------------------------------------------------------
 
 sendDgram :: SocketHandle -> BC.ByteString -> NS.SockAddr -> IO ()
-sendDgram socketh msgJson addr =
+sendDgram socketh msgJson address =
   sendstr msgJson
     where
       -- Send until everything is done
       sendstr :: BC.ByteString -> IO ()
       sendstr omsg
         | BC.length omsg == 0  = return ()
-        | otherwise = do sent <- SB.sendTo (slSocket socketh) omsg addr
+        | otherwise = do sent <- SB.sendTo (slSocket socketh) omsg address
                          sendstr (BC.drop sent omsg)
 
 {-
@@ -4389,15 +4400,11 @@ recvTelex msg rinfo = do
     logT ("RECV from " ++ (show remoteipp) ++ ":" -- ++ (show $ B16.encode msg)
                   ++ " at " ++ (show timeNow))
     let
-      maybeRxTelex = fromLinePacket (LP (cbsTolbs msg))
-    -- logT $ "recvTelex:maybeRxTelex:" ++ show maybeRxTelex
-      path = Path
-        { {-
-          pType    = PathType "ipv4"
-        , pIp      = Just (read hostIP)
-        , pPort    = read port
-        , pHttp    = ""
-        -}
+      maybeRxTelex = fromNetworkPacket (LP msg)
+    logT $ "recvTelex:maybeRxTelex:" ++ show maybeRxTelex
+    let
+       path = Path
+        {
           pJson    = PIPv4 (PathIPv4 (read hostIP) (read port))
         , pRelay   = Nothing
         , pId      = Nothing

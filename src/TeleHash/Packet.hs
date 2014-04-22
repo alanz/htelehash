@@ -1,6 +1,7 @@
 module TeleHash.Packet
   (
-    Packet(..)
+    NetworkPacket(..)
+  , Packet(..)
   , Head (..)
   , Body(..)
   , unBody
@@ -8,8 +9,11 @@ module TeleHash.Packet
   , headLen
   , bodyLen
   , packetLen
+  , networkPacketLen
   , LinePacket(..)
   , unLP
+  , toNetworkPacket
+  , fromNetworkPacket
   , toLinePacket
   , fromLinePacket
 
@@ -30,6 +34,37 @@ import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 
 
+-- | A network level packet.
+-- See https://github.com/telehash/telehash.org/blob/master/network.md
+-- This is either an `open` or a 'line' packet
+-- The open is coded as 0x00 0x01 followed by the crypto set id, followed by the body
+-- The line is coded as 0x00 0x00 followed by the encrypted line packet
+data NetworkPacket = OpenPacket Word8 BC.ByteString
+                   | LinePacket BC.ByteString
+                   deriving (Eq,Show)
+
+
+instance Binary NetworkPacket where
+  put (OpenPacket cs bs) = do put (0::Word8)
+                              put (1::Word8)
+                              put (cs::Word8)
+                              put bs
+  put (LinePacket    bs) = do put (0::Word8)
+                              put (0::Word8)
+                              put bs
+
+  get = do h  <- get
+           case h::Word16 of
+             0 -> do pb <- getRemainingLazyByteString
+                     return (LinePacket $ lbsTocbs pb)
+             1 -> do cs <- get
+                     -- pb <- get
+                     pb <- getRemainingLazyByteString
+                     return (OpenPacket cs (lbsTocbs pb))
+
+
+-- ---------------------------------------------------------------------
+
 {-
 HEAD
 
@@ -43,7 +78,7 @@ array (not any bare string/bool/number value). If the JSON parsing
 fails, the parser must return an error.
 -}
 
-data Head = HeadEmpty | HeadByte Word8 | HeadJson BL.ByteString
+data Head = HeadEmpty | HeadJson BC.ByteString
           deriving (Show,Eq)
 
 {-
@@ -64,6 +99,8 @@ data Body = Body BC.ByteString
           deriving Show
 unBody (Body b) = b
 
+
+-- | A packet is carried encrypted inside the NetworkPacket
 data Packet = Packet { paHead :: Head
                      , paBody :: Body
                      }
@@ -76,13 +113,18 @@ newPacket = Packet { paHead = HeadEmpty
 
 headLen :: Packet -> Int
 headLen (Packet HeadEmpty _)     = 2
-headLen (Packet (HeadByte _) _)  = 3
-headLen (Packet (HeadJson bs) _) = 2 + (fromIntegral $ BL.length bs)
+-- headLen (Packet (HeadByte _) _)  = 3
+headLen (Packet (HeadJson bs) _) = 2 + (fromIntegral $ BC.length bs)
 
 bodyLen :: Packet -> Int
 bodyLen (Packet _ (Body bs)) = fromIntegral $ BC.length bs
 
+packetLen :: Packet -> Int
 packetLen p = headLen p + bodyLen p
+
+networkPacketLen :: NetworkPacket -> Int
+networkPacketLen (OpenPacket _ pb) = 3 + (BC.length pb)
+networkPacketLen (LinePacket   pb) = (BC.length pb)
 
 -- ---------------------------------------------------------------------
 
@@ -102,18 +144,18 @@ instance Binary Packet where
 instance Binary Head where
 
   put HeadEmpty    = put (0 :: Word16)
-  put (HeadByte b) = do put (1 :: Word16)
-                        put b
-  put (HeadJson x) = do put ((fromIntegral $ BL.length x) :: Word16)
-                        mapM_ put $ BL.unpack x
+  -- put (HeadByte b) = do put (1 :: Word16)
+  --                       put b
+  put (HeadJson x) = do put ((fromIntegral $ BC.length x) :: Word16)
+                        mapM_ put $ BC.unpack x
 
   get = do hb <- get :: Get Word16
            h <- case hb of
                  0 -> return HeadEmpty
-                 1 -> do b <- get
-                         return (HeadByte b)
+     --             1 -> do b <- get
+     --                     return (HeadByte b)
                  x -> do b <- getLazyByteString (fromIntegral x)
-                         return (HeadJson b)
+                         return (HeadJson (lbsTocbs b))
            return h
 
 instance Binary Body where
@@ -125,24 +167,33 @@ instance Binary Body where
 
 -- ---------------------------------------------------------------------
 
-data LinePacket = LP BL.ByteString
+data LinePacket = LP BC.ByteString
                 deriving Show
-unLP :: LinePacket -> BL.ByteString
+unLP :: LinePacket -> BC.ByteString
 unLP (LP x) = x
+
+-- ---------------------------------------------------------------------
+
+toNetworkPacket :: NetworkPacket -> LinePacket
+toNetworkPacket (OpenPacket cs bs) = LP $ BC.append (lbsTocbs $ BL.pack [0,1,cs]) bs
+toNetworkPacket (LinePacket    bs) = LP $ BC.append (lbsTocbs $ BL.pack [0,0])    bs
+
+fromNetworkPacket :: LinePacket -> Maybe NetworkPacket
+fromNetworkPacket (LP bs) = Just $ decode (cbsTolbs bs)
 
 -- ---------------------------------------------------------------------
 
 toLinePacket :: Packet -> LinePacket
 -- toLinePacket p = LP $ encode p
-toLinePacket (Packet h (Body b)) = LP $ BL.append (myencode h) (cbsTolbs b)
+toLinePacket (Packet h (Body b)) = LP $ BC.append (myencode h) b
 
-myencode :: Head -> BL.ByteString
-myencode (HeadEmpty)  = BL.pack [0,0]
-myencode (HeadByte b) = BL.pack [0,1,b]
-myencode (HeadJson x) = BL.append (cbsTolbs bb) x
+myencode :: Head -> BC.ByteString
+myencode (HeadEmpty)  = lbsTocbs $ BL.pack [0,0]
+-- myencode (HeadByte b) = BL.pack [0,1,b]
+myencode (HeadJson x) = BC.append (bb) x
   where
     xlen :: Integer
-    xlen = fromIntegral (BL.length x)
+    xlen = fromIntegral (BC.length x)
 
     Just bb = i2ospOf 2 xlen
 
@@ -151,7 +202,7 @@ myencode (HeadJson x) = BL.append (cbsTolbs bb) x
 
 -- |Note: this will throw an exception is the decode fails
 fromLinePacket :: LinePacket -> Maybe Packet
-fromLinePacket (LP bs) = Just $ decode bs
+fromLinePacket (LP bs) = Just $ decode (cbsTolbs bs)
 
 -- ---------------------------------------------------------------------
 
@@ -242,7 +293,7 @@ b16_rx_open = "00011adee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b4679c59fbc
 
 rx_open = b16ToLbs b16_rx_open
 
-lp_rx_open = LP rx_open
+lp_rx_open = LP (lbsTocbs rx_open)
 
 b16ToLbs str = cbsTolbs r
   where (r,_) = B16.decode $ BC.pack str
@@ -255,5 +306,5 @@ bodyok = decode $ b16ToLbs "dee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b467
 
 decodeok = fromLinePacket lp_rx_open
 
-decodefail = fromLinePacket (LP (b16ToLbs "08011adee339dc7ca422"))
+decodefail = fromLinePacket (LP (lbsTocbs $ b16ToLbs "08011adee339dc7ca422"))
 

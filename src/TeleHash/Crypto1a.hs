@@ -272,9 +272,9 @@ crypt_openize_1a:js=
 
   -- logT $ "crypt_openize_1a:ourPub hex=" ++ (show $ B16.encode $ pointTow8s ourPub)
 
-  let innerPacket = Packet (HeadJson (cbsTolbs $ BC.pack js)) (Body $ pointTow8s ourPub)
+  let innerPacket = Packet (HeadJson (BC.pack js)) (Body $ pointTow8s ourPub)
       (LP innerPacketBody) = toLinePacket innerPacket
-      body = lbsTocbs innerPacketBody
+      body = innerPacketBody
 
       (Just longkey) = i2ospOf 20 sharedX
       key = BC.take 16 longkey
@@ -302,7 +302,7 @@ crypt_openize_1a:js=
   -- create final body
   let bodyFinal = BC.append hmacVal macd
 
-  return $ toLinePacket $ Packet (HeadByte 0x1a) (Body bodyFinal)
+  return $ toNetworkPacket $ OpenPacket 0x1a bodyFinal
 
 
 
@@ -372,105 +372,110 @@ packet_t crypt_openize_1a(crypt_t self, crypt_t c, packet_t inner)
 
 -- ---------------------------------------------------------------------
 
-crypt_deopenize_1a :: Packet -> TeleHash DeOpenizeResult
+crypt_deopenize_1a :: NetworkPacket -> TeleHash DeOpenizeResult
 crypt_deopenize_1a open = do
-  if BC.length (unBody $ paBody open) <= 60
-    then do
-      logT $ "crypt_deopenize_1a:body length too short:" ++ show (BC.length $ unBody $ paBody open)
+  case open of
+    LinePacket _ -> do
+      logT $ "crypt_deopenize_1a:trying to deopenize a line packet"
       return DeOpenizeVerifyFail
-    else do
-      sw <- get
-      let
-        mac1  = B16.encode $ BC.take 20 (unBody $ paBody open)
-        pubBs = BC.take 40 $ BC.drop 20 (unBody $ paBody open)
-        cbody = BC.drop 60 (unBody $ paBody open)
-
-        linePubPoint = (bsToPoint pubBs)
-        linePub = PublicKey curve linePubPoint
-
-      -- logT $ "crypt_deopenize_1a:mac1=" ++ show (mac1)
-      -- logT $ "crypt_deopenize_1a:pubBs=" ++ show (B16.encode pubBs)
-      -- logT $ "crypt_deopenize_1a:cbody=" ++ show (B16.encode cbody)
-
-      -- logT $ "crypt_deopenize_1a:pubBs b64=" ++ show (encode pubBs)
-
-
-      -- derive shared secret
-      -- var secret = id.cs["1a"].private.deriveSharedSecret(ret.linepub);
-      let ourCrypto = gfromJust "crypt_deopenize_1a" (swIdCrypto sw)
-          Public1a (PublicKey _ pub) = hcPublic ourCrypto
-          Private1a (PrivateKey _ ourPriv) = gfromJust "crypt_deopenize_1a.2" $ hcPrivate ourCrypto
-
-      let (ECC.Point sharedX _Y) = ECC.pointMul curve ourPriv linePubPoint
-          (Just longkey) = i2ospOf 20 sharedX
-          key = BC.take 16 longkey
-          Just iv = i2ospOf 16 1
-
-      -- logT $ "crypt_deopenize_1a:iv=" ++ show (B16.encode iv)
-
-      -- logT $ "crypt_deopenize_1a:(sharedX,key)=" ++ show (sharedX,key)
-
-      -- aes-128 decipher the inner
-      let body = decryptCTR (initAES key) iv cbody
-          Just inner = fromLinePacket (LP $ cbsTolbs body)
-
-      -- logT $ "crypt_deopenize_1a:inner=" ++ show inner
-      let HeadJson js = paHead inner
-      -- logT $ "crypt_deopenize_1a:inner json=" ++ show (B16.encode $ lbsTocbs js)
-
-      -- verify+load inner key info
-      let Body ekey = paBody inner
-          epub = PublicKey curve (bsToPoint $ ekey)
-
-          Just json@(Aeson.Object jsHashMap) = Aeson.decode js :: Maybe Aeson.Value
-
-      case HM.lookup "from" jsHashMap of
-        Nothing -> do
-          logT $ "crypt_deopenize_1a:missing inner.js.from"
+    OpenPacket _ pbody -> do
+      if BC.length pbody <= 60
+        then do
+          logT $ "crypt_deopenize_1a:body length too short:" ++ show (BC.length pbody)
           return DeOpenizeVerifyFail
-        Just (Aeson.Object fromHm) -> do
-          case HM.lookup "1a" fromHm of
+        else do
+          sw <- get
+          let
+            mac1  = B16.encode $ BC.take 20 pbody
+            pubBs = BC.take 40 $ BC.drop 20 pbody
+            cbody = BC.drop 60 pbody
+
+            linePubPoint = (bsToPoint pubBs)
+            linePub = PublicKey curve linePubPoint
+
+          -- logT $ "crypt_deopenize_1a:mac1=" ++ show (mac1)
+          -- logT $ "crypt_deopenize_1a:pubBs=" ++ show (B16.encode pubBs)
+          -- logT $ "crypt_deopenize_1a:cbody=" ++ show (B16.encode cbody)
+
+          -- logT $ "crypt_deopenize_1a:pubBs b64=" ++ show (encode pubBs)
+
+
+          -- derive shared secret
+          -- var secret = id.cs["1a"].private.deriveSharedSecret(ret.linepub);
+          let ourCrypto = gfromJust "crypt_deopenize_1a" (swIdCrypto sw)
+              Public1a (PublicKey _ pub) = hcPublic ourCrypto
+              Private1a (PrivateKey _ ourPriv) = gfromJust "crypt_deopenize_1a.2" $ hcPrivate ourCrypto
+
+          let (ECC.Point sharedX _Y) = ECC.pointMul curve ourPriv linePubPoint
+              (Just longkey) = i2ospOf 20 sharedX
+              key = BC.take 16 longkey
+              Just iv = i2ospOf 16 1
+
+          -- logT $ "crypt_deopenize_1a:iv=" ++ show (B16.encode iv)
+
+          -- logT $ "crypt_deopenize_1a:(sharedX,key)=" ++ show (sharedX,key)
+
+          -- aes-128 decipher the inner
+          let body = decryptCTR (initAES key) iv cbody
+              Just inner = fromLinePacket (LP body)
+
+          -- logT $ "crypt_deopenize_1a:inner=" ++ show inner
+          let HeadJson js = paHead inner
+          -- logT $ "crypt_deopenize_1a:inner json=" ++ show (B16.encode $ lbsTocbs js)
+
+          -- verify+load inner key info
+          let Body ekey = paBody inner
+              epub = PublicKey curve (bsToPoint $ ekey)
+
+              Just json@(Aeson.Object jsHashMap) = Aeson.decode (cbsTolbs js) :: Maybe Aeson.Value
+
+          case HM.lookup "from" jsHashMap of
             Nothing -> do
-              logT $ "crypt_deopenize_1a:missing inner.js.from.1a"
+              logT $ "crypt_deopenize_1a:missing inner.js.from"
               return DeOpenizeVerifyFail
-            Just (Aeson.String from1aVal) -> do
-              -- if(crypto.createHash("sha1").update(inner.body).digest("hex") != inner.js.from["1a"]) return ret;
-              let calcDigest = B16.encode $ SHA1.hash ekey
-                  from1aValStr = BC.pack $ Text.unpack from1aVal
-              if calcDigest /= from1aValStr
-                then do
-                  logT $ "crypt_deopenize_1a:pub key digest does not match key:" ++ show (calcDigest,from1aVal)
+            Just (Aeson.Object fromHm) -> do
+              case HM.lookup "1a" fromHm of
+                Nothing -> do
+                  logT $ "crypt_deopenize_1a:missing inner.js.from.1a"
                   return DeOpenizeVerifyFail
-                else do
-                  -- verify the hmac
-                  -- var secret = id.cs["1a"].private.deriveSharedSecret(epub);
-                  let (PublicKey _ epubPoint) = epub
-                      (ECC.Point secretX _Y) = ECC.pointMul curve ourPriv epubPoint
-                      Just secretMac = i2ospOf 20 secretX
-                      hmacVal = hmac SHA1.hash 64 secretMac (BC.drop 20 (unBody $ paBody open))
-                      mac2 = B16.encode hmacVal
-                     -- var mac2 = crypto.createHmac('sha1', secret).update(open.body.slice(20)).digest("hex");
-                     -- if(mac2 != mac1) return ret;
-                  if mac1 /= mac2
+                Just (Aeson.String from1aVal) -> do
+                  -- if(crypto.createHash("sha1").update(inner.body).digest("hex") != inner.js.from["1a"]) return ret;
+                  let calcDigest = B16.encode $ SHA1.hash ekey
+                      from1aValStr = BC.pack $ Text.unpack from1aVal
+                  if calcDigest /= from1aValStr
                     then do
-                      logT $ "crypt_deopenize_1a:mac1 /= mac2:" ++ show (mac1,mac2)
+                      logT $ "crypt_deopenize_1a:pub key digest does not match key:" ++ show (calcDigest,from1aVal)
                       return DeOpenizeVerifyFail
                     else do
-                      --  all good, cache+return
-                      -- ret.verify = true;
-                      -- ret.js = inner.js;
-                      -- return ret;
-                      let ret = DeOpenize
-                           { doLinePub = Public1a linePub
-                           , doKey = unBody $ paBody inner
-                           , doJs = json
-                           , doCsid = "1a"
-                           }
-                      return ret
+                      -- verify the hmac
+                      -- var secret = id.cs["1a"].private.deriveSharedSecret(epub);
+                      let (PublicKey _ epubPoint) = epub
+                          (ECC.Point secretX _Y) = ECC.pointMul curve ourPriv epubPoint
+                          Just secretMac = i2ospOf 20 secretX
+                          hmacVal = hmac SHA1.hash 64 secretMac (BC.drop 20 pbody)
+                          mac2 = B16.encode hmacVal
+                         -- var mac2 = crypto.createHmac('sha1', secret).update(open.body.slice(20)).digest("hex");
+                         -- if(mac2 != mac1) return ret;
+                      if mac1 /= mac2
+                        then do
+                          logT $ "crypt_deopenize_1a:mac1 /= mac2:" ++ show (mac1,mac2)
+                          return DeOpenizeVerifyFail
+                        else do
+                          --  all good, cache+return
+                          -- ret.verify = true;
+                          -- ret.js = inner.js;
+                          -- return ret;
+                          let ret = DeOpenize
+                               { doLinePub = Public1a linePub
+                               , doKey = unBody $ paBody inner
+                               , doJs = json
+                               , doCsid = "1a"
+                               }
+                          return ret
 
-      -- logT $ "crypt_deopenize_1a:inner.js decoded=" ++ show json
+          -- logT $ "crypt_deopenize_1a:inner.js decoded=" ++ show json
 
-      -- return $ assert False undefined
+          -- return $ assert False undefined
 
 
 {-
@@ -562,7 +567,7 @@ crypt_lineize_1a to packet = do
 
     -- body = lbsTocbs $ Binary.encode (tPacket packet)
     (LP bodyl) = toLinePacket (gfromJust "crypt_lineize_1a.0" $ tPacket packet)
-    body = lbsTocbs bodyl
+    body = bodyl
     ctx = initAES (gfromJust "crypt_lineize_1a" (hEncKey to))
     cbody = encryptCTR ctx ivc body
 
@@ -719,52 +724,63 @@ int crypt_line_1a(crypt_t c, packet_t inner)
 
 -- ---------------------------------------------------------------------
 
-crypt_delineize_1a :: HashContainer -> RxTelex -> TeleHash (Either String RxTelex)
+crypt_delineize_1a :: HashContainer -> NetworkTelex -> TeleHash (Either String RxTelex)
 crypt_delineize_1a from rxTelex = do
   -- logT $ "crypt_delineize_1a entered for " ++ show (hHashName from)
-  let packet = rtPacket rxTelex
-  if (BC.length (unBody $ paBody packet) < 16)
-    then do
-      logT $ "crypt_delineize_1a:no / short body"
-      return (Left "crypt_delineize_1a:no / short body")
-    else do
-      -- skip the lineID
-      let body = BC.drop 16 (unBody $ paBody packet)
-          decKey = (gfromJust "crypt_delineize_1a.1" $ hDecKey from)
-
-      -- logT $ "crypt_delineize_1a:lineID=" ++ show (B16.encode $ BC.take 16 (unBody $ paBody packet))
-      -- validate the HMAC
-      let mac1 = BC.take 4 body
-          mac2 = BC.take 4 $ hmac SHA1.hash 64 decKey (BC.drop 4 body)
-      -- logT $ "crypt_delineize_1a.1:drop 4 body=" ++ show (B16.encode (BC.drop 4 body))
-      -- logT $ "crypt_delineize_1a:hDecKey=" ++ show (hDecKey from)
-      if mac1 /= mac2
+  let packet = ntPacket rxTelex
+  case packet of
+    OpenPacket _ _ -> do
+      logT $ "crypt_delineize_1a:trying to delineize an open packet"
+      return (Left "crypt_delineize_1a:trying to delineize an open packet")
+    LinePacket pbody -> do
+      if (BC.length pbody < 16)
         then do
-          logT $ "invalid hmac:" ++ show (B16.encode mac1,B16.encode mac2)
-          return (Left "invalid hmac")
+          logT $ "crypt_delineize_1a:no / short body"
+          return (Left "crypt_delineize_1a:no / short body")
         else do
-          -- decrypt body
-          let iv = BC.take 4 $ BC.drop 4 body
-              Just ivz = i2ospOf 12 0
-              body2 = BC.drop 8 body
-              deciphered = decryptCTR (initAES decKey) (BC.append ivz iv) body2
-          -- logT $ "crypt_delineize_1a:deciphered=" ++ show (B16.encode deciphered)
-          -- logT $ "crypt_delineize_1a:deciphered=" ++ show (deciphered)
-          let mret = fromLinePacket (LP $ cbsTolbs deciphered)
-          -- logT $ "crypt_delineize_1a:ret=" ++ show (mret)
-          case mret of
-            Nothing -> return (Left "invalid decrypted packet")
-            Just ret -> do
-              case paHead ret of
-                HeadEmpty -> return (Left "invalid channel packet")
-                HeadByte _ -> return (Left "invalid channel packet")
-                HeadJson js -> do
-                  let mjson = Aeson.decode js :: Maybe Aeson.Value
-                  case mjson of
-                    Nothing -> return (Left "invalid js in packet")
-                    Just (Aeson.Object jsHashMap) ->
-                      return (Right $ rxTelex { rtPacket = ret, rtJs = jsHashMap})
-                    Just _ -> return (Left $ "unexpected js type:" ++ show js)
+          -- skip the lineID
+          let body = BC.drop 16 pbody
+              decKey = (gfromJust "crypt_delineize_1a.1" $ hDecKey from)
+
+          -- logT $ "crypt_delineize_1a:lineID=" ++ show (B16.encode $ BC.take 16 (unBody $ paBody packet))
+          -- validate the HMAC
+          let mac1 = BC.take 4 body
+              mac2 = BC.take 4 $ hmac SHA1.hash 64 decKey (BC.drop 4 body)
+          -- logT $ "crypt_delineize_1a.1:drop 4 body=" ++ show (B16.encode (BC.drop 4 body))
+          -- logT $ "crypt_delineize_1a:hDecKey=" ++ show (hDecKey from)
+          if mac1 /= mac2
+            then do
+              logT $ "invalid hmac:" ++ show (B16.encode mac1,B16.encode mac2)
+              return (Left "invalid hmac")
+            else do
+              -- decrypt body
+              let iv = BC.take 4 $ BC.drop 4 body
+                  Just ivz = i2ospOf 12 0
+                  body2 = BC.drop 8 body
+                  deciphered = decryptCTR (initAES decKey) (BC.append ivz iv) body2
+              -- logT $ "crypt_delineize_1a:deciphered=" ++ show (B16.encode deciphered)
+              -- logT $ "crypt_delineize_1a:deciphered=" ++ show (deciphered)
+              let mret = fromLinePacket (LP deciphered)
+              -- logT $ "crypt_delineize_1a:ret=" ++ show (mret)
+              case mret of
+                Nothing -> return (Left "invalid decrypted packet")
+                Just ret -> do
+                  case paHead ret of
+                    HeadEmpty -> return (Left "invalid channel packet")
+                    -- HeadByte _ -> return (Left "invalid channel packet")
+                    HeadJson js -> do
+                      let mjson = Aeson.decode (cbsTolbs js) :: Maybe Aeson.Value
+                      case mjson of
+                        Nothing -> return (Left "invalid js in packet")
+                        Just (Aeson.Object jsHashMap) ->
+                          return (Right $ RxTelex { rtId = ntId rxTelex
+                                                  , rtSender = ntSender rxTelex
+                                                  , rtAt = ntAt rxTelex
+                                                  , rtJs = jsHashMap
+                                                  , rtPacket = ret
+                                                  , rtChanId = Nothing
+                                                  })
+                        Just _ -> return (Left $ "unexpected js type:" ++ show js)
 
 {-
 exports.delineize = function(from, packet)
@@ -1643,7 +1659,7 @@ check_shared_secret = do
 b16ToLbs str = cbsTolbs r
   where (r,_) = B16.decode $ BC.pack str
 
-ttt = fromLinePacket $ LP (b16ToLbs "01004e7b22656e64223a747275652c227072696f72697479223a322c2270617468223a7b226970223a2231302e302e302e3238222c22706f7274223a33383137322c2274797065223a2269707634227d7d")
+ttt = fromLinePacket $ LP (lbsTocbs $ b16ToLbs "01004e7b22656e64223a747275652c227072696f72697479223a322c2270617468223a7b226970223a2231302e302e302e3238222c22706f7274223a33383137322c2274797065223a2269707634227d7d")
 
 -- ---------------------------------------------------------------------
 {-
