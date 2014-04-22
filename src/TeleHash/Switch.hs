@@ -163,10 +163,6 @@ run ch1 ch2 = do
                   , tChanId = Nothing
                   , tTo = Just path
                   , tPacket = Nothing
-                  , tAt = Nothing
-                  , tToHash = Nothing
-                  , tFrom = Nothing
-                  , tLine = Nothing
                   }
 
   -- io $ threadDelay (5 * onesec)
@@ -1970,7 +1966,7 @@ hnOpen hn = do
     _ -> if isJust (hOpened hn)
            then return $ hOpened hn
            else do
-             op <- openize hn
+             op <- openize (hHashName hn)
              hn2 <- getHNsafe (hHashName hn) "hnOpen"
              putHN $ hn2 { hOpened = op}
              -- logT $ "hnOpen:hEcc=" ++ show (hEcc hn2)
@@ -2295,8 +2291,10 @@ listen typ callback = (assert False undefined)
 
 -- ---------------------------------------------------------------------
 
-openize :: HashContainer -> TeleHash (Maybe LinePacket)
-openize to = do
+-- | Network layer. Send an `open` network packet to the given hashname
+openize :: HashName -> TeleHash (Maybe LinePacket)
+openize toHn = do
+  to <- getHNsafe toHn "openize"
   sw <- get
   case hCsid to of
     Nothing -> do
@@ -2309,20 +2307,11 @@ openize to = do
                 then to {hLineAt = Just timeNow }
                 else to
       putHN to2
-      let inner = Telex
-            { tId = Nothing
-            , tType = Nothing
-            , tPath = Nothing
-            , tTo = Nothing
-            , tJson = HM.empty
-            , tPacket = Nothing
-            , tCsid = Nothing
-            , tChanId = Nothing
-
-            , tAt = hLineAt to2
-            , tToHash = Just (hHashName to2)
-            , tFrom = Just (swParts sw)
-            , tLine = Just (hLineOut to2)
+      let inner = OpenizeInner
+            { oiAt = gfromJust "openize" $ hLineAt to2
+            , oiTo = hHashName to2
+            , oiFrom = swParts sw
+            , oiLine = hLineOut to2
             }
       lp <- crypt_openize_1a to2 inner
       return (Just lp)

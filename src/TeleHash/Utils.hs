@@ -23,6 +23,7 @@ module TeleHash.Utils
   , pathPort
   , pathHttp
   , NetworkTelex(..)
+  , OpenizeInner(..)
   , Telex(..)
   , emptyTelex
   , RxTelex(..)
@@ -216,10 +217,10 @@ data PrivateKey = Private1a ECDSA.PrivateKey deriving Show
 -- ---------------------------------------------------------------------
 
 data CSet = CS
-  { csLoadkey :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
-  , csOpenize  :: HashContainer -> Telex -> TeleHash LinePacket
+  { csLoadkey   :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
+  , csOpenize   :: HashContainer -> OpenizeInner -> TeleHash LinePacket
   , csDeopenize :: NetworkPacket -> TeleHash DeOpenizeResult
-  , csOpenLine :: HashContainer ->  DeOpenizeResult -> TeleHash ()
+  , csOpenLine  :: HashContainer ->  DeOpenizeResult -> TeleHash ()
   , csDelineize :: HashContainer -> NetworkTelex -> TeleHash (Either String RxTelex)
   }
 
@@ -305,14 +306,6 @@ data Telex = Telex { tId     :: !(Maybe HashName)
                    , tPacket :: !(Maybe Packet)
                    , tCsid   :: !(Maybe String)
                    , tChanId :: !(Maybe ChannelId)
-
-
-                   -- TODO: break Inner out into its own type
-                   -- openize stuff, used in 'inner'
-                   , tAt     :: !(Maybe ClockTime)
-                   , tToHash :: !(Maybe HashName)
-                   , tFrom   :: !(Maybe Parts)
-                   , tLine   :: !(Maybe String) -- lineOut
                    } deriving Show
 
 emptyTelex :: Telex
@@ -324,13 +317,6 @@ emptyTelex = Telex { tId     = Nothing
                    , tPacket = Nothing
                    , tCsid   = Nothing
                    , tChanId = Nothing
-
-                   -- TODO: break Inner out into its own type
-                   -- openize stuff, used in 'inner'
-                   , tAt     = Nothing
-                   , tToHash = Nothing
-                   , tFrom   = Nothing
-                   , tLine   = Nothing
                    }
 
 data RxTelex = RxTelex { rtId     :: !Int
@@ -355,6 +341,18 @@ data DeOpenizeResult = DeOpenizeVerifyFail
                                  , doCsid    :: !String
                                  }
                      deriving (Show)
+
+-- ---------------------------------------------------------------------
+
+-- |The information carried in the inner packet of an openize
+data OpenizeInner = OpenizeInner
+                    { oiAt :: !ClockTime
+                    , oiTo :: !HashName
+                    , oiFrom :: !Parts
+                    , oiLine :: !String -- TODO: should be its own type
+                    }
+
+-- ---------------------------------------------------------------------
 
 rxTelexToTelex :: RxTelex -> Telex
 rxTelexToTelex rx

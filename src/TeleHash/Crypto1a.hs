@@ -177,7 +177,7 @@ mkHashFromB64 str = r
 
 -- ---------------------------------------------------------------------
 
-crypt_openize_1a :: HashContainer -> Telex -> TeleHash LinePacket
+crypt_openize_1a :: HashContainer -> OpenizeInner -> TeleHash LinePacket
 crypt_openize_1a to inner = do
 
 {-
@@ -247,9 +247,9 @@ Note: 1. the domain parameters are the agreed curve, i.e. SEC_p160r1
       Public1a (PublicKey _ ourPub) = hcPublic ourCrypto
       Private1a (PrivateKey _ ourPriv) = gfromJust "crypt_openize_1a.2" $ hcPrivate ourCrypto
 
-      (TOD atSeconds _ ) = (gfromJust "crypt_openize_1a.at" (tAt inner))
+      (TOD atSeconds _ ) = (oiAt inner)
 
-      from = (gfromJust "crypt_openize_1a.from" (tFrom inner))
+      from = oiFrom inner
       fromJS = "{" ++ (intercalate "," $ map (\(k,v) -> show k ++ ":" ++ show v) from) ++ "}"
 {-
 
@@ -263,9 +263,9 @@ crypt_openize_1a:js=
 
       -- Construct the JSON for the inner packet
       js =("{\"at\":" ++ (show atSeconds) ++ "," ++
-           "\"to\":"    ++ (show $ unHN (gfromJust "crypt_openize_1a.to" (tToHash inner))) ++ "," ++
+           "\"to\":"    ++ (show $ unHN (oiTo inner)) ++ "," ++
            "\"from\":"  ++ fromJS ++ "," ++
-           "\"line\":"  ++ (show (gfromJust "crypt_openize_1a.line" (tLine inner))) ++
+           "\"line\":"  ++ (show (oiLine inner)) ++
            "}")
 
   logT $ "crypt_openize_1a:js=" ++ js

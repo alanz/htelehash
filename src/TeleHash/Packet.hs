@@ -62,7 +62,6 @@ instance Binary NetworkPacket where
                      pb <- getRemainingLazyByteString
                      return (OpenPacket cs (lbsTocbs pb))
 
-
 -- ---------------------------------------------------------------------
 
 {-
