@@ -59,8 +59,8 @@ import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 
--- localIP = "10.0.0.28"
-localIP = "10.2.2.83"
+localIP = "10.0.0.28"
+-- localIP = "10.2.2.83"
 
 -- ---------------------------------------------------------------------
 --
@@ -833,21 +833,22 @@ receive rxPacket path timeNow = do
                                           logT $ "inOpen verified" ++ show (hHashName from)
                                           -- add this path in
                                           path2 <- hnPathIn from path
+                                          from' <- getHNsafe (hHashName from) "receive"
 
                                           -- if new line id, reset incoming channels
-                                          if Just (valToBs (js HM.! "line")) /= (hLineIn from)
+                                          if Just (valToBs (js HM.! "line")) /= (hLineIn from')
                                             then do
                                               logT $ "new line"
-                                              putHN from
-                                              forM_ (Map.keys (hChans from)) $ \id1 -> do
-                                                if channelSlot id1 == channelSlot (hChanOut from)
+                                              putHN from'
+                                              forM_ (Map.keys (hChans from')) $ \id1 -> do
+                                                if channelSlot id1 == channelSlot (hChanOut from')
                                                   then return () -- our ids
                                                   else do
-                                                    fm <- getHNsafe (hHashName from) "deopenize"
+                                                    fm <- getHNsafe (hHashName from') "deopenize"
                                                     case Map.lookup id1 (hChans fm) of
                                                       Nothing -> return ()
-                                                      Just c -> chanFail (hHashName from) c Nothing
-                                                    delChan (hHashName from) id1
+                                                      Just c -> chanFail (hHashName from') c Nothing
+                                                    delChan (hHashName from') id1
                                                 return ()
                                             else return ()
 
@@ -866,7 +867,7 @@ receive rxPacket path timeNow = do
                                               logT $ "deopenize: hnOpen returned Nothing"
                                               return ()
                                             Just msg -> do
-                                              send path msg (Just $ hHashName from3)
+                                              send path2 msg (Just $ hHashName from3)
                                           -- self.send(path,from.open(),from);
 
                                           -- line is open now!
@@ -1990,7 +1991,7 @@ telexToPacket telex = do
   case (HM.toList $ tJson telex) of
     [] -> return $ telex { tPacket = Just newPacket}
     js -> do
-      -- logT $ "telexToPacket: encoded js=" ++ show (encode (tJson telex))
+      logT $ "telexToPacket: encoded js=" ++ show (encode (tJson telex))
       let packet = newPacket { paHead = HeadJson (lbsTocbs $ encode (tJson telex)) }
       return $ telex { tPacket = Just packet}
 
