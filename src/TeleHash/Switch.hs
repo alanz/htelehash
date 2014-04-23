@@ -2185,7 +2185,8 @@ online callback = do
         seeds -> do
           let
             -- safely callback only once or when all seeds return
-            done = (assert False undefined)
+            done = do
+             logT $ "online:done called"
           forM_ seeds $ \ seed -> do
             logT $ "online:processing:" ++ show seed
             let fn hn = do
@@ -2449,7 +2450,7 @@ hnRaw hn typ arg callback = do
   if not (HM.null (tJson arg))
     then do
       -- let msg = rxTelexToTelex arg
-      let msg = arg
+      let msg = arg { tJson = HM.insert "type" (toJSON typ) (tJson arg)}
       chanSendRaw (hHashName hn2) chan msg
     else return ()
 
@@ -3231,8 +3232,36 @@ function inBridge(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
+-- |Accept a DHT link
 inLink :: Bool -> RxTelex -> Channel -> TeleHash ()
-inLink = (assert False undefined)
+inLink True _packet _chan = return ()
+inLink err packet chan = do
+  logT $ "inLink: must do timeout"
+  -- chan.timeout(defaults.nat_timeout*2); // two NAT windows to be safe
+
+  let mlm = parseJs (rtJs packet) :: Maybe LinkMessage
+  case mlm of
+    Nothing -> do
+      logT $ "inLink:couldn't parse LinkMessage:" ++ showJson (rtJs packet)
+    Just lm -> do
+      hn <- getHNsafe (chHashName chan) "inLink"
+      logT $ "inLink: must capture from.age"
+
+      -- add in this link
+      putHN $ hn { hLinked = Just (chId chan)
+                 , hIsSeed = lSeed lm
+                 }
+
+      let bucket = hBucket hn
+      sw <- get
+      case Map.lookup bucket (swBuckets sw) of
+        Nothing -> do
+          -- empty bucket
+          assert False undefined
+        Just bs -> do
+          assert False undefined
+
+      assert False undefined
 
 {-
 
@@ -3289,7 +3318,7 @@ are optional and only act as hints for NAT hole punching.
 
 -}
 
-hnAddress :: HashName -> HashName -> TeleHash Aeson.Value
+hnAddress :: HashName -> HashContainer -> TeleHash Aeson.Value
 hnAddress hn to = assert False undefined
 {-
 
@@ -3324,20 +3353,25 @@ hnLink hn mcb = do
       -- pull out the seed values
       -- for each seed get the address associated with this hn
       -- take the first 8 -- (0,8)
-  let buckets = (Map.findWithDefault [] (hBucket hc) (swBuckets sw))
-      ageComp a b = compare (lineAge a) (lineAge b)
+  buckets <- getBucketContents (hBucket hc)
+  let ageComp a b = compare (hAge a) (hAge b)
       buckets2 = sortBy ageComp buckets
-      seeds = map lineSeed buckets2
+      seeds = filter hIsSeed buckets2
   see1 <- mapM (hnAddress hn) seeds
   logT $ "hnLink:see1=" ++ show see1
 
   -- add some distant ones if none or too few
-  let allBuckets = Set.fromList $ concat $ Map.elems (swBuckets sw)
-      buckets3 = Set.fromList $ take 8 buckets2
-      allOtherBuckets = sortBy ageComp $ Set.toList (allBuckets Set.\\ buckets3)
-  let see = take 8 (buckets2 ++ allOtherBuckets)
+  allBucketsLists <- mapM getBucketContents (Map.keys (swBuckets sw))
+  let -- allBuckets = Set.fromList $ concat $ Map.elems (swBuckets sw)
+      allBuckets = concat allBucketsLists
+      allBucketsSet = Set.fromList (map hHashName allBuckets)
+      buckets3 = Set.fromList $ take 8 $ map hHashName seeds
+      allOtherBucketsHn = Set.toList (allBucketsSet Set.\\ buckets3)
+  aobm <- mapM getHN allOtherBucketsHn
+  let allOtherBuckets = sortBy ageComp $ catMaybes aobm
+  let see = take 8 (seeds ++ allOtherBuckets)
   logT $ "hnLink:see=" ++ show see
-  seeVal <- mapM (hnAddress hn) $ map lineSeed see
+  seeVal <- mapM (hnAddress hn) $ filter hIsSeed see
 
   -- TODO: sort out relay/bridge
   isBr <- isBridge Nothing (Just hn)
@@ -3365,9 +3399,11 @@ hnLink hn mcb = do
              }
 
   case hLinked hc of
-    Just linkHn -> do
-      linkHc <- getHNsafe linkHn "hnLink.2"
-      hnSend linkHc msg
+    Just linkCid -> do
+      -- linkHc <- getHNsafe linkHn "hnLink.2"
+      -- hnSend linkHc msg
+      mchan <- getChan hn linkCid
+      chanSendRaw hn (gfromJust "hnLink" mchan) msg
       callback hn
     Nothing -> do
       let rawCb err packet chan = do
@@ -3804,6 +3840,7 @@ mkHashContainer hn timeNow randomHexVal =
     , hIsPublic = False
     , hAt = timeNow
     , hBucket = -1
+    , hAge = Nothing
     , hChanOut = 0
     , hIsSeed = False
     , hTo = Nothing
@@ -4146,20 +4183,24 @@ linkMaint :: TeleHash ()
 linkMaint = do
   sw <- get
   -- process every bucket
-  forM (Map.elems $ swBuckets sw) $ \bucket -> do
+  forM (Map.keys $ swBuckets sw) $ \hashDistance -> do
+    bucket <- getBucketContents hashDistance
     -- sort the bucket contents on age
     let sorted = sortBy sf bucket
-        sf a b = compare (lineAge a) (lineAge b)
+        sf a b = compare (hAge a) (hAge b)
     when (not $ null sorted) $ logT $ "link maintenance on bucket " ++ show (bucket,length sorted)
     forM (take (linkK defaults) sorted) $ \hn -> do
-      if (lineLinked hn == Nothing) || (not $ lineAlive hn)
+      if (hLinked hn == Nothing) || (not $ hIsAlive hn)
         then return ()
         else do
           timeNow <- io getClockTime
-          -- if (timeNow - (lineSentat hn) < ((linkTimer defaults) `div` 2))
-          if isTimeOut timeNow (lineSentat hn) ((linkTimer defaults) `div` 2)
+          mchan <- getChan (hHashName hn) (gfromJust "linkMaint.1" $ hLinked hn)
+          let chan = gfromJust "linkMaint.2" mchan
+          if isTimeOut timeNow (chSentAt chan) ((linkTimer defaults) `div` 2)
             then return () -- we sent to them recently
-            else send (fromJust $ lineLinked hn) (seedMsg (swSeed sw)) Nothing
+            -- else send (fromJust $ hLinked hn) (seedMsg (swSeed sw)) Nothing
+            -- else chanSendRaw (hHashName hn) chan (seedMsg (swSeed sw))
+            else assert False undefined
   return ()
 
 -- ---------------------------------------------------------------------

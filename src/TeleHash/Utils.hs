@@ -24,6 +24,7 @@ module TeleHash.Utils
   , pathHttp
   , NetworkTelex(..)
   , OpenizeInner(..)
+  , LinkMessage(..)
   , Telex(..)
   , emptyTelex
   , RxTelex(..)
@@ -40,7 +41,7 @@ module TeleHash.Utils
   , ChannelId(..)
   , unChannelId
   , channelSlot
-  , Line(..)
+  -- , Line(..)
   , CSet(..)
   , PublicKey(..)
   , PrivateKey(..)
@@ -68,6 +69,7 @@ module TeleHash.Utils
   , b16Tobs
 
   , showJson
+  , parseJs
 
   , putHN
   , getHN
@@ -76,6 +78,7 @@ module TeleHash.Utils
   , getChan
   , delChan
   , incPCounter
+  , getBucketContents
   ) where
 
 
@@ -88,7 +91,9 @@ import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State
 import Crypto.Random
+import Data.Aeson (object,(.=), (.:), (.:?) )
 import Data.Aeson.Encode
+import Data.Aeson.Types
 import Data.Bits
 import Data.Char
 import Data.IP
@@ -159,6 +164,7 @@ data HashContainer = H
   , hIsSeed     :: !Bool
   , hAt         :: !ClockTime
   , hBucket     :: !HashDistance
+  , hAge        :: !(Maybe ClockTime)
   , hChanOut    :: !ChannelId
   , hLineOut    :: !String -- randomHEX 16 output. Make it a type
   , hLineAt     :: !(Maybe ClockTime)
@@ -176,7 +182,7 @@ data HashContainer = H
   , hPort       :: !(Maybe Port)
   , hBridging   :: !Bool
   , hIsLocal    :: !Bool
-  , hLinked     :: !(Maybe HashName)
+  , hLinked     :: !(Maybe ChannelId)
 
 
   -- CS 1a stuff
@@ -186,7 +192,7 @@ data HashContainer = H
   , hDecKey  :: !(Maybe BC.ByteString)
   , hEcc     :: !(Maybe (PublicKey,PrivateKey)) -- our DH ECC key for
                                                -- communicating with this remote
-  } deriving Show
+  } deriving (Show)
 
 -- ---------------------------------------------------------------------
 {-
@@ -325,7 +331,7 @@ data RxTelex = RxTelex { rtId     :: !Int
                        , rtAt     :: !ClockTime
                        , rtJs     :: !(HM.HashMap Text.Text Aeson.Value)
                        , rtPacket :: !Packet
-                       , rtChanId :: !(Maybe ChannelId)
+                       , rtChanId :: !(Maybe ChannelId) -- rtFrom
                        } deriving Show
 
 data NetworkTelex = NetworkTelex
@@ -347,11 +353,39 @@ data DeOpenizeResult = DeOpenizeVerifyFail
 
 -- |The information carried in the inner packet of an openize
 data OpenizeInner = OpenizeInner
-                    { oiAt :: !ClockTime
-                    , oiTo :: !HashName
+                    { oiAt   :: !ClockTime
+                    , oiTo   :: !HashName
                     , oiFrom :: !Parts
                     , oiLine :: !String -- TODO: should be its own type
                     }
+
+-- ---------------------------------------------------------------------
+
+-- |Carried in a link message
+data LinkMessage = LinkMessage
+                   { lType :: !(Maybe String) -- only present in initial message
+                   , lChan :: !ChannelId
+                   , lSeed :: !Bool
+                   , lSee :: ![String]
+                   , lBridges :: !(Maybe [String])
+                   } deriving (Show)
+
+instance Aeson.ToJSON LinkMessage where
+     toJSON lm = object $ stripNulls
+                        [ "type"   .= lType lm
+                        , "c"      .= lChan lm
+                        , "seed"   .= lSeed lm
+                        , "see"    .= lSee lm
+                        , "bridge" .= lBridges lm
+                        ]
+
+instance Aeson.FromJSON LinkMessage where
+     parseJSON (Aeson.Object v)
+           = LinkMessage <$> v .:? "type" <*>
+                             v .: "c" <*>
+                             v .: "seed" <*>
+                             v .: "see" <*>
+                             v .:? "bridge"
 
 -- ---------------------------------------------------------------------
 
@@ -412,10 +446,18 @@ instance Num ChannelId where
 channelSlot :: ChannelId -> Int
 channelSlot (CID n) = n `mod` 2
 
+instance Aeson.ToJSON ChannelId where
+  toJSON (CID c) = Aeson.toJSON c
+
+instance Aeson.FromJSON ChannelId where
+  parseJSON c = CID <$> Aeson.parseJSON c
+
 -- ---------------------------------------------------------------------
 
-type Bucket = [Line]
+-- type Bucket = [Line]
+type Bucket = [HashName]
 
+{-
 data Line = Line { lineAge     :: !ClockTime
                  , lineSeed    :: !HashName
                  , lineAddress :: !String
@@ -423,6 +465,7 @@ data Line = Line { lineAge     :: !ClockTime
                  , lineAlive   :: !Bool
                  , lineSentat  :: !(Maybe ClockTime)
                  } deriving (Show,Eq,Ord)
+-}
 
 -- ---------------------------------------------------------------------
 
@@ -656,6 +699,23 @@ showJson j = BC.unpack $ lbsTocbs $ encode $ j
 
 -- ---------------------------------------------------------------------
 
+-- See https://gist.github.com/alanz/2465584
+--  and https://github.com/bos/aeson/issues/77
+stripNulls :: [Pair] -> [Pair]
+stripNulls xs = filter (\(_,v) -> v /= Aeson.Null) xs
+
+-- ---------------------------------------------------------------------
+
+parseJs :: (FromJSON a) => (HM.HashMap Text.Text Aeson.Value) -> Maybe a
+parseJs v = r
+  where
+    mp = fromJSON (Object v)
+    r = case mp of
+        Error err1 -> Nothing
+        Success val -> Just val
+
+-- ---------------------------------------------------------------------
+
 -- Utility
 
 -- ---------------------------------------------------------------------
@@ -716,3 +776,40 @@ delChan hn cid = do
   putHN $ hc { hChans = chans }
 
 -- ---------------------------------------------------------------------
+
+-- |Get the relevant bucket, and dereference all the HashNames
+getBucketContents :: HashDistance -> TeleHash [HashContainer]
+getBucketContents hd = do
+  sw <- get
+  let bucket = (Map.findWithDefault [] hd (swBuckets sw))
+  mhcs <- mapM getHN bucket
+  return $ catMaybes mhcs
+
+-- ---------------------------------------------------------------------
+
+-- testing JSON for LinkMessage
+
+ttelm :: Maybe LinkMessage
+ttelm = Aeson.decode "{\"seed\":false,\"c\":1,\"see\":[],\"type\":\"link\"}"
+
+ttelm1 :: Maybe LinkMessage
+ttelm1 = Aeson.decode "{\"seed\":false,\"c\":1,\"see\":[]}"
+
+ttelm2 :: Maybe LinkMessage
+ttelm2 = Aeson.decode "{\"seed\":false,\"c\":1,\"see\":[],\"bridge\":[]}"
+
+ttelm3 = Aeson.encode (LinkMessage
+                        { lType = Nothing
+                        , lChan = CID 1
+                        , lSeed = True
+                        , lSee = []
+                        , lBridges = Just ["foo"]
+                        })
+
+ttelm4 = Aeson.encode (LinkMessage
+                        { lType = Just "link"
+                        , lChan = CID 1
+                        , lSeed = True
+                        , lSee = []
+                        , lBridges = Nothing
+                        })
