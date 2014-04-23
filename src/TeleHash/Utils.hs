@@ -494,7 +494,7 @@ data Switch = Switch
        , swRaws       :: !(Map.Map String (Bool -> RxTelex -> Channel -> TeleHash ()))
        , swPaths      :: !(Map.Map PathId Path)
        , swBridgeCache :: ![String]
-       , swNetworks    :: !(Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashContainer -> TeleHash ())))
+       , swNetworks    :: !(Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashName -> TeleHash ())))
 
        , swHashname :: !(Maybe HashName)
 
