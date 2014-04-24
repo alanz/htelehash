@@ -59,8 +59,8 @@ import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 
--- localIP = "10.0.0.28"
-localIP = "10.2.2.83"
+localIP = "10.0.0.28"
+-- localIP = "10.2.2.83"
 
 -- ---------------------------------------------------------------------
 --
@@ -1789,8 +1789,43 @@ hnSend hn packet = do
             send path lpacket (Just $ hHashName hn2)
           return True
 
-      logT $ "hnSend: must still do send using vias, and retry backoff"
-      return ret
+      -- also try using any via information to create a new line
+      let
+        vias :: TeleHash Bool
+        vias = do
+          assert False undefined
+
+      -- if there's via information, just try that
+      if (Map.size (hVias hn2) /= 0)
+        then vias
+        else do
+
+          -- never too fast, worst case is to try to seek again
+          timeNow <- io getClockTime
+          let dt = diffClockTimes timeNow (fromJust $ hSendSeek hn2)
+              diff5sec = TimeDiff 0 0 0 0 0 5 0
+          if (hSendSeek hn2 == Nothing
+             || dt  > diff5sec)
+            then do
+              putHN $ hn2 {hSendSeek = Just timeNow }
+              let
+                fn err = do
+                  hn3 <-getHNsafe (hHashName hn2) "hnSend.2"
+                  case (hLastPacket hn3) of
+                    Nothing -> do
+                      -- the packet was already sent elsewhere
+                      return ()
+                    Just _ -> do
+                      -- process any new vias
+                      vias
+                      return ()
+
+              seek (hHashName hn2) fn
+              return False
+            else do
+              return False
+
+
 
   -- return False
 {-
@@ -2375,6 +2410,125 @@ function deopenize(self, open)
   return ret;
 }
 
+
+-}
+-- ---------------------------------------------------------------------
+
+-- |seek the dht for this hashname
+seek :: HashName -> (String -> TeleHash () ) -> TeleHash ()
+seek hname callback = do
+  logT $ "seek:" ++ show hname
+  mhn <- whois hname
+  case mhn of
+    Nothing -> callback "invalid hashname"
+    Just hn -> do
+      logT $ "seek:not implemented"
+      -- SEND seek {"seek":"f50","type":"seek","c":10}
+
+      -- load all seeds and sort to get top 3
+      seeds <- getAllLiveSeedsFromDht
+      let sortFunc a b = compare (dhash hname (hHashName a)) (dhash hname (hHashName b))
+          seeds2 = sortBy sortFunc seeds
+          seeds3 = take 3 seeds2
+      logT $ "seek:seeds3=" ++ show (map hHashName seeds3)
+      assert False undefined -- carry on here
+      return ()
+
+{-
+// seek the dht for this hashname
+function seek(hn, callback)
+{
+  var self = this;
+  if(typeof hn == "string") hn = self.whois(hn);
+  if(!callback) callback = function(){};
+  if(!hn) return callback("invalid hashname");
+
+  var did = {};
+  var doing = {};
+  var queue = [];
+  var wise = {};
+  var closest = 255;
+
+  // load all seeds and sort to get the top 3
+  var seeds = []
+  Object.keys(self.buckets).forEach(function(bucket){
+    self.buckets[bucket].forEach(function(link){
+      if(link.hashname == hn) return; // ignore the one we're (re)seeking
+      if(link.seed && link.alive) seeds.push(link);
+    });
+  });
+  seeds.sort(function(a,b){ return dhash(hn.hashname,a.hashname) - dhash(hn.hashname,b.hashname) }).slice(0,3).forEach(function(seed){
+    wise[seed.hashname] = true;
+    queue.push(seed.hashname);
+  });
+
+  debug("seek starting with",queue,seeds.length);
+
+  // always process potentials in order
+  function sort()
+  {
+    queue = queue.sort(function(a,b){
+      return dhash(hn.hashname,a) - dhash(hn.hashname,b)
+    });
+  }
+
+  // track when we finish
+  function done(err)
+  {
+    // get all the hashnames we used/found and do final sort to return
+    Object.keys(did).forEach(function(k){ if(queue.indexOf(k) == -1) queue.push(k); });
+    Object.keys(doing).forEach(function(k){ if(queue.indexOf(k) == -1) queue.push(k); });
+    sort();
+    while(cb = hn.seeking.shift()) cb(err, queue.slice());
+  }
+
+  // track callback(s);
+  if(!hn.seeking) hn.seeking = [];
+  hn.seeking.push(callback);
+  if(hn.seeking.length > 1) return;
+
+  // main loop, multiples of these running at the same time
+  function loop(onetime){
+    if(!hn.seeking.length) return; // already returned
+    debug("SEEK LOOP",queue);
+    // if nothing left to do and nobody's doing anything, failed :(
+    if(Object.keys(doing).length == 0 && queue.length == 0) return done("failed to find the hashname");
+
+    // get the next one to ask
+    var mine = onetime||queue.shift();
+    if(!mine) return; // another loop() is still running
+
+    // if we found it, yay! :)
+    if(mine == hn.hashname) return done();
+    // skip dups
+    if(did[mine] || doing[mine]) return onetime||loop();
+    var distance = dhash(hn.hashname, mine);
+    if(distance > closest) return onetime||loop(); // don't "back up" further away
+    if(wise[mine]) closest = distance; // update distance if trusted
+    doing[mine] = true;
+    var to = self.whois(mine);
+    to.seek(hn.hashname, function(err, see){
+      see.forEach(function(item){
+        var sug = self.whois(item);
+        if(!sug) return;
+        // if this is the first entry and from a wise one, give them wisdom too
+        if(wise[to.hashname] && see.indexOf(item) == 0) wise[sug.hashname] = true;
+        sug.via(to, item);
+        queue.push(sug.hashname);
+      });
+      sort();
+      did[mine] = true;
+      delete doing[mine];
+      onetime||loop();
+    });
+  }
+
+  // start three of them
+  loop();loop();loop();
+
+  // also force query any locals
+  self.locals.forEach(function(local){loop(local.hashname)});
+}
 
 -}
 -- ---------------------------------------------------------------------
@@ -3551,110 +3705,6 @@ hnLink hn mcb = do
   }
 
 -}
--- ---------------------------------------------------------------------
-
--- was swSeek
-seek :: String -> () -> IO ()
-seek = (assert False undefined)
-
-{-
-// seek the dht for this hashname
-function seek(hn, callback)
-{
-  var self = this;
-  if(typeof hn == "string") hn = self.whois(hn);
-  if(!callback) callback = function(){};
-  if(!hn) return callback("invalid hashname");
-
-  var did = {};
-  var doing = {};
-  var queue = [];
-  var wise = {};
-  var closest = 255;
-
-  // load all seeds and sort to get the top 3
-  var seeds = []
-  Object.keys(self.buckets).forEach(function(bucket){
-    self.buckets[bucket].forEach(function(link){
-      if(link.hashname == hn) return; // ignore the one we're (re)seeking
-      if(link.seed) seeds.push(link);
-    });
-  });
-  seeds.sort(function(a,b){ return dhash(hn.hashname,a.hashname) - dhash(hn.hashname,b.hashname) }).slice(0,3).forEach(function(seed){
-    wise[seed.hashname] = true;
-    queue.push(seed.hashname);
-  });
-
-  debug("seek starting with",queue,seeds.length);
-
-  // always process potentials in order
-  function sort()
-  {
-    queue = queue.sort(function(a,b){
-      return dhash(hn.hashname,a) - dhash(hn.hashname,b)
-    });
-  }
-
-  // track when we finish
-  function done(err)
-  {
-    // get all the hashnames we used/found and do final sort to return
-    Object.keys(did).forEach(function(k){ if(queue.indexOf(k) == -1) queue.push(k); });
-    Object.keys(doing).forEach(function(k){ if(queue.indexOf(k) == -1) queue.push(k); });
-    sort();
-    while(cb = hn.seeking.shift()) cb(err, queue.slice());
-  }
-
-  // track callback(s);
-  if(!hn.seeking) hn.seeking = [];
-  hn.seeking.push(callback);
-  if(hn.seeking.length > 1) return;
-
-  // main loop, multiples of these running at the same time
-  function loop(onetime){
-    if(!hn.seeking.length) return; // already returned
-    debug("SEEK LOOP",queue);
-    // if nothing left to do and nobody's doing anything, failed :(
-    if(Object.keys(doing).length == 0 && queue.length == 0) return done("failed to find the hashname");
-
-    // get the next one to ask
-    var mine = onetime||queue.shift();
-    if(!mine) return; // another loop() is still running
-
-    // if we found it, yay! :)
-    if(mine == hn.hashname) return done();
-    // skip dups
-    if(did[mine] || doing[mine]) return onetime||loop();
-    var distance = dhash(hn.hashname, mine);
-    if(distance > closest) return onetime||loop(); // don't "back up" further away
-    if(wise[mine]) closest = distance; // update distance if trusted
-    doing[mine] = true;
-    var to = self.whois(mine);
-    to.seek(hn.hashname, function(err, see){
-      see.forEach(function(item){
-        var sug = self.whois(item);
-        if(!sug) return;
-        // if this is the first entry and from a wise one, give them wisdom too
-        if(wise[to.hashname] && see.indexOf(item) == 0) wise[sug.hashname] = true;
-        sug.via(to, item);
-        queue.push(sug.hashname);
-      });
-      sort();
-      did[mine] = true;
-      delete doing[mine];
-      onetime||loop();
-    });
-  }
-
-  // start three of them
-  loop();loop();loop();
-
-  // also force query any locals
-  self.locals.forEach(function(local){loop(local.hashname)});
-}
-
--}
-
 -- ---------------------------------------------------------------------
 
 -- was swBridge

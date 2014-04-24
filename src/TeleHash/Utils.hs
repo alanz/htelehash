@@ -85,6 +85,7 @@ module TeleHash.Utils
   , getBucketContents
   , getBucketSize
   , storeHashInDht
+  , getAllLiveSeedsFromDht
   ) where
 
 
@@ -412,6 +413,30 @@ instance Aeson.FromJSON LinkMaintMessage where
            = LinkMaintMessage <$>
                              v .: "c" <*>
                              v .: "seed"
+
+-- ---------------------------------------------------------------------
+
+data SeekMessage = SeekMessage
+                   { sChan :: !ChannelId
+                   , sSeek :: !Text.Text
+                   } deriving (Show)
+
+instance Aeson.ToJSON SeekMessage where
+     toJSON lm = object $ stripNulls
+                        [ "type"   .= ("seek"::String)
+                        , "c"      .= sChan lm
+                        , "seek"   .= sSeek lm
+                        ]
+
+instance Aeson.FromJSON SeekMessage where
+     parseJSON (Aeson.Object v)
+        = case (HM.lookup "type" v) of
+            Nothing -> mzero
+            Just (String "seek") ->
+               SeekMessage <$>
+                             v .: "c" <*>
+                             v .: "seek"
+            _ -> mzero
 
 -- ---------------------------------------------------------------------
 
@@ -848,6 +873,21 @@ storeHashInDht hn hd = do
 
 -- ---------------------------------------------------------------------
 
+-- |Get all live seeds from all buckets
+getAllLiveSeedsFromDht :: TeleHash [HashContainer]
+getAllLiveSeedsFromDht = do
+  buckets <- gets swBuckets
+  let bv = concatMap (\(k,vs) -> (Set.toList vs)) $ Map.toList buckets
+
+  let
+    fn (hn) = do
+      v <- getHNsafe hn "getAllLiveSeedsFromDht"
+      return v
+  bvc <- mapM fn bv
+  return $ filter (\h -> hIsSeed h && hIsAlive h) bvc
+
+-- ---------------------------------------------------------------------
+
 -- testing JSON for LinkMessage
 
 ttelm :: Maybe LinkMessage
@@ -874,3 +914,16 @@ ttelm4 = Aeson.encode (LinkMessage
                         , lSee = []
                         , lBridges = Nothing
                         })
+
+-- ---------------------------------------------------------------------
+
+ts1 :: Maybe SeekMessage
+ts1 = Aeson.decode "{\"c\":1,\"seek\":\"1f0\",\"type\":\"seek\"}"
+
+ts2 :: Maybe SeekMessage
+ts2 = Aeson.decode "{\"c\":1,\"seek\":\"1f0\"}"
+
+ts3 :: Maybe SeekMessage
+ts3 = Aeson.decode "{\"c\":1,\"seek\":\"1f0\",\"type\":\"wrong\"}"
+
+ts4 = Aeson.encode (SeekMessage { sChan = 1, sSeek = "foo"})
