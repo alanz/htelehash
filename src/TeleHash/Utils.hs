@@ -9,6 +9,7 @@ module TeleHash.Utils
   , Signal(..)
   , Reply(..)
   , Switch(..)
+  , showSwitch
   , PathId(..)
   , SeedInfo(..)
   , Bucket(..)
@@ -25,6 +26,7 @@ module TeleHash.Utils
   , NetworkTelex(..)
   , OpenizeInner(..)
   , LinkMessage(..)
+  , LinkMaintMessage(..)
   , Telex(..)
   , emptyTelex
   , RxTelex(..)
@@ -78,7 +80,11 @@ module TeleHash.Utils
   , getChan
   , delChan
   , incPCounter
+
+  -- * DHT operations
   , getBucketContents
+  , getBucketSize
+  , storeHashInDht
   ) where
 
 
@@ -389,6 +395,26 @@ instance Aeson.FromJSON LinkMessage where
 
 -- ---------------------------------------------------------------------
 
+-- |Carried in a link message for maintenance
+data LinkMaintMessage = LinkMaintMessage
+                   { lmChan :: !ChannelId
+                   , lmSeed :: !Bool
+                   } deriving (Show)
+
+instance Aeson.ToJSON LinkMaintMessage where
+     toJSON lm = object $ stripNulls
+                        [ "c"      .= lmChan lm
+                        , "seed"   .= lmSeed lm
+                        ]
+
+instance Aeson.FromJSON LinkMaintMessage where
+     parseJSON (Aeson.Object v)
+           = LinkMaintMessage <$>
+                             v .: "c" <*>
+                             v .: "seed"
+
+-- ---------------------------------------------------------------------
+
 rxTelexToTelex :: RxTelex -> Telex
 rxTelexToTelex rx
  = emptyTelex
@@ -455,7 +481,7 @@ instance Aeson.FromJSON ChannelId where
 -- ---------------------------------------------------------------------
 
 -- type Bucket = [Line]
-type Bucket = [HashName]
+type Bucket = Set.Set HashName
 
 {-
 data Line = Line { lineAge     :: !ClockTime
@@ -507,7 +533,7 @@ instance Aeson.FromJSON Id where
 -- ---------------------------------------------------------------------
 
 data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx BC.ByteString NS.SockAddr |
-              SignalGetSwitch
+              SignalGetSwitch | SignalShowSwitch
             | SignalSyncPath HashName
               deriving (Typeable, Show, Eq)
 
@@ -581,6 +607,18 @@ data Switch = Switch
        , swCountTx :: !Int
        , swCountRx :: !Int
        }
+
+-- ---------------------------------------------------------------------
+
+showSwitch :: Switch -> String
+showSwitch sw =
+  ("switch:"++ show (swHashname sw)
+  ++ "\nlinescount=" ++ show (Map.size $ swLines sw)
+  ++" hashcount:" ++  show (Map.size $ swAll sw)
+  ++"\n  " ++ (intercalate "\n  " (map show $ Map.keys (swAll sw)))
+  ++"\nbucketCount:" ++ show (Map.size (swBuckets sw))
+  ++"\nbuckets:" ++ show (swBuckets sw)
+  )
 
 -- ---------------------------------------------------------------------
 
@@ -781,9 +819,32 @@ delChan hn cid = do
 getBucketContents :: HashDistance -> TeleHash [HashContainer]
 getBucketContents hd = do
   sw <- get
-  let bucket = (Map.findWithDefault [] hd (swBuckets sw))
-  mhcs <- mapM getHN bucket
+  let bucket = (Map.findWithDefault Set.empty hd (swBuckets sw))
+  mhcs <- mapM getHN $ Set.toList bucket
   return $ catMaybes mhcs
+
+-- ---------------------------------------------------------------------
+
+-- |Get the current size of the given bucket
+getBucketSize :: HashDistance -> TeleHash Int
+getBucketSize hd = do
+  buckets <- gets swBuckets
+  case Map.lookup hd buckets of
+    Nothing -> return 0
+    Just bucket -> return (Set.size bucket)
+
+-- ---------------------------------------------------------------------
+
+-- |Insert the given hash into the appropriate bucket if required
+storeHashInDht :: HashName -> HashDistance -> TeleHash ()
+storeHashInDht hn hd = do
+  sw <- get
+  let
+    swb = case Map.lookup hd (swBuckets sw) of
+      Nothing -> Map.insert hd (Set.fromList [hn]) (swBuckets sw)
+      Just bucket -> Map.insert hd (Set.insert hn bucket) (swBuckets sw)
+
+  put $ sw { swBuckets = swb }
 
 -- ---------------------------------------------------------------------
 

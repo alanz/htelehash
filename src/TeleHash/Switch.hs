@@ -59,8 +59,8 @@ import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 
-localIP = "10.0.0.28"
--- localIP = "10.2.2.83"
+-- localIP = "10.0.0.28"
+localIP = "10.2.2.83"
 
 -- ---------------------------------------------------------------------
 --
@@ -104,6 +104,7 @@ run ch1 ch2 = do
   _ <- io (forkIO (timer (1000 * onesec) SignalPingSeeds ch1))
   _ <- io (forkIO (timer (1000 * onesec) SignalScanLines ch1))
   _ <- io (forkIO (timer (3000 * onesec) SignalTapTap ch1))
+  _ <- io (forkIO (timer (30 * onesec) SignalShowSwitch ch1))
 
   h <- gets swH
   _ <- io (forkIO (dolisten h ch1))
@@ -201,9 +202,14 @@ run ch1 ch2 = do
       -- SignalPingSeeds      -> pingSeeds
       -- SignalScanLines      -> scanlines timeNow
       -- SignalTapTap         -> taptap timeNow
-      SignalSyncPath hn    -> hnSync hn
+      SignalSyncPath hn    -> do
+        logT $ "SignalSyncPath for: " ++ show hn
+        hnSync hn
       SignalMsgRx msg addr -> recvTelex msg addr
       -- External commands
+      SignalShowSwitch      -> do
+        sw <- getSwitch
+        logT $ "current switch:" ++ showSwitch sw
       SignalGetSwitch      -> do
         sw <- getSwitch
         io (writeChan ch2 (ReplyGetSwitch sw))
@@ -1449,7 +1455,7 @@ function whois(hashname)
 -- ---------------------------------------------------------------------
 
 -- |handle all incoming line packets, post decryption
--- The hn holds the from 
+-- The hn holds the from
 hnReceive :: HashContainer -> RxTelex -> TeleHash ()
 hnReceive hn rxTelex = do
   let packet = rtPacket rxTelex
@@ -2190,6 +2196,7 @@ online callback = do
           forM_ seeds $ \ seed -> do
             logT $ "online:processing:" ++ show seed
             let fn hn = do
+                  logT $ "online:fn active for :" ++ show hn
                   hc <- getHNsafe hn "online"
                   if hIsAlive hc
                     then hnSync hn
@@ -3103,7 +3110,6 @@ inPath err packet chan = do
                 let msg = packet { rtJs = HM.fromList [("priority",toJSON (1::Int))] 
                                  , rtSender = path
                                  }
-                -- void $ hnRaw hn "path" (rxTelexToTelex msg) inPath
                 chanSendRaw (hHashName hn) chan  (rxTelexToTelex msg)
             return ()
 
@@ -3252,16 +3258,39 @@ inLink err packet chan = do
                  , hIsSeed = lSeed lm
                  }
 
-      let bucket = hBucket hn
-      sw <- get
-      case Map.lookup bucket (swBuckets sw) of
-        Nothing -> do
-          -- empty bucket
-          assert False undefined
-        Just bs -> do
-          assert False undefined
+      storeHashInDht (chHashName chan) (hBucket hn)
 
-      assert False undefined
+      -- send a response if this is a new incoming
+      if (chSentAt chan == Nothing)
+        then hnLink (hHashName hn) Nothing
+        else return ()
+
+      -- look for any see and check to see if we should create a link
+      logT $ "inLink: got see:" ++ (show (lSee lm))
+      -- inLink: got see:["89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de,1a"]
+      forM_ (lSee lm) $ \see -> do
+        let fields = Text.splitOn "," (Text.pack see)
+        logT $ "inLink: see in words:" ++ (show fields)
+        case fields of
+          (h:_) -> do
+            mhn <- whois(HN $ Text.unpack h)
+            case mhn of
+              Nothing -> do
+                return ()
+              Just hn -> do
+                if (hLinked hn) == Nothing
+                  then do
+                    bucketSize <- getBucketSize (hBucket hn)
+                    if bucketSize < (linkK defaults)
+                      then hnLink (hHashName hn) Nothing
+                      else return ()
+                  else return ()
+          _     -> do
+            logT $ "inLink:got junk see:" ++ show see
+
+        logT $ "inLink: must still check for bridges"
+
+        putChan (hHashName hn) chan { chCallBack = inMaintenance }
 
 {-
 
@@ -3303,6 +3332,68 @@ function inLink(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
+-- | Process incoming link messages for a linked channel
+inMaintenance :: Bool -> RxTelex -> Channel -> TeleHash ()
+inMaintenance err packet chan = do
+  -- ignore if this isn't the main link
+  from <- getHNsafe (chHashName chan) "inMaintenance.1"
+  if (hLinked from) == Nothing
+    then return ()
+    else do
+      if err
+        then do
+          assert False undefined
+        else do
+          let mlm = parseJs (rtJs packet) :: Maybe LinkMaintMessage
+          case mlm of
+            Nothing -> do
+              logT $ "inMaintenance:couldn't parse LinkMessage:" ++ showJson (rtJs packet)
+              -- inMaintenance:couldn't parse LinkMessage:{"seed":true,"c":1}
+
+            Just lm -> do
+              -- update seed status
+              putHN $ from {hIsSeed = lmSeed lm}
+
+              -- only send a response if we've not sent one in a while
+              timeNow <- io getClockTime
+              if (isTimeOut timeNow (chSentAt chan) (linkTimer defaults))
+                then do
+                  let
+                      msg1 = rxTelexToTelex packet
+                      msg2 = msg1 { tJson = HM.fromList [("seed",toJSON (hIsSeed from)) -- AZ: is this the right end?
+                                                        ] }
+                      msg3 = msg2 { tTo = Just (rtSender packet) }
+                  logT $ "inMaintenance:sending link maintenance to" ++ show (hHashName from)
+                  chanSendRaw (hHashName from) chan msg3
+
+                else return ()
+
+{-
+function inMaintenance(err, packet, chan)
+{
+  // ignore if this isn't the main link
+  if(!packet.from || !packet.from.linked || packet.from.linked != chan) return;
+  var self = packet.from.self;
+  if(err)
+  {
+    delete packet.from.linked;
+    var index = self.buckets[packet.from.bucket].indexOf(packet.from);
+    if(index > -1) self.buckets[packet.from.bucket].splice(index,1);
+    return;
+  }
+
+  // update seed status
+  packet.from.seed = packet.js.seed;
+
+  // only send a response if we've not sent one in a while
+  if((Date.now() - chan.sentAt) > Math.ceil(defaults.link_timer/2)) chan.send({js:{seed:self.seed}});
+}
+
+
+-}
+
+-- ---------------------------------------------------------------------
+
 {-
 
 From https://github.com/telehash/telehash.org/blob/master/switch.md#seek
@@ -3319,7 +3410,18 @@ are optional and only act as hints for NAT hole punching.
 -}
 
 hnAddress :: HashName -> HashContainer -> TeleHash Aeson.Value
-hnAddress hn to = assert False undefined
+hnAddress hn to = do
+  hc <- getHNsafe hn "hnAddress"
+  if isJust (hParts hc) && isJust (hParts to)
+    then do
+      let mcsid = partsMatch (fromJust $ hParts hc) (fromJust $ hParts to)
+      case mcsid of
+        Nothing -> return (String "")
+        Just csid -> do
+          if isJust (hIp hc) && isJust (hPort hc)
+            then return (String $ Text.pack $ intercalate "," [(unHN $ hHashName hc),csid,show (hIp hc),show (hPort hc)])
+            else return (String $ Text.pack $ intercalate "," [(unHN $ hHashName hc),csid])
+    else return (String "")
 {-
 
   // return our address to them
@@ -3370,7 +3472,7 @@ hnLink hn mcb = do
   aobm <- mapM getHN allOtherBucketsHn
   let allOtherBuckets = sortBy ageComp $ catMaybes aobm
   let see = take 8 (seeds ++ allOtherBuckets)
-  logT $ "hnLink:see=" ++ show see
+  logT $ "hnLink:see=" ++ show (map hHashName see)
   seeVal <- mapM (hnAddress hn) $ filter hIsSeed see
 
   -- TODO: sort out relay/bridge
