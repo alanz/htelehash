@@ -5,11 +5,14 @@
 
 module TeleHash.Utils
   (
-   TeleHash
+    Defaults(..)
+  , defaults
+  , TeleHash
   , Signal(..)
   , Reply(..)
   , Switch(..)
   , showSwitch
+  , Seek(..)
   , PathId(..)
   , SeedInfo(..)
   , Bucket(..)
@@ -39,7 +42,8 @@ module TeleHash.Utils
   , HashContainer(..)
   , HashCrypto(..)
   , Parts(..)
-  , Channel(..)
+  , RawChannel(..)
+  , showChan
   , ChannelId(..)
   , unChannelId
   , channelSlot
@@ -73,6 +77,9 @@ module TeleHash.Utils
   , showJson
   , parseJs
 
+  , pathValid
+  , isTimeOut
+
   , putHN
   , getHN
   , getHNsafe
@@ -87,8 +94,6 @@ module TeleHash.Utils
   , storeHashInDht
   , getAllLiveSeedsFromDht
   ) where
-
-
 
 
 import Control.Applicative
@@ -141,6 +146,40 @@ import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 
+data Defaults = Defaults
+  { chanTimeout :: Int
+  , seekTimeout :: Int
+  , chanAutoAck :: Int
+  , chanResend :: Int
+  , chanOutBuf :: Int
+  , chanInBuf :: Int
+  , natTimeout :: Int
+  , idleTimeout :: Int
+  , linkTimer :: Int
+  , linkMax :: Int
+  , linkK :: Int
+  }
+
+-- ---------------------------------------------------------------------
+
+defaults :: Defaults
+defaults = Defaults
+  {
+  chanTimeout = 10000, -- how long before for ending durable channels w/ no acks
+  seekTimeout = 3000, -- shorter tolerance for seeks, is far more lossy
+  chanAutoAck = 1000, -- is how often we auto ack if the app isn't generating responses in a durable channel
+  chanResend  = 2000, -- resend the last packet after this long if it wasn't acked in a durable channel
+  chanOutBuf  = 100, -- max size of outgoing buffer before applying backpressure
+  chanInBuf   = 50, -- how many incoming packets to cache during processing/misses
+  natTimeout  = 60*1000, -- nat timeout for inactivity
+  idleTimeout = 5*60*1000, -- defaults.nat_timeout; -- overall inactivity timeout
+  linkTimer   = 55*1000, -- defaults.nat_timeout - (5*1000); -- how often the DHT link maintenance runs
+  linkMax     = 256,  -- maximum number of links to maintain overall (minimum one packet per link timer)
+  linkK       = 8  -- maximum number of links to maintain per bucket
+  }
+
+-- ---------------------------------------------------------------------
+
 -- The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
 --
 type TeleHash = StateT Switch IO
@@ -163,8 +202,8 @@ data HashContainer = H
   { hHashName   :: !HashName
   , hSelf       :: !(Maybe HashCrypto)
   , hCsid       :: !(Maybe String)
-  , hChans      :: !(Map.Map ChannelId Channel)
-  , hPaths      :: ![Path]
+  , hChans      :: !(Map.Map ChannelId RawChannel)
+  , hPaths      :: !(Map.Map PathJson Path)
   , hTo         :: !(Maybe Path)
   , hIsAlive    :: !Bool
   , hIsPublic   :: !Bool
@@ -254,7 +293,7 @@ type PathPriority = Int
 data Path = Path
       { pJson     :: !PathJson
 
-      , pRelay    :: !(Maybe Channel)  -- relay
+      , pRelay    :: !(Maybe RawChannel)  -- relay
       , pId       :: !(Maybe HashName) -- local
       , pLastIn   :: !(Maybe ClockTime)
       , pLastOut  :: !(Maybe ClockTime)
@@ -454,7 +493,7 @@ rxTelexToTelex rx
 
 -- ---------------------------------------------------------------------
 
-data Channel = Chan
+data RawChannel = Chan
   { chType     :: !String
   , chCallBack :: !RxCallBack
   , chId       :: !ChannelId
@@ -465,6 +504,12 @@ data Channel = Chan
   , chEnded    :: !Bool
   , chDone     :: !Bool
   } deriving (Show,Eq,Ord)
+
+showChan :: RawChannel -> String
+showChan chan = "(" ++ intercalate "," [(chType chan),(show $ chHashName chan),(show $ chId chan)]
+                ++ ")"
+
+-- ---------------------------------------------------------------------
 
 instance Show (CallBack) where
   show _ = "CallBack"
@@ -584,8 +629,8 @@ data Switch = Switch
        , swAll        :: !(Map.Map HashName HashContainer)
        , swBuckets    :: !(Map.Map HashDistance Bucket)
        , swCapacity   :: ![String]
-       , swRels       :: !(Map.Map String (Bool -> RxTelex -> Channel -> TeleHash ()))
-       , swRaws       :: !(Map.Map String (Bool -> RxTelex -> Channel -> TeleHash ()))
+       , swRels       :: !(Map.Map String (Bool -> RxTelex -> RawChannel -> TeleHash ()))
+       , swRaws       :: !(Map.Map String (Bool -> RxTelex -> RawChannel -> TeleHash ()))
        , swPaths      :: !(Map.Map PathId Path)
        , swBridgeCache :: ![String]
        , swNetworks    :: !(Map.Map PathType (PathId,(Path -> LinePacket -> Maybe HashName -> TeleHash ())))
@@ -620,6 +665,8 @@ data Switch = Switch
        , swIsOnline :: !Bool
 
 
+       , swSeeks    :: !(Map.Map HashName Seek)
+
        , swWaits :: [String]
        , swWaiting :: Maybe (TeleHash ())
        -- , swWait :: Bool -> IO ()
@@ -639,11 +686,21 @@ showSwitch :: Switch -> String
 showSwitch sw =
   ("switch:"++ show (swHashname sw)
   ++ "\nlinescount=" ++ show (Map.size $ swLines sw)
-  ++" hashcount:" ++  show (Map.size $ swAll sw)
-  ++"\n  " ++ (intercalate "\n  " (map show $ Map.keys (swAll sw)))
-  ++"\nbucketCount:" ++ show (Map.size (swBuckets sw))
-  ++"\nbuckets:" ++ show (swBuckets sw)
+  ++ "\n  " ++ show (swLines sw)
+  ++ "\nhashcount:" ++  show (Map.size $ swAll sw)
+  ++ "\n  " ++ (intercalate "\n  " (map show $ Map.keys (swAll sw)))
+  ++ "\nbucketCount:" ++ show (Map.size (swBuckets sw))
+  ++ "\nbuckets:" ++ show (swBuckets sw)
   )
+
+-- ---------------------------------------------------------------------
+
+-- |Structure to manage the seek process
+data Seek = Seek
+      { sHashName :: HashName -- for convenience
+
+      } deriving (Show)
+
 
 -- ---------------------------------------------------------------------
 
@@ -652,9 +709,9 @@ type CallBack = TeleHash ()
 nullCb :: TeleHash ()
 nullCb = return ()
 
-type RxCallBack = Bool -> RxTelex -> Channel -> TeleHash ()
+type RxCallBack = Bool -> RxTelex -> RawChannel -> TeleHash ()
 
-nullRxCb :: Bool -> RxTelex -> Channel -> TeleHash ()
+nullRxCb :: Bool -> RxTelex -> RawChannel -> TeleHash ()
 nullRxCb _ _ _= return ()
 
 type HnCallBack = HashName -> TeleHash ()
@@ -779,6 +836,42 @@ parseJs v = r
 
 -- ---------------------------------------------------------------------
 
+-- |validate if a network path is acceptable to stop at
+pathValid :: ClockTime -> Maybe Path -> Bool
+pathValid _ Nothing = False
+pathValid timeNow (Just path) =
+  if pGone path
+    then False
+    else
+      if (pathType path == PtRelay) && pRelay path == Nothing
+        then True -- active relays are always valid
+        else
+          if pLastIn path == Nothing
+            then False -- all the rest must have received to be valid
+            else (not $ isTimeOut timeNow (pLastIn path) (natTimeout defaults))
+{-
+// validate if a network path is acceptable to stop at
+function pathValid(path)
+{
+  if(!path || path.gone) return false;
+  if(path.type == "relay" && !path.relay.ended) return true; // active relays are always valid
+  if(!path.lastIn) return false; // all else must receive to be valid
+  if(Date.now() - path.lastIn < defaults.nat_timeout) return true; // received anything recently is good
+  return false;
+}
+
+-}
+
+-- ---------------------------------------------------------------------
+
+isTimeOut :: ClockTime -> Maybe ClockTime -> Int -> Bool
+isTimeOut (TOD secs _picos) mt millis
+ = case mt of
+     Nothing -> True
+     Just (TOD s _) -> (secs - s) < (fromIntegral millis `div` 1000)
+
+-- ---------------------------------------------------------------------
+
 -- Utility
 
 -- ---------------------------------------------------------------------
@@ -818,14 +911,14 @@ incPCounter = do
 
 -- ---------------------------------------------------------------------
 
-putChan :: HashName -> Channel -> TeleHash ()
+putChan :: HashName -> RawChannel -> TeleHash ()
 putChan hn chan = do
   -- logT $ "putChan:" ++ show (hn,chId chan)
   hc <- getHNsafe hn ("putChan " ++ show hn)
   let chans = Map.insert (chId chan) chan (hChans hc)
   putHN $ hc { hChans = chans }
 
-getChan :: HashName -> ChannelId -> TeleHash (Maybe Channel)
+getChan :: HashName -> ChannelId -> TeleHash (Maybe RawChannel)
 getChan hn cid = do
   -- logT $ "getChan:" ++ show (hn,cid)
   hc <- getHNsafe hn "getChan"

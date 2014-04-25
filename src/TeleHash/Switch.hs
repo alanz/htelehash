@@ -2,9 +2,7 @@
 
 module TeleHash.Switch
   (
-    Defaults(..)
-  , defaults
-  , initial_switch
+    initial_switch
   , startSwitchThread
   ) where
 
@@ -24,8 +22,8 @@ import Data.Char
 import Data.IP
 import Data.List
 import Data.Maybe
-import Data.String.Utils
 import Data.Scientific
+import Data.String.Utils
 import Data.Typeable
 import Network.BSD
 import Prelude hiding (id, (.), head, either, catch)
@@ -59,8 +57,8 @@ import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 
-localIP = "10.0.0.28"
--- localIP = "10.2.2.83"
+-- localIP = "10.0.0.28"
+localIP = "10.2.2.83"
 
 -- ---------------------------------------------------------------------
 --
@@ -490,40 +488,6 @@ seed253 =
 
 -- ---------------------------------------------------------------------
 
-data Defaults = Defaults
-  { chanTimeout :: Int
-  , seekTimeout :: Int
-  , chanAutoAck :: Int
-  , chanResend :: Int
-  , chanOutBuf :: Int
-  , chanInBuf :: Int
-  , natTimeout :: Int
-  , idleTimeout :: Int
-  , linkTimer :: Int
-  , linkMax :: Int
-  , linkK :: Int
-  }
-
--- ---------------------------------------------------------------------
-
-defaults :: Defaults
-defaults = Defaults
-  {
-  chanTimeout = 10000, -- how long before for ending durable channels w/ no acks
-  seekTimeout = 3000, -- shorter tolerance for seeks, is far more lossy
-  chanAutoAck = 1000, -- is how often we auto ack if the app isn't generating responses in a durable channel
-  chanResend  = 2000, -- resend the last packet after this long if it wasn't acked in a durable channel
-  chanOutBuf  = 100, -- max size of outgoing buffer before applying backpressure
-  chanInBuf   = 50, -- how many incoming packets to cache during processing/misses
-  natTimeout  = 60*1000, -- nat timeout for inactivity
-  idleTimeout = 5*60*1000, -- defaults.nat_timeout; -- overall inactivity timeout
-  linkTimer   = 55*1000, -- defaults.nat_timeout - (5*1000); -- how often the DHT link maintenance runs
-  linkMax     = 256,  -- maximum number of links to maintain overall (minimum one packet per link timer)
-  linkK       = 8  -- maximum number of links to maintain per bucket
-  }
-
--- ---------------------------------------------------------------------
-
 initial_switch :: IO Switch
 initial_switch = do
   rng <- initRNG
@@ -585,6 +549,7 @@ initial_switch = do
                , ("link",   inLink)
                ]
 
+      , swSeeks = Map.empty
       , swWaits = []
       , swWaiting = Nothing
 
@@ -1452,7 +1417,6 @@ function whois(hashname)
 -}
 -- ---------------------------------------------------------------------
 
--- ---------------------------------------------------------------------
 
 -- |handle all incoming line packets, post decryption
 -- The hn holds the from
@@ -1602,7 +1566,8 @@ hnPathEnd hn path = do
       let hn2 = if hTo hn == Just path
                  then hn {hTo = Nothing}
                  else hn
-          paths = filter (/=path) (hPaths hn)
+          -- paths = filter (/=path) (Map.elems (hPaths hn))
+          paths = Map.delete (pJson path) (hPaths hn)
       putHN $ hn2 { hPaths = paths }
       logT $ "PATH END" ++ show path
 
@@ -1640,7 +1605,7 @@ hnPathIn hn path = do
                   else hn
       putHN hn1
       -- cull any invalid paths of the same type
-      forM_ (hPaths hn1) $ \other -> do
+      forM_ (Map.elems $ hPaths hn1) $ \other -> do
         if ((other == path1) -- ++AZ++ TODO: check what we define as equality
            || (pathType other /= pathType path1))
           then return ()
@@ -1680,12 +1645,14 @@ hnPathIn hn path = do
                  else hnNow
   logT $ "hnPathIn: hTo=" ++ show (hTo hnNow2)
 
+  let path2 = path1 {pLastIn = Just timeNow }
   putHN hnNow2 { hIsAlive = pathValid timeNow (hTo hnNow2)
                , hRecvAt = Just timeNow
+               , hPaths = Map.insert (pJson path2) path2 (hPaths hnNow2)
                }
 
 
-  return $ path1 {pLastIn = Just timeNow }
+  return path2
 {-
   hn.pathIn = function(path)
   {
@@ -1785,7 +1752,7 @@ hnSend hn packet = do
           return False
         Just lpacket -> do
           -- logT $ "hnSend: hnOpen returned packet" -- ++ show lpacket
-          forM_ (hPaths hn2) $ \path -> do
+          forM_ (Map.elems $ hPaths hn2) $ \path -> do
             send path lpacket (Just $ hHashName hn2)
           return True
 
@@ -1906,7 +1873,7 @@ hnSend hn packet = do
 hnSync :: HashName -> TeleHash ()
 hnSync hn = do
   hc <- getHNsafe hn "hnSync"
-  logT $ "SYNCING:" ++ show hn ++ " " ++ (intercalate "," $ map showPath (hPaths hc))
+  logT $ "SYNCING:" ++ show hn ++ " " ++ (intercalate "," $ map showPath (Map.elems $ hPaths hc))
 
   -- compose all of our known paths we can send to them
   paths <- hnPathsOut hn
@@ -1916,7 +1883,7 @@ hnSync hn = do
 
   -- check all paths at once
   forM_ paths $ \path -> do
-    logT $ "PATHLOOP" ++ show (length (hPaths hc)) ++ "," ++ showPath path
+    logT $ "PATHLOOP" ++ show (Map.size (hPaths hc)) ++ "," ++ showPath path
     logT $ "hnSync: must process local/relay paths when implemented"
     -- if(["relay","local"].indexOf(path.type) == -1) js.path = path.json;
 
@@ -1925,12 +1892,16 @@ hnSync hn = do
     let js = HM.fromList [("priority",Number 1)] :: (HM.HashMap Text.Text Aeson.Value)
     let js2 = HM.insert "paths" (toJSON paths) js
 
-    let cb :: Bool -> RxTelex -> Channel -> TeleHash ()
+    let cb :: Bool -> RxTelex -> RawChannel -> TeleHash ()
         cb err packet chan = do
+          logT $ "hnSync.cb " ++ intercalate "," [show err,showJson (rtJs packet),showChan chan]
+           -- hnSync.cbTrue,{"end":true,"c":5,"priority":2,"path":{"ip":"10.2.2.83","port":49285,"type":"ipv4"}},(path,HN "3036d9b6f9525660b71d58bacd80d0ef0f6e191f1622daefd461823c366eb4fc",CID 5)
+
           -- when it actually errored and hasn't been active, invalidate it
           if err
             then do
               logT $ "hnSync:must check for lastIn activity since the send"
+              -- assert False undefined
             else do
               inPath True packet chan
 
@@ -2007,9 +1978,9 @@ hnOpen hn = do
 hnPathsOut :: HashName -> TeleHash [Path]
 hnPathsOut hn = do
   hc <- getHNsafe hn "hnPathsOut"
-  if (hIsLocal hc)
+  if False -- (hIsLocal hc)
     then return []
-    else return $ filter isLocalPath (hPaths hc)
+    else return $ filter isLocalPath (Map.elems $ hPaths hc)
 
 {-
   // generate current paths array to them, for peer and paths requests
@@ -2032,7 +2003,7 @@ telexToPacket telex = do
   case (HM.toList $ tJson telex) of
     [] -> return $ telex { tPacket = Just newPacket}
     js -> do
-      logT $ "telexToPacket: encoded js=" ++ show (encode (tJson telex))
+      logT $ "telexToPacket: encoded js=" ++ (BC.unpack $ lbsTocbs $ encode (tJson telex))
       let packet = newPacket { paHead = HeadJson (lbsTocbs $ encode (tJson telex)) }
       return $ telex { tPacket = Just packet}
 
@@ -2126,7 +2097,7 @@ partsMatch parts1 parts2 = r
 -}
 -- TODO: This is the switch level one, that just calls the hn one
 -- was swStart
-start :: HashContainer -> String -> a -> RxCallBack -> TeleHash Channel
+start :: HashContainer -> String -> a -> RxCallBack -> TeleHash RawChannel
 start hashname typ arg cb = (assert False undefined)
 
 -- ---------------------------------------------------------------------
@@ -2418,21 +2389,38 @@ function deopenize(self, open)
 seek :: HashName -> (String -> TeleHash () ) -> TeleHash ()
 seek hname callback = do
   logT $ "seek:" ++ show hname
-  mhn <- whois hname
-  case mhn of
-    Nothing -> callback "invalid hashname"
-    Just hn -> do
-      logT $ "seek:not implemented"
-      -- SEND seek {"seek":"f50","type":"seek","c":10}
 
-      -- load all seeds and sort to get top 3
-      seeds <- getAllLiveSeedsFromDht
-      let sortFunc a b = compare (dhash hname (hHashName a)) (dhash hname (hHashName b))
-          seeds2 = sortBy sortFunc seeds
-          seeds3 = take 3 seeds2
-      logT $ "seek:seeds3=" ++ show (map hHashName seeds3)
-      assert False undefined -- carry on here
-      return ()
+  -- Do we already have one?
+  seeks <- gets swSeeks
+  case Map.lookup hname seeks of
+    Nothing -> do
+      logT $ "seek: starting new seek for " ++ show hname
+      mhn <- whois hname
+      case mhn of
+        Nothing -> callback "invalid hashname"
+        Just hn -> do
+          -- logT $ "seek:not implemented"
+          -- SEND seek {"seek":"f50","type":"seek","c":10}
+
+          -- load all seeds and sort to get top 3
+          seeds <- getAllLiveSeedsFromDht
+          let sortFunc a b = compare (dhash hname (hHashName a)) (dhash hname (hHashName b))
+              seeds2 = sortBy sortFunc seeds
+              seeds3 = take 3 seeds2
+          dht <- gets swBuckets
+          logT $ "seek:swBuckets=" ++ show dht
+          logT $ "seek:seeds=" ++ show (map hHashName seeds)
+          logT $ "seek:seeds3=" ++ show (map hHashName seeds3)
+          if null seeds3
+            then do
+              -- no live seeds, nothing to be done
+              return ()
+            else do
+              assert False undefined -- carry on here
+
+    Just s -> do
+      logT $ "seek: found existing seek " ++ show s
+      assert False undefined
 
 {-
 // seek the dht for this hashname
@@ -2580,293 +2568,6 @@ chan_t chan_new(switch_t s, hn_t to, char *type, uint32_t id)
 
 -}
 
--- create an unreliable channel
--- was swRaw
-hnRaw :: HashContainer -> String -> Telex -> RxCallBack -> TeleHash Channel
-hnRaw hn typ arg callback = do
-  sw <- get
-  (hn',chanId) <- case tChanId arg of
-    Just i  -> return (hn,i)
-    Nothing -> return (hn { hChanOut = (hChanOut hn) + 2},hChanOut hn)
-  let
-    chan = Chan { chType = typ
-                , chCallBack = callback
-                , chId = chanId
-                , chHashName = hHashName hn
-                , chLast = Nothing
-                , chSentAt = Nothing
-                , chRxAt = Nothing
-                , chEnded = False
-                , chDone = False
-                }
-  putHN hn'
-  putChan (hHashName hn) chan
-  hn2 <- getHNsafe (hHashName hn) "raw"
-
-  logT "raw:must implement timeout"
-
-  -- debug("new unreliable channel",hn.hashname,chan.type,chan.id);
-  logT $ "new unreliable channel " ++ show (hHashName hn,chType chan,chId chan)
-
-  if not (HM.null (tJson arg))
-    then do
-      -- let msg = rxTelexToTelex arg
-      let msg = arg { tJson = HM.insert "type" (toJSON typ) (tJson arg)}
-      chanSendRaw (hHashName hn2) chan msg
-    else return ()
-
-  -- WIP: carry on here with the send
-{-
-  // send optional initial packet with type set
-  if(arg.js)
-  {
-    arg.js.type = type;
-    chan.send(arg);
-    // retry if asked to, TODO use timeout for better time
-    if(arg.retry)
-    {
-      var at = 1000;
-      function retry(){
-        if(chan.ended || chan.recvAt) return; // means we're gone or received a packet
-        chan.send(arg);
-        if(at < 4000) at *= 2;
-        arg.retry--;
-        if(arg.retry) setTimeout(retry, at);
-      };
-      setTimeout(retry, at);
-    }
-  }
--}
-  logT "raw not implemented"
-  return chan
-
-{-
-
-// create an unreliable channel
-function raw(type, arg, callback)
-{
-  var hn = this;
-  var chan = {type:type, callback:callback};
-  chan.id = arg.id;
-  if(!chan.id)
-  {
-    chan.id = hn.chanOut;
-    hn.chanOut += 2;
-  }
-  hn.chans[chan.id] = chan;
-
-  // raw channels always timeout/expire after the last sent/received packet
-  if(!arg.timeout) arg.timeout = defaults.chan_timeout;
-  function timer()
-  {
-    if(chan.timer) clearTimeout(chan.timer);
-    chan.timer = setTimeout(function(){
-      chan.fail({js:{err:"timeout"}});
-    }, arg.timeout);
-  }
-  chan.timeout = function(timeout)
-  {
-    arg.timeout = timeout;
-    timer();
-  }
-
-  chan.hashname = hn.hashname; // for convenience
-
-  debug("new unreliable channel",hn.hashname,chan.type,chan.id);
-
-
-
-  // send optional initial packet with type set
-  if(arg.js)
-  {
-    arg.js.type = type;
-    chan.send(arg);
-    // retry if asked to, TODO use timeout for better time
-    if(arg.retry)
-    {
-      var at = 1000;
-      function retry(){
-        if(chan.ended || chan.recvAt) return; // means we're gone or received a packet
-        chan.send(arg);
-        if(at < 4000) at *= 2;
-        arg.retry--;
-        if(arg.retry) setTimeout(retry, at);
-      };
-      setTimeout(retry, at);
-    }
-  }
-
-  return chan;
-}
--}
-
--- ---------------------------------------------------------------------
-
--- !process packets at a raw level, very little to do
-chanReceive :: HashContainer -> Channel -> RxTelex -> TeleHash ()
-chanReceive hn chan packet = do
-  logT $ "chanReceive on " ++ show (hHashName hn,chId chan)
-  case (Map.lookup (chId chan) (hChans hn)) of
-    Nothing -> do
-      logT $ "dropping receive packet to dead channel" ++ show (chId chan,rtJs packet)
-      return ()
-    Just _ -> do
-      --  if err'd or ended, delete ourselves
-      let errOrFail = (HM.member "err" (rtJs packet)) || (HM.member "end" (rtJs packet))
-      if errOrFail
-        then do
-          chanFail (hHashName hn) chan Nothing
-        else return ()
-      -- cache last received network
-      timeNow <- io getClockTime
-      let chan' = chan { chLast = Just (rtSender packet)
-                       , chRxAt = Just timeNow
-                       }
-      putChan (hHashName hn) chan'
-      (chCallBack chan') errOrFail packet chan'
-      logT $ "chanReceive:must do timer()"
-
-{-
-  // process packets at a raw level, very little to do
-  chan.receive = function(packet)
-  {
-    if(!hn.chans[chan.id]) return debug("dropping receive packet to dead channel",chan.id,packet.js)
-    // if err'd or ended, delete ourselves
-    if(packet.js.err || packet.js.end) chan.fail();
-    chan.last = packet.sender; // cache last received network
-    chan.recvAt = Date.now();
-    chan.callback(packet.js.err||packet.js.end, packet, chan);
-    timer();
-  }
--}
--- ---------------------------------------------------------------------
-
--- | minimal wrapper to send raw packets
-chanSendRaw :: HashName -> Channel -> Telex -> TeleHash ()
-chanSendRaw hname chan packet = do
-  -- logT $ "chanSendRaw entered for " ++ show (chId chan)
-  hn <- getHNsafe hname "chanSendRaw"
-  case Map.lookup (chId chan) (hChans hn) of
-    Nothing -> do
-      logT $ "dropping send packet to dead channel " ++ show (chId chan,packet)
-    Just ch -> do
-      -- logT $ "chanSendRaw got chan to:" ++ show (chHashName ch)
-      let newJson = HM.insert "c" (Number $ fromIntegral $ unChannelId (chId chan)) (tJson packet)
-          packet2 = packet {tJson = newJson}
-      let js = showJson newJson
-      logT $ "SEND " ++ show (chType chan) ++ "," ++ js
-      timeNow <- io getClockTime
-      let ch' = ch { chSentAt = Just timeNow }
-      putChan (hHashName hn) ch'
-      let packet' =
-           case tTo packet2 of
-             Just _ -> packet2
-             Nothing -> -- always send back to the last received for this channel
-                        if pathValid timeNow (chLast ch')
-                          then packet2 { tTo = chLast ch' }
-                          else packet2
-      sentChan <- hnSend hn packet'
-      if HM.member "err" (tJson packet') || HM.member "end" (tJson packet')
-        then chanFail (hHashName hn) ch' Nothing
-        else return ()
-      chanTimer ch'
-
-{-
-  // minimal wrapper to send raw packets
-  chan.send = function(packet)
-  {
-    if(!hn.chans[chan.id]) return debug("dropping send packet to dead channel",chan.id,packet.js);
-    if(!packet.js) packet.js = {};
-    packet.js.c = chan.id;
-    debug("SEND",chan.type,JSON.stringify(packet.js));
-    chan.sentAt = Date.now();
-    if(!packet.to && pathValid(chan.last)) packet.to = chan.last; // always send back to the last received for this channel
-    hn.send(packet);
-    // if err'd or ended, delete ourselves
-    if(packet.js.err || packet.js.end) chan.fail();
-    timer();
-  }
-
-
--}
-
--- ---------------------------------------------------------------------
-
-
-chanFail :: HashName -> Channel -> Maybe RxTelex -> TeleHash ()
-chanFail hn chan mpacket = do
-  if chEnded chan
-    then return ()
-    else do
-      hnChanDone hn (chId chan)
-      case mpacket of
-        Nothing -> return ()
-        Just packet -> do
-          (chCallBack chan) True packet chan
-
-{-
-  chan.fail = function(packet){
-    if(chan.ended) return; // prevent multiple calls
-    hn.chanDone(chan.id);
-    chan.ended = true;
-    if(packet)
-    {
-      packet.from = hn;
-      chan.callback(packet.js.err, packet, chan, function(){});
-    }
-  }
--}
-
-hnChanDone :: HashName -> ChannelId -> TeleHash ()
-hnChanDone hn chid = do
-  mchan <- getChan hn chid
-  case mchan of
-    Nothing -> do
-      logT $ "hnChanDone: channel not found:" ++ show chid
-      return ()
-    Just chan -> do
-      putChan hn (chan { chDone = True })
-
-{-
-  hn.chanDone = function(id)
-  {
-    hn.chans[id] = false;
-  }
--}
-
-chanTimer :: Channel -> TeleHash ()
-chanTimer chan = do
-  logT $ "chanTimer unimplemented"
-  return ()
-
-
--- ---------------------------------------------------------------------
-
--- |validate if a network path is acceptable to stop at
-pathValid :: ClockTime -> Maybe Path -> Bool
-pathValid _ Nothing = False
-pathValid timeNow (Just path) =
-  if pGone path
-    then False
-    else
-      if (pathType path == PtRelay) && pRelay path == Nothing
-        then True -- active relays are always valid
-        else
-          if pLastIn path == Nothing
-            then False -- all the rest must have received to be valid
-            else (not $ isTimeOut timeNow (pLastIn path) (natTimeout defaults))
-{-
-// validate if a network path is acceptable to stop at
-function pathValid(path)
-{
-  if(!path || path.gone) return false;
-  if(path.type == "relay" && !path.relay.ended) return true; // active relays are always valid
-  if(!path.lastIn) return false; // all else must receive to be valid
-  if(Date.now() - path.lastIn < defaults.nat_timeout) return true; // received anything recently is good
-  return false;
-}
-
--}
 -- ---------------------------------------------------------------------
 
 {-
@@ -3115,7 +2816,7 @@ function channel(type, arg, callback)
 
 -- ---------------------------------------------------------------------
 
-inPeer :: Bool -> RxTelex -> Channel -> TeleHash ()
+inPeer :: Bool -> RxTelex -> RawChannel -> TeleHash ()
 inPeer = (assert False undefined)
 {-
 // be the middleman to help NAT hole punch
@@ -3155,7 +2856,7 @@ function inPeer(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
-inConnect :: Bool -> RxTelex -> Channel -> TeleHash ()
+inConnect :: Bool -> RxTelex -> RawChannel -> TeleHash ()
 inConnect = (assert False undefined)
 
 {-
@@ -3191,7 +2892,7 @@ function inConnect(err, packet, chan)
 -}
 -- ---------------------------------------------------------------------
 
-inSeek :: Bool -> RxTelex -> Channel -> TeleHash ()
+inSeek :: Bool -> RxTelex -> RawChannel -> TeleHash ()
 inSeek = (assert False undefined)
 {-
 
@@ -3236,84 +2937,90 @@ function inSeek(err, packet, chan)
 -- ---------------------------------------------------------------------
 
 -- update/respond to network state
-inPath :: Bool -> RxTelex -> Channel -> TeleHash ()
+inPath :: Bool -> RxTelex -> RawChannel -> TeleHash ()
 inPath err packet chan = do
   logT $ "inPath:" ++ show (err,chId chan) ++ showPath (rtSender packet)
   hn <- getHNsafe (chHashName chan) "inPath"
 
   -- check/try any alternate paths
-  case (HM.lookup "paths" (rtJs packet)) of
-    Nothing -> return ()
-    Just p -> do
-      let mp = (fromJSON p) :: Result [PathJson] -- :: Result [PathJson]
-      case mp of
-        Error err1 -> do
-          logT $ "inPath: could not parse paths:" ++ err1
-          return ()
-        Success paths -> do
-          -- logT $ "inPath:packet=" ++ show packet
-          forM_ paths $ \pathJson -> do
-            let path = pathFromPathJson pathJson
-            case pathMatch path (hPaths hn) of
-              Just p -> do
-                -- logT $ "inPath:pathMatch returned:" ++ show p
-                return ()
-              Nothing -> do
-                -- a new one, experimentally send it a path
-                -- packet.from.raw("path",{js:{priority:1},to:path}, inPath);
-                let msg = packet { rtJs = HM.fromList [("priority",toJSON (1::Int))] 
-                                 , rtSender = path
-                                 }
-                chanSendRaw (hHashName hn) chan  (rxTelexToTelex msg)
-            return ()
+  done <- case (HM.lookup "paths" (rtJs packet)) of
+            Nothing -> return True
+            Just p -> do
+              let mp = (fromJSON p) :: Result [PathJson] -- :: Result [PathJson]
+              case mp of
+                Error err1 -> do
+                  logT $ "inPath: could not parse paths:" ++ err1
+                  return True -- do not continue with junk
+                Success paths -> do
+                  -- logT $ "inPath:packet=" ++ show packet
+                  r <- forM paths $ \pathJson -> do
+                    let path = pathFromPathJson pathJson
+                    case pathMatch path (Map.elems $ hPaths hn) of
+                      Just p -> do
+                        -- logT $ "inPath:pathMatch returned:" ++ show p
+                        return "seen"
+                      Nothing -> do
+                        -- a new one, experimentally send it a path
+                        -- packet.from.raw("path",{js:{priority:1},to:path}, inPath);
+                        let msg = packet { rtJs = HM.fromList [("priority",toJSON (1::Int))]
+                                         , rtSender = path
+                                         }
+                        chanSendRaw (hHashName hn) chan  (rxTelexToTelex msg)
+                        return "new"
+                  return $ any (=="seen") r
 
-  -- if path info from a seed, update our public ip/port
-  if hIsSeed hn
-    then do
-      case HM.lookup "path" (rtJs packet) of
-        Nothing -> return ()
-        Just p -> do
-          let mp = (fromJSON p) :: Result PathJson -- :: Result [PathJson]
-          case mp of
-            Error err -> do
-              logT $ "inPath: could not parse path:" ++ err
-              return ()
-            Success pj@(PIPv4 (PathIPv4 ip _)) -> do
-              if not (isLocalIP ip)
-                then do
-                  sw <- get
-                  logT $ "updating public ipv4" ++ show (swPub4 sw,ip)
-                  pathSet (pathFromPathJson pj)
-                else return ()
-            Success _ -> return ()
-    else return ()
+  logT $ "inPath:done=" ++ show done
 
-  -- update any optional priority information
-  case HM.lookup "priority" (rtJs packet) of
-    Nothing -> return ()
-    Just (Number p) -> do
-      putHN $ hn { hPriority = Just (round p)}
-      logT $ "inPath:must still adjust relative priorities. Once it clarifies."
-      -- if(packet.from.to && packet.sender.priority > packet.from.to.priority) packet.from.to = packet.sender; // make the default!
-  if err
-    then return () -- bye bye bye!
+  if done
+    then return ()
     else do
-      -- need to respond, prioritize everything above relay
-      let priority = 2
-      logT $ "inPath: must still prioritise over relay"
-      -- var priority = (packet.sender.type == "relay") ? 0 : 2;
+      -- if path info from a seed, update our public ip/port
+      if hIsSeed hn
+        then do
+          case HM.lookup "path" (rtJs packet) of
+            Nothing -> return ()
+            Just p -> do
+              let mp = (fromJSON p) :: Result PathJson -- :: Result [PathJson]
+              case mp of
+                Error err -> do
+                  logT $ "inPath: could not parse path:" ++ err
+                  return ()
+                Success pj@(PIPv4 (PathIPv4 ip _)) -> do
+                  if not (isLocalIP ip)
+                    then do
+                      sw <- get
+                      logT $ "updating public ipv4" ++ show (swPub4 sw,ip)
+                      pathSet (pathFromPathJson pj)
+                    else return ()
+                Success _ -> return ()
+        else return ()
 
-      hn2 <- getHNsafe (hHashName hn) "inPath"
-      let rxPathJson = HM.lookupDefault (Object HM.empty) "path" (rtJs packet)
-          msg1 = rxTelexToTelex packet
-          msg2 = msg1 { tJson = HM.fromList [("end",toJSON True)
-                                            ,("priority",Number priority)
-                                            ,("path", rxPathJson)
-                                            ] }
-          msg3 = msg2 { tTo = Just (rtSender packet) }
-      -- chan.send({js:{end:true, priority:priority, path:packet.sender.json}});
-      -- logT $ "inPath:sending 2" ++ (show msg3)
-      chanSendRaw (hHashName hn2) chan msg3
+      -- update any optional priority information
+      case HM.lookup "priority" (rtJs packet) of
+        Nothing -> return ()
+        Just (Number p) -> do
+          putHN $ hn { hPriority = Just (round p)}
+          logT $ "inPath:must still adjust relative priorities. Once it clarifies."
+          -- if(packet.from.to && packet.sender.priority > packet.from.to.priority) packet.from.to = packet.sender; // make the default!
+      if err
+        then return () -- bye bye bye!
+        else do
+          -- need to respond, prioritize everything above relay
+          let priority = 2
+          logT $ "inPath: must still prioritise over relay"
+          -- var priority = (packet.sender.type == "relay") ? 0 : 2;
+
+          hn2 <- getHNsafe (hHashName hn) "inPath"
+          let rxPathJson = HM.lookupDefault (Object HM.empty) "path" (rtJs packet)
+              msg1 = rxTelexToTelex packet
+              msg2 = msg1 { tJson = HM.fromList [("end",toJSON True)
+                                                ,("priority",Number priority)
+                                                ,("path", rxPathJson)
+                                                ] }
+              msg3 = msg2 { tTo = Just (rtSender packet) }
+          -- chan.send({js:{end:true, priority:priority, path:packet.sender.json}});
+          -- logT $ "inPath:sending 2" ++ (show msg3)
+          chanSendRaw (hHashName hn2) chan msg3
 
 {-
 // update/respond to network state
@@ -3358,7 +3065,7 @@ function inPath(err, packet, chan)
 
 -- ---------------------------------------------------------------------
 
-inBridge :: Bool -> RxTelex -> Channel -> TeleHash ()
+inBridge :: Bool -> RxTelex -> RawChannel -> TeleHash ()
 inBridge = (assert False undefined)
 
 {-
@@ -3393,7 +3100,7 @@ function inBridge(err, packet, chan)
 -- ---------------------------------------------------------------------
 
 -- |Accept a DHT link
-inLink :: Bool -> RxTelex -> Channel -> TeleHash ()
+inLink :: Bool -> RxTelex -> RawChannel -> TeleHash ()
 inLink True _packet _chan = return ()
 inLink err packet chan = do
   logT $ "inLink: must do timeout"
@@ -3487,7 +3194,7 @@ function inLink(err, packet, chan)
 -- ---------------------------------------------------------------------
 
 -- | Process incoming link messages for a linked channel
-inMaintenance :: Bool -> RxTelex -> Channel -> TeleHash ()
+inMaintenance :: Bool -> RxTelex -> RawChannel -> TeleHash ()
 inMaintenance err packet chan = do
   -- ignore if this isn't the main link
   from <- getHNsafe (chHashName chan) "inMaintenance.1"
@@ -3669,7 +3376,7 @@ hnLink hn mcb = do
             callback hn
       logT $ "hnLink: must set retries"
       c <- hnRaw hc "link" msg rawCb
-      logT $ "link: raw returned c=" ++ show c
+      logT $ "link: raw returned c=" ++ showChan c
       return ()
 
 {-
@@ -3987,7 +3694,7 @@ mkHashContainer hn timeNow randomHexVal =
   H { hHashName = hn
     , hChans = Map.empty
     , hSelf = Nothing
-    , hPaths = []
+    , hPaths = Map.empty
     , hIsAlive = False
     , hIsPublic = False
     , hAt = timeNow
@@ -4288,13 +3995,13 @@ hnPathGet hc path = do
       return path
     else do
 -}
-      case pathMatch path (hPaths hc) of
+      case pathMatch path (Map.elems $ hPaths hc) of
         Just p -> return path
         Nothing -> do
-          logT $ "adding new path:" ++ show (length $ hPaths hc) ++ "," ++ showPath path
+          logT $ "adding new path:" ++ show (Map.size $ hPaths hc) ++ "," ++ showPath path
           -- always default to minimum priority
           let path' = path { pPriority = Just (if pathType path == PtRelay then (-1) else 0)}
-          putHN $ hc { hPaths = (hPaths hc) ++ [path']
+          putHN $ hc { hPaths = Map.insert (pJson path') path' (hPaths hc)
                      , hIsPublic = not $ isLocalPath path
                      }
           return path'
@@ -4354,14 +4061,6 @@ linkMaint = do
             -- else chanSendRaw (hHashName hn) chan (seedMsg (swSeed sw))
             else assert False undefined
   return ()
-
--- ---------------------------------------------------------------------
-
-isTimeOut :: ClockTime -> Maybe ClockTime -> Int -> Bool
-isTimeOut (TOD secs _picos) mt millis
- = case mt of
-     Nothing -> True
-     Just (TOD s _) -> (secs - s) < (fromIntegral millis `div` 1000)
 
 -- ---------------------------------------------------------------------
 
@@ -4587,4 +4286,299 @@ expectedKeysPresent :: Aeson.Value -> [String] -> Bool
 expectedKeysPresent (Aeson.Object hm) keys = all present keys
   where
     present k = HM.member (Text.pack k) hm
+
+
+-- ---------------------------------------------------------------------
+
+-- raw channels
+
+{-
+/* CHANNELS API
+hn.channel(type, arg, callback)
+  - used by app to create a reliable channel of given type
+  - arg contains .js and .body for the first packet
+  - callback(err, arg, chan, cbDone)
+    - called when any packet is received (or error/fail)
+    - given the response .js .body in arg
+    - cbDone when arg is processed
+    - chan.send() to send packets
+    - chan.wrap(bulk|stream) to modify interface, replaces this callback handler
+      - chan.bulk(str, cbDone) / onBulk(cbDone(err, str))
+      - chan.read/write
+hn.raw(type, arg, callback)
+  - arg contains .js and .body to create an unreliable channel
+  - callback(err, arg, chan)
+    - called on any packet or error
+    - given the response .js .body in arg
+    - chan.send() to send packets
+
+self.channel(type, callback)
+  - used to listen for incoming reliable channel starts
+  - callback(err, arg, chan, cbDone)
+    - called for any answer or subsequent packets
+    - chan.wrap() to modify
+self.raw(type, callback)
+  - used to listen for incoming unreliable channel starts
+  - callback(err, arg, chan)
+    - called for any incoming packets
+*/
+
+-}
+
+-- ---------------------------------------------------------------------
+-- create an unreliable channel
+-- was swRaw
+hnRaw :: HashContainer -> String -> Telex -> RxCallBack -> TeleHash RawChannel
+hnRaw hn typ arg callback = do
+  sw <- get
+  (hn',chanId) <- case tChanId arg of
+    Just i  -> return (hn,i)
+    Nothing -> return (hn { hChanOut = (hChanOut hn) + 2},hChanOut hn)
+  let
+    chan = Chan { chType = typ
+                , chCallBack = callback
+                , chId = chanId
+                , chHashName = hHashName hn
+                , chLast = Nothing
+                , chSentAt = Nothing
+                , chRxAt = Nothing
+                , chEnded = False
+                , chDone = False
+                }
+  putHN hn'
+  putChan (hHashName hn) chan
+  hn2 <- getHNsafe (hHashName hn) "raw"
+
+  logT "raw:must implement timeout"
+
+  -- debug("new unreliable channel",hn.hashname,chan.type,chan.id);
+  logT $ "new unreliable channel " ++ show (hHashName hn,chType chan,chId chan)
+
+  if not (HM.null (tJson arg))
+    then do
+      -- let msg = rxTelexToTelex arg
+      let msg = arg { tJson = HM.insert "type" (toJSON typ) (tJson arg)}
+      chanSendRaw (hHashName hn2) chan msg
+    else return ()
+
+  -- WIP: carry on here with the send
+{-
+  // send optional initial packet with type set
+  if(arg.js)
+  {
+    arg.js.type = type;
+    chan.send(arg);
+    // retry if asked to, TODO use timeout for better time
+    if(arg.retry)
+    {
+      var at = 1000;
+      function retry(){
+        if(chan.ended || chan.recvAt) return; // means we're gone or received a packet
+        chan.send(arg);
+        if(at < 4000) at *= 2;
+        arg.retry--;
+        if(arg.retry) setTimeout(retry, at);
+      };
+      setTimeout(retry, at);
+    }
+  }
+-}
+  logT "raw not implemented"
+  return chan
+
+{-
+
+// create an unreliable channel
+function raw(type, arg, callback)
+{
+  var hn = this;
+  var chan = {type:type, callback:callback};
+  chan.id = arg.id;
+  if(!chan.id)
+  {
+    chan.id = hn.chanOut;
+    hn.chanOut += 2;
+  }
+  hn.chans[chan.id] = chan;
+
+  // raw channels always timeout/expire after the last sent/received packet
+  if(!arg.timeout) arg.timeout = defaults.chan_timeout;
+  function timer()
+  {
+    if(chan.timer) clearTimeout(chan.timer);
+    chan.timer = setTimeout(function(){
+      chan.fail({js:{err:"timeout"}});
+    }, arg.timeout);
+  }
+  chan.timeout = function(timeout)
+  {
+    arg.timeout = timeout;
+    timer();
+  }
+
+  chan.hashname = hn.hashname; // for convenience
+
+  debug("new unreliable channel",hn.hashname,chan.type,chan.id);
+
+
+
+  // send optional initial packet with type set
+  if(arg.js)
+  {
+    arg.js.type = type;
+    chan.send(arg);
+    // retry if asked to, TODO use timeout for better time
+    if(arg.retry)
+    {
+      var at = 1000;
+      function retry(){
+        if(chan.ended || chan.recvAt) return; // means we're gone or received a packet
+        chan.send(arg);
+        if(at < 4000) at *= 2;
+        arg.retry--;
+        if(arg.retry) setTimeout(retry, at);
+      };
+      setTimeout(retry, at);
+    }
+  }
+
+  return chan;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+-- !process packets at a raw level, very little to do
+chanReceive :: HashContainer -> RawChannel -> RxTelex -> TeleHash ()
+chanReceive hn chan packet = do
+  logT $ "chanReceive on " ++ show (hHashName hn,chId chan)
+  case (Map.lookup (chId chan) (hChans hn)) of
+    Nothing -> do
+      logT $ "dropping receive packet to dead channel" ++ show (chId chan,rtJs packet)
+      return ()
+    Just _ -> do
+      --  if err'd or ended, delete ourselves
+      let errOrFail = (HM.member "err" (rtJs packet)) || (HM.member "end" (rtJs packet))
+      if errOrFail
+        then do
+          chanFail (hHashName hn) chan Nothing
+        else return ()
+      -- cache last received network
+      timeNow <- io getClockTime
+      let chan' = chan { chLast = Just (rtSender packet)
+                       , chRxAt = Just timeNow
+                       }
+      putChan (hHashName hn) chan'
+      logT $ "chanReceive calling callback for " ++ showChan chan'
+      (chCallBack chan') errOrFail packet chan'
+      logT $ "chanReceive:must do timer()"
+
+{-
+  // process packets at a raw level, very little to do
+  chan.receive = function(packet)
+  {
+    if(!hn.chans[chan.id]) return debug("dropping receive packet to dead channel",chan.id,packet.js)
+    // if err'd or ended, delete ourselves
+    if(packet.js.err || packet.js.end) chan.fail();
+    chan.last = packet.sender; // cache last received network
+    chan.recvAt = Date.now();
+    chan.callback(packet.js.err||packet.js.end, packet, chan);
+    timer();
+  }
+-}
+
+-- ---------------------------------------------------------------------
+
+-- | minimal wrapper to send raw packets
+chanSendRaw :: HashName -> RawChannel -> Telex -> TeleHash ()
+chanSendRaw hname chan packet = do
+  -- logT $ "chanSendRaw entered for " ++ show (chId chan)
+  hn <- getHNsafe hname "chanSendRaw"
+  case Map.lookup (chId chan) (hChans hn) of
+    Nothing -> do
+      logT $ "dropping send packet to dead channel " ++ show (chId chan,packet)
+    Just ch -> do
+      -- logT $ "chanSendRaw got chan to:" ++ show (chHashName ch)
+      let newJson = HM.insert "c" (Number $ fromIntegral $ unChannelId (chId chan)) (tJson packet)
+          packet2 = packet {tJson = newJson}
+      let js = showJson newJson
+      logT $ "SEND " ++ show (chType chan) ++ "," ++ js
+      timeNow <- io getClockTime
+      let ch' = ch { chSentAt = Just timeNow }
+      putChan (hHashName hn) ch'
+      let packet' =
+           case tTo packet2 of
+             Just _ -> packet2
+             Nothing -> -- always send back to the last received for this channel
+                        if pathValid timeNow (chLast ch')
+                          then packet2 { tTo = chLast ch' }
+                          else packet2
+      sentChan <- hnSend hn packet'
+      if HM.member "err" (tJson packet') || HM.member "end" (tJson packet')
+        then chanFail (hHashName hn) ch' Nothing
+        else return ()
+      chanTimer ch'
+
+{-
+  // minimal wrapper to send raw packets
+  chan.send = function(packet)
+  {
+    if(!hn.chans[chan.id]) return debug("dropping send packet to dead channel",chan.id,packet.js);
+    if(!packet.js) packet.js = {};
+    packet.js.c = chan.id;
+    debug("SEND",chan.type,JSON.stringify(packet.js));
+    chan.sentAt = Date.now();
+    if(!packet.to && pathValid(chan.last)) packet.to = chan.last; // always send back to the last received for this channel
+    hn.send(packet);
+    // if err'd or ended, delete ourselves
+    if(packet.js.err || packet.js.end) chan.fail();
+    timer();
+  }
+
+
+-}
+
+-- ---------------------------------------------------------------------
+
+chanFail :: HashName -> RawChannel -> Maybe RxTelex -> TeleHash ()
+chanFail hn chan mpacket = do
+  if chEnded chan
+    then return ()
+    else do
+      hnChanDone hn (chId chan)
+      case mpacket of
+        Nothing -> return ()
+        Just packet -> do
+          logT $ "chanFail calling callback for " ++ showChan chan
+          (chCallBack chan) True packet chan
+
+{-
+  chan.fail = function(packet){
+    if(chan.ended) return; // prevent multiple calls
+    hn.chanDone(chan.id);
+    chan.ended = true;
+    if(packet)
+    {
+      packet.from = hn;
+      chan.callback(packet.js.err, packet, chan, function(){});
+    }
+  }
+-}
+
+hnChanDone :: HashName -> ChannelId -> TeleHash ()
+hnChanDone hn chid = do
+  delChan hn chid
+
+{-
+  hn.chanDone = function(id)
+  {
+    hn.chans[id] = false;
+  }
+-}
+
+chanTimer :: RawChannel -> TeleHash ()
+chanTimer chan = do
+  logT $ "chanTimer unimplemented"
+  return ()
+
 
