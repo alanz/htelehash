@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module TeleHash.New.Utils
   (
     logT
@@ -7,7 +8,11 @@ module TeleHash.New.Utils
   , glast
   , gtail
   , gfromJust
-  ,
+
+  , getTxTelexChannelId
+  , getRxTelexChannelId
+  , getTxTelexType
+  , getRxTelexType
   ) where
 
 import Control.Applicative
@@ -37,6 +42,7 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 import TeleHash.New.Types
+import TeleHash.New.Packet
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -86,3 +92,38 @@ gfromJust :: [Char] -> Maybe a -> a
 gfromJust _info (Just h) = h
 gfromJust  info Nothing = error $ "gfromJust " ++ info ++ " Nothing"
 
+-- ---------------------------------------------------------------------
+
+getTxTelexChannelId :: TxTelex -> Maybe ChannelId
+getTxTelexChannelId packet
+  = case (HM.lookup "c" (tJs packet)) of
+      Nothing -> Nothing
+      Just (Number n) -> Just $ CID (round n)
+      _ -> Nothing
+
+-- ---------------------------------------------------------------------
+
+getRxTelexChannelId :: RxTelex -> Maybe ChannelId
+getRxTelexChannelId packet
+  = case (HM.lookup "c" (rtJs packet)) of
+      Nothing -> Nothing
+      Just (Number n) -> Just $ CID (round n)
+      _ -> Nothing
+
+-- ---------------------------------------------------------------------
+
+getTxTelexType :: TxTelex -> Maybe String
+getTxTelexType packet
+  = case (HM.lookup "type" (tJs packet)) of
+      Nothing -> Nothing
+      Just (String typ) -> Just (Text.unpack typ)
+      _ -> Nothing
+
+-- ---------------------------------------------------------------------
+
+getRxTelexType :: RxTelex -> Maybe String
+getRxTelexType packet
+  = case (HM.lookup "type" (rtJs packet)) of
+      Nothing -> Nothing
+      Just (String typ) -> Just (Text.unpack typ)
+      _ -> Nothing

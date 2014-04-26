@@ -7,7 +7,9 @@ module TeleHash.New.Types
   , unHN
   , Uid
   , PathId
-  , Packet
+  , TxTelex(..)
+  , RxTelex(..)
+  , packet_new
   , TeleHash
   , Switch(..)
 
@@ -16,6 +18,8 @@ module TeleHash.New.Types
   -- * Channel related types
   , TChan(..)
   , ChannelId(..)
+  , unChannelId
+  , channelSlot
   , ChannelHandler
   , ChannelState(..)
   ) where
@@ -48,6 +52,7 @@ import System.Log.Logger
 import System.Time
 
 import TeleHash.New.Crypt
+import TeleHash.New.Packet
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -78,8 +83,35 @@ type Uid = Int
 
 type PathId = Int
 
-data Packet = Packet
-     deriving Show
+
+data RxTelex = RxTelex
+      { rtId     :: !Int
+      , rtSender :: !Path
+      , rtAt     :: !ClockTime
+      , rtJs     :: !(HM.HashMap Text.Text Aeson.Value)
+      , rtPacket :: !Packet
+      , rtChanId :: !(Maybe ChannelId) -- tFrom
+      -- , tFrom   :: !HashName
+      } deriving Show
+
+data TxTelex = TxTelex
+      { tId     :: !Int
+      , tTo     :: !HashName
+      , tOut    :: !Path
+      , tJs     :: !(HM.HashMap Text.Text Aeson.Value)
+      , tPacket :: !Packet
+      } deriving Show
+
+packet_new :: HashName -> TxTelex
+packet_new to =
+  TxTelex
+    { tId = 0
+    , tTo = to
+    , tOut = nullPath
+    , tJs = HM.empty
+    , tPacket = newPacket
+    }
+
 
 data Bucket = Bucket
       {
@@ -96,9 +128,9 @@ type TeleHash = StateT Switch IO
 data Switch = Switch
        { swId         :: !HashName
        , swSeeds      :: !Bucket
-       , swOut        :: ![Packet] -- packets waiting to be delivered
-       , swLast       :: !(Maybe Packet)
-       , swParts      :: !Packet
+       , swOut        :: ![TxTelex] -- packets waiting to be delivered
+       , swLast       :: !(Maybe TxTelex)
+       , swParts      :: !TxTelex
        , swChans      :: !(Map.Map Uid TChan) -- channels waiting to be processed
        , swUid        :: !Uid
        , swCap        :: !Int
@@ -140,9 +172,9 @@ data HashContainer = H
   , hCrypto   :: !Crypto
   , hPaths    :: ![Path]
   , hLast     :: !(Maybe Path)
-  , hChans    :: !(Map.Map Uid TChan)
-  , hOnopen   :: !(Maybe Packet)
-  , hParts    :: !(Maybe Packet)
+  , hChans    :: !(Map.Map ChannelId TChan)
+  , hOnopen   :: !(Maybe TxTelex)
+  , hParts    :: !(Maybe TxTelex)
   } deriving (Show)
 
 {-
@@ -164,6 +196,8 @@ typedef struct hn_struct
 data Path = Path
      {
      } deriving Show
+
+nullPath = Path
 
 -- ---------------------------------------------------------------------
 -- Channel related types
@@ -203,13 +237,33 @@ data TChan = TChan
   , chType     :: !String
   , chReliable :: !Bool
   , chState    :: !ChannelState
-  , chPath     :: !(Maybe PathId)
+  , chLast     :: !(Maybe PathId)
   , chNext     :: !(Maybe ChannelId)
-  , chIn       :: ![Packet] -- queue of incoming messages
-  , chInEnd    :: !(Maybe Packet)
-  , chNotes    :: ![Packet]
+  , chIn       :: ![RxTelex] -- queue of incoming messages
+  , chInEnd    :: !(Maybe RxTelex)
+  , chNotes    :: ![RxTelex]
   , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
   } deriving Show
+
+{-
+typedef struct chan_struct
+{
+  uint32_t id;
+  unsigned char hexid[9], uid[9];
+  struct switch_struct *s;
+  struct hn_struct *to;
+  char *type;
+  int reliable;
+  enum {STARTING, OPEN, ENDING, ENDED} state;
+  struct path_struct *last;
+  struct chan_struct *next;
+  packet_t in, inend, notes;
+  void *arg; // used by app
+  void *seq, *miss; // used by chan_seq/chan_miss
+  void (*handler)(struct chan_struct*); // auto-fire callback
+} *chan_t;
+
+-}
 
 
 -- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)

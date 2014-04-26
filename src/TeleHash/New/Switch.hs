@@ -9,6 +9,7 @@ module TeleHash.New.Switch
    -- * Channels
    , putChan
    , rmChan
+   , getChanFromHn
    , rmChanFromHn
 
    , getNextUid
@@ -100,6 +101,13 @@ putChan chan = do
 
 -- ---------------------------------------------------------------------
 
+getChanFromHn :: HashName -> ChannelId -> TeleHash (Maybe TChan)
+getChanFromHn hn cid = do
+  hc <- getHN hn
+  return $ Map.lookup cid (hChans hc)
+
+-- ---------------------------------------------------------------------
+
 rmChan :: Uid -> TeleHash ()
 rmChan uid = do
   sw <- get
@@ -107,10 +115,10 @@ rmChan uid = do
 
 -- ---------------------------------------------------------------------
 
-rmChanFromHn :: HashName -> Uid -> TeleHash ()
-rmChanFromHn hn uid = do
+rmChanFromHn :: HashName -> ChannelId -> TeleHash ()
+rmChanFromHn hn cid = do
   withHN hn $ \hc ->
-    hc { hChans = Map.delete uid (hChans hc) }
+    hc { hChans = Map.delete cid (hChans hc) }
 
 -- ---------------------------------------------------------------------
 

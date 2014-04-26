@@ -8,7 +8,7 @@ module TeleHash.New.Chan
   , chan_free
   , chan_reliable
   , chan_reset
-  , 
+  , chan_in
   ) where
 
 import Control.Applicative
@@ -41,6 +41,7 @@ import TeleHash.New.Hn
 import TeleHash.New.Types
 import TeleHash.New.Switch
 import TeleHash.New.Utils
+import TeleHash.New.Path
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -108,14 +109,14 @@ chan_new toHn typ mcid = do
               , chType     = typ
               , chReliable = False
               , chState    = ChanStarting
-              , chPath     = Nothing
+              , chLast     = Nothing
               , chNext     = Nothing
               , chIn       = []
               , chInEnd    = Nothing
               , chNotes    = []
               , chHandler  = Nothing
               }
-  withHN toHn (\hc -> hc { hChans = Map.insert uid chan (hChans hc) })
+  withHN toHn (\hc -> hc { hChans = Map.insert cid chan (hChans hc) })
 
   putChan chan
   return chan
@@ -163,7 +164,7 @@ chan_free chan = do
   -- remove references
   chan_dequeue chan
 
-  rmChanFromHn (chTo chan) (chUid chan)
+  rmChanFromHn (chTo chan) (chId chan)
   rmChan (chUid chan)
 
   if (chReliable chan)
@@ -226,10 +227,25 @@ chan_t chan_reliable(chan_t c, int window);
 chan_reliable = assert False undefined
 
 -- ---------------------------------------------------------------------
+
 -- |resets channel state for a hashname
 chan_reset :: HashName -> TeleHash ()
 chan_reset toHn = do
-  assert False undefined
+  sw <- get
+  to1 <- getHN toHn
+  let base = if (swId sw) < (hHashName to1)
+               then 1 else 2
+  withHN toHn $ \hc -> if (hChanOut hc == CID 0)
+                        then hc {hChanOut = CID base}
+                        else hc
+  -- fail any existing chans from them
+  withHNM toHn $ \hc -> do
+    forM_ (Map.elems $ hChans hc) $ \ch -> do
+      if channelSlot (chId ch) == channelSlot (CID base)
+        then return ()
+        else void $ chan_fail ch Nothing
+    hc' <- getHN (hHashName hc)
+    return hc'
 {-
 void chan_reset(switch_t s, hn_t to)
 {
@@ -238,27 +254,122 @@ void chan_reset(switch_t s, hn_t to)
   // fail any existing chans from them
   xht_walk(to->chans, &walkend, (void*)&base);
 }
+void walkend(xht_t h, const char *key, void *val, void *arg)
+{
+  uint8_t base = *(uint8_t*)arg;
+  chan_t c = (chan_t)val;
+  if(c->id % 2 != base % 2) chan_fail(c,NULL);
+}
 
 -}
 
+-- ---------------------------------------------------------------------
+
+-- |returns existing or creates new and adds to from
+chan_in :: HashName -> RxTelex -> TeleHash (Maybe TChan)
+chan_in hn p = do
+  case getRxTelexChannelId p of
+    Nothing -> do
+      logT $ "chan_in:no channel id"
+      assert False undefined
+    Just cid -> do
+      mchan <- getChanFromHn hn cid
+      case mchan of
+        Just chan -> return (Just chan)
+        Nothing -> do
+          from <- getHN hn
+          let mtyp = getRxTelexType p
+          if (mtyp == Nothing
+             || channelSlot cid == channelSlot (hChanOut from))
+            then return Nothing
+            else do
+              chan <- chan_new hn (gfromJust "chan_in" mtyp) (Just cid)
+              return (Just chan)
+
+{-
+chan_t chan_in(switch_t s, hn_t from, packet_t p)
+{
+  chan_t c;
+  unsigned long id;
+  char hexid[9], *type;
+  if(!from || !p) return NULL;
+
+  id = strtol(packet_get_str(p,"c"), NULL, 10);
+  util_hex((unsigned char*)&id,4,(unsigned char*)hexid);
+  c = xht_get(from->chans, hexid);
+  if(c) return c;
+
+  type = packet_get_str(p, "type");
+  if(!type || id % 2 == from->chanOut % 2) return NULL;
+
+  return chan_new(s, from, type, id);
+}
+
+-}
 
 -- ---------------------------------------------------------------------
+
+-- |create a packet ready to be sent for this channel, returns Nothing for backpressure
+chan_packet :: TChan -> TeleHash (Maybe TxTelex)
+chan_packet chan = do
+  if chState chan == ChanEnded
+    then return Nothing
+    else do
+      mp <- if chReliable chan
+              then chan_seq_packet chan
+              else return $ Just (packet_new (chTo chan))
+      case mp of
+        Nothing -> return Nothing
+        Just p -> do
+          let p1 = p { tTo = chTo chan }
+          alive <- path_alive (chLast chan)
+          let p2 = if alive
+                     then p1 { tOut = chLast chan }
+                     else p1
+          assert False undefined
+
 {-
-// returns existing or creates new and adds to from
-chan_t chan_in(struct switch_struct *s, struct hn_struct *from, packet_t p);
+// create a packet ready to be sent for this channel
+packet_t chan_packet(chan_t c)
+{
+  packet_t p;
+  if(!c || c->state == ENDED) return NULL;
+  p = c->reliable?chan_seq_packet(c):packet_new();
+  if(!p) return NULL;
+  p->to = c->to;
+  if(path_alive(c->last)) p->out = c->last;
+  if(c->state == STARTING)
+  {
+    packet_set_str(p,"type",c->type);
+  }
+  packet_set_int(p,"c",c->id);
+  return p;
+}
 
-// create a packet ready to be sent for this channel, returns NULL for backpressure
-packet_t chan_packet(chan_t c);
+-}
+-- ---------------------------------------------------------------------
 
+{-
 // pop a packet from this channel to be processed, caller must free
 packet_t chan_pop(chan_t c);
 
 // flags channel as gracefully ended, optionally adds end to packet
 chan_t chan_end(chan_t c, packet_t p);
+-}
 
+-- ---------------------------------------------------------------------
+{-
 // immediately fails/removes channel, if err tries to send message
 chan_t chan_fail(chan_t c, char *err);
+-}
 
+-- |immediately fails/removes channel, if err tries to send message
+chan_fail :: TChan -> Maybe String -> TeleHash TChan
+chan_fail chan merr = do
+  assert False undefined
+
+-- ---------------------------------------------------------------------
+{-
 // get the next incoming note waiting to be handled
 packet_t chan_notes(chan_t c);
 
@@ -294,10 +405,19 @@ chan_dequeue = assert False undefined
 {-
 // just add ack/miss
 packet_t chan_seq_ack(chan_t c, packet_t p);
+-}
 
+-- ---------------------------------------------------------------------
+{-
 // new sequenced packet, NULL for backpressure
 packet_t chan_seq_packet(chan_t c);
+-}
+-- |new sequenced packet, NULL for backpressure
+chan_seq_packet :: TChan -> TeleHash (Maybe TxTelex)
+chan_seq_packet = assert False undefined
 
+-- ---------------------------------------------------------------------
+{-
 // buffers packets until they're in order, 1 if some are ready to pop
 int chan_seq_receive(chan_t c, packet_t p);
 
