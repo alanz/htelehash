@@ -1,11 +1,23 @@
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 module TeleHash.New.Types
   (
     HashName
   , unHN
+  , Uid
   , PathId
   , Packet
   , TeleHash
-  , Switch
+  , Switch(..)
+
+  , HashContainer(..)
+
+  -- * Channel related types
+  , TChan(..)
+  , ChannelId(..)
+  , ChannelHandler
+  , ChannelState(..)
   ) where
 
 import Control.Applicative
@@ -35,6 +47,8 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
+import TeleHash.New.Crypt
+
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
 import qualified Crypto.Types.PubKey.ECDSA as ECDSA
@@ -60,19 +74,163 @@ data HashName = HN String
 unHN :: HashName -> String
 unHN (HN s) = s
 
+type Uid = Int
 
 type PathId = Int
 
 data Packet = Packet
      deriving Show
+
+data Bucket = Bucket
+      {
+      } deriving Show
+
 -- ---------------------------------------------------------------------
 
 -- The 'TeleHash' monad, a wrapper over IO, carrying the switch's immutable state.
 --
 type TeleHash = StateT Switch IO
 
+-- ---------------------------------------------------------------------
+
 data Switch = Switch
-       {
-       swWindow :: !Int
-       )
+       { swId         :: !HashName
+       , swSeeds      :: !Bucket
+       , swOut        :: ![Packet] -- packets waiting to be delivered
+       , swLast       :: !(Maybe Packet)
+       , swParts      :: !Packet
+       , swChans      :: !(Map.Map Uid TChan) -- channels waiting to be processed
+       , swUid        :: !Uid
+       , swCap        :: !Int
+       , swWindow     :: !Int
+       , swIsSeed     :: !Bool
+       , swIndex      :: !(Map.Map HashName HashContainer)
+       , swIndexChans :: !(Map.Map Uid TChan)
+       , swHandler    :: !(HashContainer -> TeleHash ()) -- called w/ a hn that has no key info
+       }
      deriving Show
+
+instance Show (HashContainer -> TeleHash ()) where
+  show _ = "(HashContainer -> TeleHash ())"
+
+{-
+
+typedef struct switch_struct
+{
+  hn_t id;
+  bucket_t seeds;
+  packet_t out, last; // packets waiting to be delivered
+  packet_t parts;
+  chan_t chans; // channels waiting to be processed
+  uint32_t uid;
+  int cap, window;
+  uint8_t isSeed;
+  xht_t index;
+  void (*handler)(struct switch_struct *, hn_t); // called w/ a hn that has no key info
+} *switch_t;
+
+-}
+
+-- ---------------------------------------------------------------------
+
+data HashContainer = H
+  { hHashName :: !HashName
+  , hCsid     :: !String
+  , hChanOut  :: !ChannelId
+  , hCrypto   :: !Crypto
+  , hPaths    :: ![Path]
+  , hLast     :: !(Maybe Path)
+  , hChans    :: !(Map.Map Uid TChan)
+  , hOnopen   :: !(Maybe Packet)
+  , hParts    :: !(Maybe Packet)
+  } deriving (Show)
+
+{-
+typedef struct hn_struct
+{
+  unsigned char hashname[32];
+  char csid, hexid[3], hexname[65]; // for convenience
+  unsigned long chanOut;
+  crypt_t c;
+  path_t *paths, last;
+  xht_t chans;
+  packet_t onopen, parts;
+} *hn_t;
+-}
+
+
+-- ---------------------------------------------------------------------
+
+data Path = Path
+     {
+     } deriving Show
+
+-- ---------------------------------------------------------------------
+-- Channel related types
+
+{-
+
+typedef struct chan_struct
+{
+  uint32_t id;
+  unsigned char hexid[9], uid[9];
+  struct switch_struct *s;
+  struct hn_struct *to;
+  char *type;
+  int reliable;
+  enum {STARTING, OPEN, ENDING, ENDED} state;
+  struct path_struct *last;
+  struct chan_struct *next;
+  packet_t in, inend, notes;
+  void *arg; // used by app
+  void *seq, *miss; // used by chan_seq/chan_miss
+  void (*handler)(struct chan_struct*); // auto-fire callback
+} *chan_t;
+-}
+
+data ChannelState = ChanStarting | ChanOpen | ChanEnding | ChanEnded
+         deriving (Eq,Show)
+
+type ChannelHandler = (ChannelId -> TeleHash ())
+
+instance Show ChannelHandler where
+  show _ = "ChannelHandler"
+
+data TChan = TChan
+  { chId       :: !ChannelId -- also hexid,uid
+  , chUid      :: !Uid -- Switch wide unique Id. pk.
+  , chTo       :: !HashName
+  , chType     :: !String
+  , chReliable :: !Bool
+  , chState    :: !ChannelState
+  , chPath     :: !(Maybe PathId)
+  , chNext     :: !(Maybe ChannelId)
+  , chIn       :: ![Packet] -- queue of incoming messages
+  , chInEnd    :: !(Maybe Packet)
+  , chNotes    :: ![Packet]
+  , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
+  } deriving Show
+
+
+-- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)
+data ChannelId = CID Int deriving (Eq,Show,Ord)
+unChannelId (CID c) = c
+
+instance Num ChannelId where
+  (CID a) + (CID b) = CID (a + b)
+  (CID _) * (CID _) = error "cannot multiply ChannelIds"
+  (CID a) - (CID b) = CID (a - b)
+  abs (CID a) = CID (abs a)
+  signum (CID a) = CID (signum a)
+  fromInteger i = CID (fromIntegral i)
+
+channelSlot :: ChannelId -> Int
+channelSlot (CID n) = n `mod` 2
+
+instance Aeson.ToJSON ChannelId where
+  toJSON (CID c) = Aeson.toJSON c
+
+instance Aeson.FromJSON ChannelId where
+  parseJSON c = CID <$> Aeson.parseJSON c
+
+-- ---------------------------------------------------------------------
