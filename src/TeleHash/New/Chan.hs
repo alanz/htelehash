@@ -9,6 +9,16 @@ module TeleHash.New.Chan
   , chan_reliable
   , chan_reset
   , chan_in
+  , chan_packet
+  , chan_pop
+  , chan_end
+  , chan_fail
+  , chan_notes
+  , chan_note
+  , chan_reply
+  , chan_receive
+  , chan_send
+  , chan_ack
   ) where
 
 import Control.Applicative
@@ -42,6 +52,7 @@ import TeleHash.New.Types
 import TeleHash.New.Switch
 import TeleHash.New.Utils
 import TeleHash.New.Path
+import TeleHash.New.Packet
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -112,7 +123,6 @@ chan_new toHn typ mcid = do
               , chLast     = Nothing
               , chNext     = Nothing
               , chIn       = []
-              , chInEnd    = Nothing
               , chNotes    = []
               , chHandler  = Nothing
               }
@@ -324,9 +334,13 @@ chan_packet chan = do
           let p1 = p { tTo = chTo chan }
           alive <- path_alive (chLast chan)
           let p2 = if alive
-                     then p1 { tOut = chLast chan }
+                     then p1 { tOut = gfromJust "chan_packet" $ chLast chan }
                      else p1
-          assert False undefined
+              p3 = if chState chan == ChanStarting
+                     then packet_set_str p2 "type" (chType chan)
+                     else p2
+              p4 = packet_set_int p3 "c" (chId chan)
+          return (Just p4)
 
 {-
 // create a packet ready to be sent for this channel
@@ -352,46 +366,304 @@ packet_t chan_packet(chan_t c)
 {-
 // pop a packet from this channel to be processed, caller must free
 packet_t chan_pop(chan_t c);
+-}
+-- TODO: use channel uid, rather than direct
+chan_pop :: TChan -> TeleHash (Maybe RxTelex)
+chan_pop chan = do
+  if (chReliable chan)
+    then chan_seq_pop chan
+    else do
+      if null (chIn chan)
+        then return Nothing
+        else do
+          let p = head (chIn chan)
+          let c2 = chan { chIn = tail (chIn chan) }
+          putChan c2
+          return (Just p)
 
-// flags channel as gracefully ended, optionally adds end to packet
-chan_t chan_end(chan_t c, packet_t p);
+{-
+packet_t chan_pop(chan_t c)
+{
+  packet_t p;
+  if(!c) return NULL;
+  if(c->reliable) return chan_seq_pop(c);
+  if(!c->in) return NULL;
+  p = c->in;
+  c->in = p->next;
+  if(!c->in) c->inend = NULL;
+  return p;
+}
+
+-}
+-- ---------------------------------------------------------------------
+
+-- flags channel as gracefully ended, optionally adds end to packet
+chan_end :: TChan -> Maybe TxTelex -> TeleHash (TChan,Maybe TxTelex)
+chan_end chan p = do
+  logT $ "channel end " ++ show (chId chan)
+  let
+    pret = case p of
+             Nothing -> Nothing
+             Just pkt -> Just (packet_set pkt "end" True)
+    c2 = chan {chState = ChanEnded }
+  putChan c2
+  chan_queue c2
+  return (c2,pret)
+
+{-
+chan_t chan_end(chan_t c, packet_t p)
+{
+  DEBUG_PRINTF("channel end %d",c->id);
+  if(p) packet_set(p,"end","true",4);
+  // if(c->reliable) TODO set to ENDING, add timer for cleanup and then queue for free
+  c->state = CHAN_ENDED;
+  chan_queue(c);
+  return c;
+}
 -}
 
 -- ---------------------------------------------------------------------
-{-
-// immediately fails/removes channel, if err tries to send message
-chan_t chan_fail(chan_t c, char *err);
--}
 
 -- |immediately fails/removes channel, if err tries to send message
 chan_fail :: TChan -> Maybe String -> TeleHash TChan
-chan_fail chan merr = do
+chan_fail c merr = do
+  logT $ "channel fail " ++ show (chId c,merr)
+  case merr of
+    Just err -> do
+      if chState c /= ChanEnded
+        then do
+          e <- chan_packet c
+          e2 <- packet_set_str e "err" err
+          chan_send c e2
+        else return ()
+    Nothing -> return ()
   assert False undefined
+
+{-
+// immediately fails/removes channel, if err tries to send message
+chan_t chan_fail(chan_t c, char *err)
+{
+  packet_t e;
+  DEBUG_PRINTF("channel fail %d %s",c->id,err);
+  if(err && c->state != CHAN_ENDED && (e = chan_packet(c)))
+  {
+    packet_set_str(e,"err",err);
+    chan_send(c,e);
+  }
+  // no grace period for reliable
+  c->state = CHAN_ENDED;
+  xht_set(c->to->chans,(char*)c->hexid,NULL);
+  chan_queue(c);
+  return c;
+}
+
+-}
+
+-- ---------------------------------------------------------------------
+
+-- |get the next incoming note waiting to be handled
+chan_notes :: TChan -> TeleHash (Maybe RxTelex)
+chan_notes c = do
+  if null (chNotes c)
+    then return Nothing
+    else do
+      let r = head (chNotes c)
+          c2 = c {chNotes = tail (chNotes c)}
+      putChan c2
+      return (Just r)
+
+{-
+// get the next incoming note waiting to be handled
+packet_t chan_notes(chan_t c)
+{
+  packet_t note;
+  if(!c) return NULL;
+  note = c->notes;
+  if(note) c->notes = note->next;
+  return note;
+}
+
+-}
+
+-- ---------------------------------------------------------------------
+
+-- |stamp or create (if Nothing) a note as from this channel
+chan_note :: TChan -> Maybe RxTelex -> TeleHash RxTelex
+chan_note c mnote = do
+  let r = case mnote of
+           Just n -> n
+           Nothing -> packet_new_rx
+  let r2 = packet_set_str r ".from" (chUid c)
+  return r2
+
+{-
+// create a new note tied to this channel
+packet_t chan_note(chan_t c, packet_t note)
+{
+  if(!note) note = packet_new();
+  packet_set_str(note,".from",(char*)c->uid);
+  return note;
+}
+-}
+-- ---------------------------------------------------------------------
+
+-- |send the note back to the creating channel, frees note
+chan_reply :: TChan -> RxTelex -> TeleHash Int
+chan_reply c note = do
+  assert False undefined
+
+{-
+// send this note back to the sender
+int chan_reply(chan_t c, packet_t note)
+{
+  char *from;
+  if(!c || !(from = packet_get_str(note,".from"))) return -1;
+  packet_set_str(note,".to",from);
+  packet_set_str(note,".from",(char*)c->uid);
+  return switch_note(c->s,note);
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+-- |internal, receives/processes incoming packet
+chan_receive :: TChan -> RxTelex -> TeleHash ()
+chan_receive c p = do
+  logT $ "channel in " ++ show (chId c,p)
+  if chState c == ChanEnded
+    then return ()
+    else do
+      let
+        c2 = if chState c == ChanStarting
+               then c {chState = ChanOpen}
+               else c
+        c3 = case packet_get_str p "end" of
+               Nothing -> c2
+               Just _  -> c2 {chState = ChanEnding }
+        c4 = case packet_get_str p "err" of
+               Nothing -> c3
+               Just _  -> c3 {chState = ChanEnding }
+      putChan c4
+      if (chReliable c4)
+        then do
+          chan_miss_check c4 p
+          r <- chan_seq_receive c4 p
+          if r
+            then return () -- queued, nothing more to do
+            else chan_queue c4
+          assert False undefined
+        else do
+          -- add to the end of the raw packet queue
+          let c5 = c4 { chIn = (chIn c4) ++ [p]}
+          putChan c5
+          -- queue for processing
+          chan_queue c5
+{-
+// internal, receives/processes incoming packet
+void chan_receive(chan_t c, packet_t p)
+{
+  if(!c || !p) return;
+  DEBUG_PRINTF("channel in %d %.*s",c->id,p->json_len,p->json);
+  if(c->state == CHAN_ENDED) return (void)packet_free(p);
+  if(c->state == CHAN_STARTING) c->state = CHAN_OPEN;
+  if(util_cmp(packet_get_str(p,"end"),"true") == 0) c->state = CHAN_ENDING;
+  if(packet_get_str(p,"err")) c->state = CHAN_ENDED;
+
+  if(c->reliable)
+  {
+    chan_miss_check(c,p);
+    if(!chan_seq_receive(c,p)) return; // queued, nothing to do
+  }else{
+    // add to the end of the raw packet queue
+    if(c->inend)
+    {
+      c->inend->next = p;
+      c->inend = p;
+      return;
+    }
+    c->inend = c->in = p;
+  }
+
+  // queue for processing
+  chan_queue(c);
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+-- |smartly send based on what type of channel we are
+chan_send :: TChan -> TxTelex -> TeleHash ()
+chan_send c p = do
+  logT $ "channel out " ++ show (chId c,p)
+  p2 <- if chReliable c
+          then do
+            p' <- packet_copy p
+            return p'
+          else return p
+  switch_send p2
+
+{-
+// smartly send based on what type of channel we are
+void chan_send(chan_t c, packet_t p)
+{
+  if(!p) return;
+  if(!c) return (void)packet_free(p);
+  DEBUG_PRINTF("channel out %d %.*s",c->id,p->json_len,p->json);
+  if(c->reliable) p = packet_copy(p); // miss tracks the original p = chan_packet()
+  switch_send(c->s,p);
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+-- |optionally sends reliable channel ack-only if needed
+chan_ack :: TChan -> TeleHash ()
+chan_ack c = do
+  if not (chReliable c)
+    then return ()
+    else do
+      mp <- chan_seq_ack c Nothing
+      case mp of
+        Nothing -> return ()
+        Just p -> do
+          logT $ "channel ack " ++ show (chId c,p)
+          switch_send p
+
+{-
+// optionally sends reliable channel ack-only if needed
+void chan_ack(chan_t c)
+{
+  packet_t p;
+  if(!c || !c->reliable) return;
+  p = chan_seq_ack(c,NULL);
+  if(!p) return;
+  DEBUG_PRINTF("channel ack %d %.*s",c->id,p->json_len,p->json);
+  switch_send(c->s,p);
+}
+-}
 
 -- ---------------------------------------------------------------------
 {-
-// get the next incoming note waiting to be handled
-packet_t chan_notes(chan_t c);
-
-// stamp or create (if NULL) a note as from this channel
-packet_t chan_note(chan_t c, packet_t note);
-
-// send the note back to the creating channel, frees note
-int chan_reply(chan_t c, packet_t note);
-
-// internal, receives/processes incoming packet
-void chan_receive(chan_t c, packet_t p);
-
-// smartly send based on what type of channel we are
-void chan_send(chan_t c, packet_t p);
-
-// optionally sends reliable channel ack-only if needed
-void chan_ack(chan_t c);
-
 // add to switch processing queue
 void chan_queue(chan_t c);
 -}
+-- |add to switch processing queue
+chan_queue :: TChan -> TeleHash ()
+chan_queue = assert False undefined
 
+{-
+// add to processing queue
+void chan_queue(chan_t c)
+{
+  chan_t step;
+  // add to switch queue
+  step = c->s->chans;
+  if(c->next || step == c) return;
+  while(step && (step = step->next)) if(step == c) return;
+  c->next = c->s->chans;
+  c->s->chans = c;
+}
+-}
 -- ---------------------------------------------------------------------
 {-
 // remove from switch processing queue
@@ -406,6 +678,8 @@ chan_dequeue = assert False undefined
 // just add ack/miss
 packet_t chan_seq_ack(chan_t c, packet_t p);
 -}
+chan_seq_ack :: TChan -> Maybe TxTelex -> TeleHash (Maybe TxTelex)
+chan_seq_ack = assert False undefined
 
 -- ---------------------------------------------------------------------
 {-
@@ -420,10 +694,21 @@ chan_seq_packet = assert False undefined
 {-
 // buffers packets until they're in order, 1 if some are ready to pop
 int chan_seq_receive(chan_t c, packet_t p);
+-}
+-- |buffers packets until they're in order, 1 if some are ready to pop
+chan_seq_receive :: TChan -> RxTelex -> TeleHash Bool
+chan_seq_receive = assert False undefined
 
+-- ---------------------------------------------------------------------
+{-
 // returns ordered packets for this channel, updates ack
 packet_t chan_seq_pop(chan_t c);
+-}
+chan_seq_pop :: TChan -> TeleHash (Maybe RxTelex)
+chan_seq_pop = assert False undefined
 
+-- ---------------------------------------------------------------------
+{-
 void chan_seq_init(chan_t c);
 -}
 
@@ -440,10 +725,19 @@ int chan_miss_track(chan_t c, uint32_t seq, packet_t p);
 
 // buffers packets to be able to re-send
 void chan_miss_send(chan_t c, packet_t p);
+-}
 
+-- ---------------------------------------------------------------------
+{-
 // looks at incoming miss/ack and resends or frees
 void chan_miss_check(chan_t c, packet_t p);
+-}
+-- |looks at incoming miss/ack and resends or frees
+chan_miss_check :: TChan -> RxTelex -> TeleHash ()
+chan_miss_check = assert False undefined
 
+-- ---------------------------------------------------------------------
+{-
 void chan_miss_init(chan_t c);
 -}
 

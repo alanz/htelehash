@@ -13,6 +13,9 @@ module TeleHash.New.Switch
    , rmChanFromHn
 
    , getNextUid
+
+   -- * Telehash-c api
+   , switch_send
    ) where
 
 import Control.Applicative
@@ -129,3 +132,6 @@ getNextUid = do
   put sw { swUid = uid }
   return uid
 
+-- ---------------------------------------------------------------------
+
+switch_send = assert False undefined

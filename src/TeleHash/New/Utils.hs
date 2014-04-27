@@ -1,7 +1,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 module TeleHash.New.Utils
   (
-    logT
+  -- * telehash-c api
+    packet_set_str
+  , packet_get_str
+  , packet_set_int
+  , packet_set
+  , packet_copy
+
+  -- * Original
+  , logT
   , io
 
   , ghead
@@ -61,6 +69,19 @@ import qualified Data.Text.Lazy as TL
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
 import qualified System.Random as R
+
+-- ---------------------------------------------------------------------
+-- telehash-c api
+
+packet_set_str = assert False undefined
+packet_get_str = assert False undefined
+packet_set_int = assert False undefined
+
+packet_set :: (Aeson.ToJSON a) => TxTelex -> String -> a -> TxTelex
+packet_set = assert False undefined
+
+packet_copy :: TxTelex -> TeleHash TxTelex
+packet_copy = assert False undefined
 
 -- ---------------------------------------------------------------------
 -- Logging

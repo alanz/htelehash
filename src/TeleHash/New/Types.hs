@@ -9,6 +9,7 @@ module TeleHash.New.Types
   , PathId
   , TxTelex(..)
   , RxTelex(..)
+  , packet_new_rx
   , packet_new
   , TeleHash
   , Switch(..)
@@ -97,17 +98,28 @@ data RxTelex = RxTelex
 data TxTelex = TxTelex
       { tId     :: !Int
       , tTo     :: !HashName
-      , tOut    :: !Path
+      , tOut    :: !PathId
       , tJs     :: !(HM.HashMap Text.Text Aeson.Value)
       , tPacket :: !Packet
       } deriving Show
+
+packet_new_rx :: RxTelex
+packet_new_rx =
+  RxTelex
+    { rtId = 0
+    , rtSender = nullPath
+    , rtAt = TOD 0 0
+    , rtJs = HM.empty
+    , rtPacket = newPacket
+    , rtChanId = Nothing
+    }
 
 packet_new :: HashName -> TxTelex
 packet_new to =
   TxTelex
     { tId = 0
     , tTo = to
-    , tOut = nullPath
+    , tOut = nullPathId
     , tJs = HM.empty
     , tPacket = newPacket
     }
@@ -198,6 +210,7 @@ data Path = Path
      } deriving Show
 
 nullPath = Path
+nullPathId = -1 -- horrible, need better way of doing this
 
 -- ---------------------------------------------------------------------
 -- Channel related types
@@ -240,7 +253,6 @@ data TChan = TChan
   , chLast     :: !(Maybe PathId)
   , chNext     :: !(Maybe ChannelId)
   , chIn       :: ![RxTelex] -- queue of incoming messages
-  , chInEnd    :: !(Maybe RxTelex)
   , chNotes    :: ![RxTelex]
   , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
   } deriving Show
