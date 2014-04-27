@@ -2,8 +2,9 @@
 
 module TeleHash.New.Switch
    (
+     startSwitchThread
    -- * Hashcontainers
-     getHN
+   , getHN
    , putHN
    , withHN
    , withHNM
@@ -48,11 +49,14 @@ import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
+
+import TeleHash.New.Crypt
+import TeleHash.New.Crypto1a
 import TeleHash.New.Hn
+import TeleHash.New.Packet
 import TeleHash.New.Paths
 import TeleHash.New.Types
 import TeleHash.New.Utils
-import TeleHash.New.Crypto1a
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -197,6 +201,26 @@ run ch1 ch2 = do
   h <- gets swH
   _ <- io (forkIO (dolisten h ch1))
 
+  crypt_init
+
+  switch_init testId
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   -- load the id
   -- loadId testId
   -- logT $ "loading id done"
@@ -331,7 +355,7 @@ initialize = do
   ch2 <- newChan
 
   -- Save off the socket, and server address in a handle
-  sw <- initial_switch
+  let sw = switch_new
   return (ch1, ch2, sw {swH = Just (SocketHandle sock)
                        ,swChan = Just ch1})
 
@@ -360,6 +384,71 @@ oneShotTimer timeoutVal signalValue  = do
   let Just channel = mchannel
   void $ io $ forkIO (threadDelay timeoutVal >> writeChan channel signalValue)
   return ()
+
+-- ---------------------------------------------------------------------
+
+doNullSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
+doNullSendDgram msgJson addr = do
+  --logT ("doNullSendDgram[" ++ msgJson ++ "] to " ++ (show addr))
+  logT ("doNullSendDgram" )
+
+-- ---------------------------------------------------------------------
+
+doSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
+doSendDgram (LP msgJson) address = do
+  -- logT $ "doSendDgram to:" ++ show addr
+  Just socketh <- gets swH
+  io (sendDgram socketh msgJson address)
+
+
+-- ---------------------------------------------------------------------
+
+sendDgram :: SocketHandle -> BC.ByteString -> NS.SockAddr -> IO ()
+sendDgram socketh msgJson address =
+  sendstr msgJson
+    where
+      -- Send until everything is done
+      sendstr :: BC.ByteString -> IO ()
+      sendstr omsg
+        | BC.length omsg == 0  = return ()
+        | otherwise = do sent <- SB.sendTo (slSocket socketh) omsg address
+                         sendstr (BC.drop sent omsg)
+
+{-
+sendDgram :: SocketHandle -> String -> NS.SockAddr -> IO ()
+sendDgram socketh msgJson addr =
+  sendstr msgJson
+    where
+      -- Send until everything is done
+      sendstr :: String -> IO ()
+      sendstr [] = return ()
+      sendstr omsg = do sent <- NS.sendTo (slSocket socketh) omsg addr
+                        sendstr (genericDrop sent omsg)
+
+-}
+
+-- ---------------------------------------------------------------------
+
+resolve :: String -> String -> IO (NS.AddrInfo,String,String)
+resolve hostname port = do
+  -- Look up the hostname and port.  Either raises an exception
+  -- or returns a nonempty list.  First element in that list
+  -- is supposed to be the best option.
+  addrinfos <- NS.getAddrInfo Nothing (Just hostname) (Just port)
+  let serveraddr = head addrinfos
+
+  (Just resolvedhost,Just servicename) <- (NS.getNameInfo [NS.NI_NUMERICHOST] True True (NS.addrAddress serveraddr))
+  --putStrLn $ "resolve:" ++ (show hostname) ++ " " ++ (show servicename)
+
+  --return (serveraddr,port)
+  return (serveraddr,resolvedhost,servicename)
+
+-- ---------------------------------------------------------------------
+
+addrFromHostPort :: String -> String -> IO NS.SockAddr
+addrFromHostPort hostname port = do
+  (serveraddr,_,_) <- resolve hostname port
+  return (NS.addrAddress serveraddr)
 
 -- ---------------------------------------------------------------------
 
@@ -598,4 +687,89 @@ seed253 =
 
 -- ---------------------------------------------------------------------
 
-initial_switch = assert False undefined
+switch_new :: Switch
+switch_new =
+  Switch
+       { swId         = HN "foo"
+       , swSeeds      = Bucket
+       , swOut        = [] -- packets waiting to be delivered
+       , swLast       = Nothing
+       , swParts      = packet_new (HN "foo")
+       , swChans      = Map.empty
+       , swUid        = 0
+       , swCap        = 256 -- default cap size
+       , swWindow     = 32 -- default reliable window size
+       , swIsSeed     = False
+       , swIndex      = Map.empty
+       , swIndexChans = Map.empty
+       , swHandler    = nullHandler
+
+       , swH          = Nothing
+       , swChan       = Nothing
+       , swSender     = doSendDgram
+       }
+
+{-
+switch_t switch_new(uint32_t prime)
+{
+  switch_t s;
+  if(!(s = malloc(sizeof (struct switch_struct)))) return NULL;
+  memset(s, 0, sizeof(struct switch_struct));
+  s->cap = 256; // default cap size
+  s->window = 32; // default reliable window size
+  s->index = xht_new(prime?prime:MAXPRIME);
+  s->parts = packet_new();
+  if(!s->index || !s->parts) return switch_free(s);
+  return s;
+}
+
+-}
+
+-- ---------------------------------------------------------------------
+
+switch_init :: Id -> TeleHash ()
+switch_init anId = do
+  logT $ "loading pk " ++ id1a anId ++ " sk " ++ id1a_secret anId
+  crypt_new "1a" (id1a anId)
+  assert False undefined
+{-
+
+int switch_init(switch_t s, packet_t keys)
+{
+  int i = 0, err = 0;
+  char *key, secret[10], csid, *pk, *sk;
+  crypt_t c;
+
+  while((key = packet_get_istr(keys,i)))
+  {
+    i += 2;
+    if(strlen(key) != 2) continue;
+    util_unhex((unsigned char*)key,2,(unsigned char*)&csid);
+    sprintf(secret,"%s_secret",key);
+    pk = packet_get_str(keys,key);
+    sk = packet_get_str(keys,secret);
+    DEBUG_PRINTF("loading pk %s sk %s",pk,sk);
+    c = crypt_new(csid, (unsigned char*)pk, strlen(pk));
+    if(crypt_private(c, (unsigned char*)sk, strlen(sk)))
+    {
+      err = 1;
+      crypt_free(c);
+      continue;
+    }
+    DEBUG_PRINTF("loaded %s",key);
+    xht_set(s->index,(const char*)c->csidHex,(void *)c);
+    packet_set_str(s->parts,c->csidHex,c->part);
+  }
+  
+  packet_free(keys);
+  if(err || !s->parts->json)
+  {
+    DEBUG_PRINTF("key loading failed");
+    return 1;
+  }
+  s->id = hn_getparts(s->index, s->parts);
+  if(!s->id) return 1;
+  return 0;
+}
+
+-}

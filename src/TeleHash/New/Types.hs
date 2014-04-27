@@ -17,6 +17,8 @@ module TeleHash.New.Types
   , packet_new
   , TeleHash
   , Switch(..)
+  , Bucket(..)
+  , nullHandler
 
   , HashContainer(..)
 
@@ -195,6 +197,9 @@ typedef struct switch_struct
 } *switch_t;
 
 -}
+
+nullHandler :: HashContainer -> TeleHash ()
+nullHandler _ = return ()
 
 -- ---------------------------------------------------------------------
 

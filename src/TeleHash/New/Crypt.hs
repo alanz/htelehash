@@ -1,6 +1,7 @@
 module TeleHash.New.Crypt
   (
     crypt_init
+  , crypt_new
   ) where
 
 import Control.Applicative
@@ -89,6 +90,47 @@ int crypt_init()
 {-
 // takes binary or string key format, creates a crypt object
 crypt_t crypt_new(char csid, unsigned char *key, int len);
+-}
+crypt_new :: String -> String -> TeleHash Crypto
+crypt_new csid key = do
+  assert False undefined
+
+{-
+crypt_t crypt_new(char csid, unsigned char *key, int len)
+{
+  crypt_t c;
+  int err = 1;
+
+  if(!csid || !key || !len) return NULL;
+  if(!(c = malloc(sizeof (struct crypt_struct)))) return NULL;
+  memset(c, 0, sizeof (struct crypt_struct));
+  c->csid = csid;
+  sprintf(c->csidHex,"%02x",csid);
+  crypt_rand(c->lineOut,16);
+  util_hex(c->lineOut,16,c->lineHex);
+  c->atOut = platform_seconds();
+
+#ifdef CS_1a
+  if(csid == 0x1a) err = crypt_new_1a(c, key, len);
+#endif
+#ifdef CS_2a
+  if(csid == 0x2a) err = crypt_new_2a(c, key, len);
+#endif
+#ifdef CS_3a
+  if(csid == 0x3a) err = crypt_new_3a(c, key, len);
+#endif
+  
+  if(!err) return c;
+
+  crypt_free(c);
+  return NULL;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+{-
+
 void crypt_free(crypt_t c);
 
 
