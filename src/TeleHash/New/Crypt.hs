@@ -2,6 +2,7 @@ module TeleHash.New.Crypt
   (
     crypt_init
   , crypt_new
+  , crypt_private
   ) where
 
 import Control.Applicative
@@ -31,9 +32,10 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
-import TeleHash.New.Types
-import TeleHash.New.Packet
 import TeleHash.New.Crypto1a
+import TeleHash.New.Packet
+import TeleHash.New.Types
+import TeleHash.New.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -91,9 +93,24 @@ int crypt_init()
 // takes binary or string key format, creates a crypt object
 crypt_t crypt_new(char csid, unsigned char *key, int len);
 -}
-crypt_new :: String -> String -> TeleHash Crypto
+crypt_new :: String -> String -> TeleHash (Maybe Crypto)
 crypt_new csid key = do
-  assert False undefined
+  logT $ "crypt_new " ++ show (csid,key)
+{-
+  let c = Crypto
+           { cCsid      = csid
+           , cIsPrivate = False
+           , cLined     = False
+           , cKeyLen    :: !Int
+           , cAtOut     :: !ClockTime
+           , cAtIn      :: !ClockTime
+           , cLineOut   = randomHexVal
+           , cLineIn    :: !String
+           , cKey       :: !String
+           , cCs        :: !String -- TBD, individual crypto structures
+-}
+  c <- crypt_new_1a key
+  return c
 
 {-
 crypt_t crypt_new(char csid, unsigned char *key, int len)
@@ -150,10 +167,43 @@ char *crypt_err();
 
 // adds "XX":"pubkey", "XX_":"secretkey" to the packet, !0 if error
 int crypt_keygen(char csid, packet_t p);
+-}
 
-// load a private id key, returns !0 if error, can pass (c,NULL,0) to check if private is already loaded too
-int crypt_private(crypt_t c, unsigned char *key, int len);
+-- ---------------------------------------------------------------------
 
+-- |load a private id key, returns !0 if error, can pass (c,NULL,0) to check if private is already loaded too
+crypt_private :: Crypto -> String -> TeleHash Crypto
+crypt_private c key = do
+  if cIsPrivate c
+    then return c -- already loaded
+    else do
+      crypt_private_1a c key
+
+{-
+int crypt_private(crypt_t c, unsigned char *key, int len)
+{
+  int ret;
+  if(!c) return 1;
+  if(c->isprivate) return 0; // already loaded
+
+#ifdef CS_1a
+  if(c->csid == 0x1a && (ret = crypt_private_1a(c,key,len))) return ret;
+#endif
+#ifdef CS_2a
+  if(c->csid == 0x2a && (ret = crypt_private_2a(c,key,len))) return ret;
+#endif
+#ifdef CS_3a
+  if(c->csid == 0x3a && (ret = crypt_private_3a(c,key,len))) return ret;
+#endif
+  
+  c->isprivate = 1;
+  return 0;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+{-
 // try to create a line packet chained to this one
 packet_t crypt_lineize(crypt_t c, packet_t p);
 

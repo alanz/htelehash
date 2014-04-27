@@ -355,7 +355,7 @@ initialize = do
   ch2 <- newChan
 
   -- Save off the socket, and server address in a handle
-  let sw = switch_new
+  sw <- switch_new
   return (ch1, ch2, sw {swH = Just (SocketHandle sock)
                        ,swChan = Just ch1})
 
@@ -687,26 +687,37 @@ seed253 =
 
 -- ---------------------------------------------------------------------
 
-switch_new :: Switch
-switch_new =
-  Switch
-       { swId         = HN "foo"
-       , swSeeds      = Bucket
-       , swOut        = [] -- packets waiting to be delivered
-       , swLast       = Nothing
-       , swParts      = packet_new (HN "foo")
-       , swChans      = Map.empty
-       , swUid        = 0
-       , swCap        = 256 -- default cap size
-       , swWindow     = 32 -- default reliable window size
-       , swIsSeed     = False
-       , swIndex      = Map.empty
-       , swIndexChans = Map.empty
-       , swHandler    = nullHandler
+initRNG :: IO SystemRNG
+initRNG = do
+  pool <- createEntropyPool
+  return $ cprgCreate pool
 
-       , swH          = Nothing
-       , swChan       = Nothing
-       , swSender     = doSendDgram
+-- ---------------------------------------------------------------------
+
+switch_new :: IO Switch
+switch_new = do
+  rng <- initRNG
+  return $ Switch
+       { swId          = HN "foo"
+       , swSeeds       = Bucket
+       , swOut         = [] -- packets waiting to be delivered
+       , swLast        = Nothing
+       , swParts       = packet_new (HN "foo")
+       , swChans       = Map.empty
+       , swUid         = 0
+       , swCap         = 256 -- default cap size
+       , swWindow      = 32 -- default reliable window size
+       , swIsSeed      = False
+       , swIndex       = Map.empty
+       , swIndexChans  = Map.empty
+       , swIndexCrypto = Map.empty
+       , swHandler     = nullHandler
+
+       , swH           = Nothing
+       , swChan        = Nothing
+       , swSender      = doSendDgram
+
+       , swRNG         = rng
        }
 
 {-
@@ -730,7 +741,16 @@ switch_t switch_new(uint32_t prime)
 switch_init :: Id -> TeleHash ()
 switch_init anId = do
   logT $ "loading pk " ++ id1a anId ++ " sk " ++ id1a_secret anId
-  crypt_new "1a" (id1a anId)
+  mc <- crypt_new "1a" (id1a anId)
+  c <- crypt_private (gfromJust "switch_init" mc) (id1a_secret anId)
+  logT $ "loaded " ++ show anId
+  
+  sw <- get
+  parts <- packet_set_str (swParts sw) (cCsid c) (cPart c)
+  put $ sw { swIndexCrypto = Map.insert "1a" c (swIndexCrypto sw)
+           , swParts = parts
+           , swId = parts2hn [("1a",unHash $ cPart c)]
+           }
   assert False undefined
 {-
 

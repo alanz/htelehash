@@ -30,11 +30,12 @@ module TeleHash.New.Types
   , ChannelHandler
   , ChannelState(..)
   , Crypto(..)
+  , Crypt1a(..)
+  , PublicKey(..)
+  , PrivateKey(..)
   , Parts
   , NetworkTelex(..)
   , DeOpenizeResult(..)
-  , PublicKey
-  , PrivateKey
   , Signal(..)
   , Reply(..)
   , SocketHandle(..)
@@ -154,23 +155,26 @@ type TeleHash = StateT Switch IO
 -- ---------------------------------------------------------------------
 
 data Switch = Switch
-       { swId         :: !HashName
-       , swSeeds      :: !Bucket
-       , swOut        :: ![TxTelex] -- packets waiting to be delivered
-       , swLast       :: !(Maybe TxTelex)
-       , swParts      :: !TxTelex
-       , swChans      :: !(Map.Map Uid TChan) -- channels waiting to be processed
-       , swUid        :: !Uid
-       , swCap        :: !Int
-       , swWindow     :: !Int
-       , swIsSeed     :: !Bool
-       , swIndex      :: !(Map.Map HashName HashContainer)
-       , swIndexChans :: !(Map.Map Uid TChan) -- all channels
-       , swHandler    :: !(HashContainer -> TeleHash ()) -- called w/ a hn that has no key info
+       { swId          :: !HashName
+       , swSeeds       :: !Bucket
+       , swOut         :: ![TxTelex] -- packets waiting to be delivered
+       , swLast        :: !(Maybe TxTelex)
+       , swParts       :: !TxTelex
+       , swChans       :: !(Map.Map Uid TChan) -- channels waiting to be processed
+       , swUid         :: !Uid
+       , swCap         :: !Int
+       , swWindow      :: !Int
+       , swIsSeed      :: !Bool
+       , swIndex       :: !(Map.Map HashName HashContainer)
+       , swIndexChans  :: !(Map.Map Uid TChan) -- all channels
+       , swIndexCrypto :: !(Map.Map String Crypto)
+       , swHandler     :: !(HashContainer -> TeleHash ()) -- called w/ a hn that has no key info
 
        , swH      :: !(Maybe SocketHandle)
        , swChan   :: !(Maybe (Chan Signal))
        , swSender :: !(LinePacket -> SockAddr -> TeleHash ())
+
+       , swRNG  :: !SystemRNG
        }
      deriving Show
 
@@ -179,6 +183,9 @@ instance Show (HashContainer -> TeleHash ()) where
 
 instance Show (Chan Signal) where
   show _ = "(Chan Signal)"
+
+instance Show SystemRNG where
+  show _ = "SystemRNG"
 
 {-
 
@@ -422,16 +429,17 @@ data DeOpenizeResult = DeOpenizeVerifyFail
 -- ---------------------------------------------------------------------
 
 data Crypto = Crypto
-  { cCsid :: !String
+  { cCsid      :: !String
+  , cPart      :: !Hash
   , cIsPrivate :: !Bool
-  , cLined :: !Bool
-  , cKeyLen :: !Int
-  , cAtOut  :: !ClockTime
-  , cAtIn   :: !ClockTime
-  , cLineOut :: !String
-  , cLineIn  :: !String
-  , cKey     :: !String
-  , cCs      :: !String -- TBD, individual crypto structures
+  , cLined     :: !Bool
+  , cKeyLen    :: !Int
+  , cAtOut     :: !ClockTime
+  , cAtIn      :: !(Maybe ClockTime)
+  , cLineOut   :: !String
+  , cLineIn    :: !String
+  , cKey       :: !String
+  , cCs        :: !Crypt1a
   } deriving Show
 
 {-
@@ -448,6 +456,33 @@ typedef struct crypt_struct
 
 -}
 
+-- ---------------------------------------------------------------------
+
+data Crypt1a = Crypt1a
+          { cs1aIdPrivate   :: !(Maybe PrivateKey)
+          , cs1aIdPublic    :: !PublicKey
+          , cs1aLinePrivate :: !PrivateKey    -- was hEcc
+          , cs1aLinePublic  :: !PublicKey     -- was hEcc
+          , cs1aSeq         :: !Int           -- was hLineIV
+          , cs1aKeyOut      :: !(Maybe BC.ByteString) -- was hEncKey
+          , cs1aKeyIn       :: !(Maybe BC.ByteString) -- was hDecKey
+          } deriving Show
+
+{-
+typedef struct crypt_1a_struct
+{
+  uint8_t id_private[uECC_BYTES], id_public[uECC_BYTES *2], line_private[uECC_BYTES], line_public[uECC_BYTES *2];
+  uint32_t seq;
+  unsigned char keyOut[16], keyIn[16];
+} *crypt_1a_t;
+
+-}
+
+
+-- =====================================================================
+-- ---------------------------------------------------------------------
+-- This stuff should probably be thrown away
+-- ---------------------------------------------------------------------
 -- ---------------------------------------------------------------------
 {-
 typedef struct crypt_struct

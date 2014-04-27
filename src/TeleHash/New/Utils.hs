@@ -24,6 +24,7 @@ module TeleHash.New.Utils
 
   , parts2hn
   , showSwitch
+  , randomHEX
   ) where
 
 import Control.Applicative
@@ -199,6 +200,15 @@ showSwitch sw =
   ++ "\nbuckets:" ++ show (swBuckets sw)
 -}
   )
+
+-- ---------------------------------------------------------------------
+
+randomHEX :: Int -> TeleHash String
+randomHEX len = do
+  sw <- get
+  let (bytes,newRNG) = cprgGenerate len (swRNG sw)
+  put $ sw {swRNG = newRNG}
+  return $ BC.unpack $ B16.encode bytes
 
 -- ---------------------------------------------------------------------
 
