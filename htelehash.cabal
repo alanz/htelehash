@@ -72,6 +72,7 @@ Library
                        TeleHash.New.Chan
                        TeleHash.New.Convert
                        TeleHash.New.Crypt
+                       TeleHash.New.Crypto1a
                        TeleHash.New.Hn
                        TeleHash.New.Packet
                        TeleHash.New.Path
@@ -88,9 +89,9 @@ Library
 --     ghc-options:  -Wall -fhpc
 
 
-executable             ping
+executable             pingNew
     hs-source-dirs:    . src
-    main-is:           ping.hs
+    main-is:           pingNew.hs
     -- ghc-options:  -Wall -fhpc
     ghc-options:  -Wall
 

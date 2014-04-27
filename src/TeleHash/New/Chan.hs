@@ -19,6 +19,8 @@ module TeleHash.New.Chan
   , chan_receive
   , chan_send
   , chan_ack
+  , chan_queue
+  , chan_dequeue
   ) where
 
 import Control.Applicative
@@ -643,13 +645,12 @@ void chan_ack(chan_t c)
 -}
 
 -- ---------------------------------------------------------------------
-{-
-// add to switch processing queue
-void chan_queue(chan_t c);
--}
+
 -- |add to switch processing queue
 chan_queue :: TChan -> TeleHash ()
-chan_queue = assert False undefined
+chan_queue c = do
+  -- add to switch queue
+  queueChan c
 
 {-
 // add to processing queue
@@ -664,6 +665,7 @@ void chan_queue(chan_t c)
   c->s->chans = c;
 }
 -}
+
 -- ---------------------------------------------------------------------
 {-
 // remove from switch processing queue
@@ -671,16 +673,63 @@ void chan_dequeue(chan_t c);
 -}
 
 -- |remove from switch processing queue
-chan_dequeue = assert False undefined
+chan_dequeue :: TChan -> TeleHash ()
+chan_dequeue c = do
+  dequeueChan c
 
--- ---------------------------------------------------------------------
 {-
-// just add ack/miss
-packet_t chan_seq_ack(chan_t c, packet_t p);
+// remove from processing queue
+void chan_dequeue(chan_t c)
+{
+  chan_t step = c->s->chans;
+  if(step == c)
+  {
+    c->s->chans = c->next;
+    c->next = NULL;
+    return;
+  }
+  step = c->s->chans;
+  while(step) step = (step->next == c) ? c->next : step->next;
+  c->next = NULL;
+}
 -}
+-- ---------------------------------------------------------------------
+
+-- |add ack, miss to any packet
 chan_seq_ack :: TChan -> Maybe TxTelex -> TeleHash (Maybe TxTelex)
 chan_seq_ack = assert False undefined
 
+{-
+// add ack, miss to any packet
+packet_t chan_seq_ack(chan_t c, packet_t p)
+{
+  char *miss;
+  int i,max;
+  seq_t s = (seq_t)c->seq;
+
+  // determine if we need to ack
+  if(!s->nextin) return p;
+  if(!p && s->acked && s->acked == s->nextin-1) return NULL;
+
+  if(!p) p = chan_packet(c); // ack-only packet
+  s->acked = s->nextin-1;
+  packet_set_int(p,"ack",(int)s->acked);
+
+  // check if miss is not needed
+  if(s->seen < s->nextin || s->in[0]) return p;
+  
+  // create miss array, c sux
+  max = (c->reliable < 10) ? c->reliable : 10;
+  miss = malloc(3+(max*11)); // up to X uint32,'s
+  memcpy(miss,"[\0",2);
+  for(i=0;i<max;i++) if(!s->in[i]) sprintf(miss+strlen(miss),"%d,",(int)s->nextin+i);
+  if(miss[strlen(miss)-1] == ',') miss[strlen(miss)-1] = 0;
+  memcpy(miss+strlen(miss),"]\0",2);
+  packet_set(p,"miss",miss,strlen(miss));
+  free(miss);
+  return p;
+}
+-}
 -- ---------------------------------------------------------------------
 {-
 // new sequenced packet, NULL for backpressure

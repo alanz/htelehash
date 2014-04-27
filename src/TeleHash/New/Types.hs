@@ -1,10 +1,14 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module TeleHash.New.Types
   (
-    HashName
+    HashName(..)
   , unHN
+  , Hash(..)
+  , unHash
   , Uid
   , PathId
   , TxTelex(..)
@@ -23,6 +27,18 @@ module TeleHash.New.Types
   , channelSlot
   , ChannelHandler
   , ChannelState(..)
+  , Crypto(..)
+  , Parts
+  , NetworkTelex(..)
+  , DeOpenizeResult(..)
+  , PublicKey
+  , PrivateKey
+  , Signal(..)
+  , Reply(..)
+  , SocketHandle(..)
+  , Id(..)
+  , SeedInfo(..)
+  , Path(..)
   ) where
 
 import Control.Applicative
@@ -52,8 +68,9 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
-import TeleHash.New.Crypt
+-- import TeleHash.New.Crypt
 import TeleHash.New.Packet
+import TeleHash.New.Paths
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -81,9 +98,6 @@ unHN :: HashName -> String
 unHN (HN s) = s
 
 type Uid = Int
-
-type PathId = Int
-
 
 data RxTelex = RxTelex
       { rtId     :: !Int
@@ -149,13 +163,20 @@ data Switch = Switch
        , swWindow     :: !Int
        , swIsSeed     :: !Bool
        , swIndex      :: !(Map.Map HashName HashContainer)
-       , swIndexChans :: !(Map.Map Uid TChan)
+       , swIndexChans :: !(Map.Map Uid TChan) -- all channels
        , swHandler    :: !(HashContainer -> TeleHash ()) -- called w/ a hn that has no key info
+
+       , swH      :: !(Maybe SocketHandle)
+       , swChan   :: !(Maybe (Chan Signal))
+       , swSender :: !(LinePacket -> SockAddr -> TeleHash ())
        }
      deriving Show
 
 instance Show (HashContainer -> TeleHash ()) where
   show _ = "(HashContainer -> TeleHash ())"
+
+instance Show (Chan Signal) where
+  show _ = "(Chan Signal)"
 
 {-
 
@@ -187,6 +208,8 @@ data HashContainer = H
   , hChans    :: !(Map.Map ChannelId TChan)
   , hOnopen   :: !(Maybe TxTelex)
   , hParts    :: !(Maybe TxTelex)
+
+                                               -- communicating with this remote
   } deriving (Show)
 
 {-
@@ -203,14 +226,68 @@ typedef struct hn_struct
 -}
 
 
+type PathPriority = Int
+
+-- TODO: provide custom Eq instance, checking core vals only
+data Path = Path
+      { pJson     :: !PathJson
+
+      , pRelay    :: !(Maybe TChan)  -- relay
+      , pId       :: !(Maybe HashName) -- local
+      , pLastIn   :: !(Maybe ClockTime)
+      , pLastOut  :: !(Maybe ClockTime)
+      , pPriority :: !(Maybe PathPriority)
+      , pIsSeed   :: !Bool
+      , pGone     :: !Bool -- may not be meaningful due to functional
+                           -- nature of haskell
+      } deriving (Show)
+
+instance Aeson.ToJSON Path where
+  toJSON p = Aeson.toJSON (pJson p)
+
 -- ---------------------------------------------------------------------
 
-data Path = Path
-     {
-     } deriving Show
+pathFromPathJson :: PathJson -> Path
+pathFromPathJson pj
+  = Path { pJson = pj
+         , pRelay = Nothing
+         , pId = Nothing
+         , pLastIn = Nothing
+         , pLastOut = Nothing
+         , pPriority = Nothing
+         , pIsSeed = False
+         , pGone = False
+         }
 
-nullPath = Path
-nullPathId = -1 -- horrible, need better way of doing this
+-- ---------------------------------------------------------------------
+
+pathType :: Path -> PathType
+pathType p = pjsonType $ pJson p
+
+pathIp :: Path -> Maybe IP
+pathIp p = pjsonIp $ pJson p
+
+pathPort :: Path -> Maybe Port
+pathPort p = pjsonPort $ pJson p
+
+pathHttp :: Path -> Maybe Url
+pathHttp p = pjsonHttp $ pJson p
+
+-- ---------------------------------------------------------------------
+
+data PathId = PId Int
+            deriving (Ord,Eq,Show)
+
+-- ---------------------------------------------------------------------
+
+showPath :: Path -> String
+showPath p = showPathJson (pJson p)
+
+-- ---------------------------------------------------------------------
+
+nullPath = pathFromPathJson (PWebRtc (PathWebRtc "*null*"))
+
+nullPathId = PId (-1) -- horrible, need better way of doing this
 
 -- ---------------------------------------------------------------------
 -- Channel related types
@@ -255,7 +332,7 @@ data TChan = TChan
   , chIn       :: ![RxTelex] -- queue of incoming messages
   , chNotes    :: ![RxTelex]
   , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
-  } deriving Show
+  } deriving (Show)
 
 {-
 typedef struct chan_struct
@@ -300,3 +377,154 @@ instance Aeson.FromJSON ChannelId where
   parseJSON c = CID <$> Aeson.parseJSON c
 
 -- ---------------------------------------------------------------------
+
+newtype Hash = Hash String
+             deriving (Eq,Show,Ord)
+unHash :: Hash -> String
+unHash (Hash str) = str
+
+type Parts = [(String,String)] -- [(csid,key)]
+
+-- ---------------------------------------------------------------------
+
+data NetworkTelex = NetworkTelex
+                       { ntId     :: !Int
+                       , ntSender :: !Path
+                       , ntAt     :: !ClockTime
+                       , ntPacket :: !NetworkPacket
+                       } deriving Show
+
+-- ---------------------------------------------------------------------
+
+-- |The information carried in the inner packet of an openize
+data OpenizeInner = OpenizeInner
+                    { oiAt   :: !ClockTime
+                    , oiTo   :: !HashName
+                    , oiFrom :: !Parts
+                    , oiLine :: !String -- TODO: should be its own type
+                    }
+
+-- ---------------------------------------------------------------------
+
+data DeOpenizeResult = DeOpenizeVerifyFail
+                     | DeOpenize { doLinePub :: !PublicKey
+                                 , doKey     :: !BC.ByteString
+                                 , doJs      :: !Aeson.Value
+                                 , doCsid    :: !String
+                                 }
+                     deriving (Show)
+
+-- ---------------------------------------------------------------------
+
+data Crypto = Crypto
+  { cCsid :: !String
+  , cIsPrivate :: !Bool
+  , cLined :: !Bool
+  , cKeyLen :: !Int
+  , cAtOut  :: !ClockTime
+  , cAtIn   :: !ClockTime
+  , cLineOut :: !String
+  , cLineIn  :: !String
+  , cKey     :: !String
+  , cCs      :: !String -- TBD, individual crypto structures
+  } deriving Show
+
+{-
+
+typedef struct crypt_struct
+{
+  char csidHex[3], *part;
+  int isprivate, lined, keylen;
+  unsigned long atOut, atIn;
+  unsigned char lineOut[16], lineIn[16], lineHex[33];
+  unsigned char *key, csid;
+  void *cs; // for CS usage
+} *crypt_t;
+
+-}
+
+-- ---------------------------------------------------------------------
+{-
+typedef struct crypt_struct
+{
+  char csidHex[3], *part;
+  int isprivate, lined, keylen;
+  unsigned long atOut, atIn;
+  unsigned char lineOut[16], lineIn[16], lineHex[33];
+  unsigned char *key, csid;
+  void *cs; // for CS usage
+} *crypt_t;
+
+-}
+data HashCrypto = HC
+  { hcHashName :: !HashName
+  , hcHexName  :: !Hash
+  , hcParts    :: !Parts
+  , hcCsid     :: !String
+  , hcKey      :: !String
+  , hcPublic   :: !PublicKey
+  , hcPrivate  :: !(Maybe PrivateKey)
+  -- , hcEccKeys  :: Maybe (DH.PublicNumber,DH.PrivateNumber)
+  } deriving Show
+
+data PublicKey = Public1a ECDSA.PublicKey deriving Show
+data PrivateKey = Private1a ECDSA.PrivateKey deriving Show
+
+-- ---------------------------------------------------------------------
+
+data CSet = CS
+  { csLoadkey   :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
+  , csOpenize   :: HashContainer -> OpenizeInner -> TeleHash LinePacket
+  , csDeopenize :: NetworkPacket -> TeleHash DeOpenizeResult
+  , csOpenLine  :: HashContainer ->  DeOpenizeResult -> TeleHash ()
+  , csDelineize :: HashContainer -> NetworkTelex -> TeleHash (Either String RxTelex)
+  }
+
+
+-- ---------------------------------------------------------------------
+
+data SeedInfo = SI
+  { sId       :: !String
+  , sAdmin    :: !String
+  , sPaths    :: ![Path]
+  , sParts    :: !Parts -- crypto ids?
+  , sKeys     :: ![(String,String)] -- crypto scheme name, crypto key
+  , sIsBridge :: !Bool
+  } deriving Show
+
+
+-- ---------------------------------------------------------------------
+
+data Id = Id { id1a        :: !String
+             , id1a_secret :: !String
+             } deriving Show
+
+
+instance Aeson.FromJSON Id where
+     parseJSON (Aeson.Object v) = Id <$>
+                                  v Aeson..: "1a" <*>
+                                  v Aeson..: "1a_secret"
+     -- A non-Object value is of the wrong type, so fail.
+     parseJSON _          = mzero
+
+-- ---------------------------------------------------------------------
+
+data Signal = SignalPingSeeds | SignalScanLines | SignalTapTap | SignalMsgRx BC.ByteString NS.SockAddr |
+              SignalGetSwitch | SignalShowSwitch
+            | SignalSyncPath HashName
+              deriving (Typeable, Show, Eq)
+
+data Reply = ReplyGetSwitch Switch
+           -- deriving (Typeable, Show)
+           deriving (Typeable)
+
+-- ---------------------------------------------------------------------
+
+data SocketHandle =
+    SocketHandle {slSocket :: Socket
+                 --, slAddress :: SockAddr
+                 } deriving (Eq,Show)
+
+
+instance Show (LinePacket -> SockAddr -> TeleHash ()) where
+  show _ = "(LinePacket -> SockAddr -> TeleHash ())"

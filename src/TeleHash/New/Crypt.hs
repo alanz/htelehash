@@ -1,6 +1,6 @@
 module TeleHash.New.Crypt
   (
-    Crypto
+    crypt_init
   ) where
 
 import Control.Applicative
@@ -30,6 +30,10 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
+import TeleHash.New.Types
+import TeleHash.New.Packet
+import TeleHash.New.Crypto1a
+
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
 import qualified Crypto.Types.PubKey.ECDSA as ECDSA
@@ -49,41 +53,40 @@ import qualified Network.Socket.ByteString as SB
 
 
 -- ---------------------------------------------------------------------
-
-data Crypto = Crypto
-  { cCsid :: !String
-  , cIsPrivate :: !Bool
-  , cLined :: !Bool
-  , cKeyLen :: !Int
-  , cAtOut  :: !ClockTime
-  , cAtIn   :: !ClockTime
-  , cLineOut :: !String
-  , cLineIn  :: !String
-  , cKey     :: !String
-  , cCs      :: !String -- TBD, individual crypto structures
-  } deriving Show
-
 {-
-
-typedef struct crypt_struct
-{
-  char csidHex[3], *part;
-  int isprivate, lined, keylen;
-  unsigned long atOut, atIn;
-  unsigned char lineOut[16], lineIn[16], lineHex[33];
-  unsigned char *key, csid;
-  void *cs; // for CS usage
-} *crypt_t;
-
+// these functions are all independent of CS, implemented in crypt.c
 -}
 
 -- ---------------------------------------------------------------------
 {-
-// these functions are all independent of CS, implemented in crypt.c
-
 // must be called before any
 int crypt_init();
+-}
+crypt_init :: TeleHash ()
+crypt_init = do
+  crypt_init_1a
+{-
+int crypt_init()
+{
+  int ret = 0;
+#ifdef CS_1a
+  ret = crypt_init_1a();
+  if(ret) return ret;
+#endif
+#ifdef CS_2a
+  ret = crypt_init_2a();
+  if(ret) return ret;
+#endif
+#ifdef CS_3a
+  ret = crypt_init_3a();
+  if(ret) return ret;
+#endif
+  return ret;
+}
+-}
+-- ---------------------------------------------------------------------
 
+{-
 // takes binary or string key format, creates a crypt object
 crypt_t crypt_new(char csid, unsigned char *key, int len);
 void crypt_free(crypt_t c);

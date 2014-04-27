@@ -21,6 +21,9 @@ module TeleHash.New.Utils
   , getRxTelexChannelId
   , getTxTelexType
   , getRxTelexType
+
+  , parts2hn
+  , showSwitch
   ) where
 
 import Control.Applicative
@@ -148,3 +151,54 @@ getRxTelexType packet
       Nothing -> Nothing
       Just (String typ) -> Just (Text.unpack typ)
       _ -> Nothing
+
+-- ---------------------------------------------------------------------
+
+{-
+function parts2hn(parts)
+{
+  var rollup = new Buffer(0);
+  Object.keys(parts).sort().forEach(function(id){
+    rollup = crypto.createHash("sha256").update(Buffer.concat([rollup,new Buffer(id)])).digest();
+    rollup = crypto.createHash("sha256").update(Buffer.concat([rollup,new Buffer(parts[id])])).digest();
+  });
+  return rollup.toString("hex");
+}
+-}
+
+parts2hn :: Parts -> HashName
+parts2hn parts = HN r
+  where
+    sp = sort parts
+    iCtx = SHA256.init
+    vals = concatMap (\(a,b) -> [BC.pack a,BC.pack b]) sp
+    ctx = SHA256.updates iCtx vals
+    -- bsfinal = SHA256.finalize ctx
+
+    bsfinal = foldl' (\acc cur -> SHA256.hash (BC.append acc cur)) BC.empty vals
+
+    r = BC.unpack $ B16.encode bsfinal
+
+-- testParts2hn = parts2hn (sParts $ head initialSeeds)
+
+testParts2hn = parts2hn [ ("1a","o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg==")
+                        , ("1a_secret","iollyIcHaGeD/JpUNn/7ef1QAzE=")]
+
+
+-- ---------------------------------------------------------------------
+
+showSwitch :: Switch -> String
+showSwitch sw =
+  ("switch:"++ show (swId sw)
+{-
+  ++ "\nlinescount=" ++ show (Map.size $ swLines sw)
+  ++ "\n  " ++ show (swLines sw)
+  ++ "\nhashcount:" ++  show (Map.size $ swAll sw)
+  ++ "\n  " ++ (intercalate "\n  " (map show $ Map.keys (swAll sw)))
+  ++ "\nbucketCount:" ++ show (Map.size (swBuckets sw))
+  ++ "\nbuckets:" ++ show (swBuckets sw)
+-}
+  )
+
+-- ---------------------------------------------------------------------
+
