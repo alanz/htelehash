@@ -101,7 +101,19 @@ hn_fromjson p = do
                               putHN $ hc { hCrypto = c}
                               return $ Just hn
                             else do
-                              assert False undefined
+                              let mpp = packet_get_packet p "keys"
+                              logT $ "hn_fromjson:pp=" ++ show mpp
+                              case mpp of
+                                Nothing -> return Nothing
+                                Just pp -> do
+                                  let mkey = packet_get_str (packet_from_val pp) (hCsid hc)
+                                  logT $ "hn_fromjson:mkey=" ++ show mkey
+                                  case mkey of
+                                    Nothing -> return Nothing
+                                    Just key -> do
+                                      c <- crypt_new (hCsid hc) (Just key) Nothing
+                                      putHN $ hc { hCrypto = c}
+                                      return $ Just hn
               hcFinal <- getHN hn
               if isNothing (hCrypto hcFinal)
                 then return Nothing
@@ -254,7 +266,7 @@ hn_path hn p = do
       logT $ "hn_path got multiple path match.:" ++ show(hn,p,hPaths hc)
       assert False undefined
   putHN $ hc { hPaths = Map.insert (pJson ret) (upd ret) (hPaths hc)
-             , hLast = Just ret
+             , hLast = Just (pJson ret)
              }
   return (Just ret)
 

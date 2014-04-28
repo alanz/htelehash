@@ -3,6 +3,7 @@ module TeleHash.New.Crypt
     crypt_init
   , crypt_new
   , crypt_private
+  , crypt_lineize
   ) where
 
 import Control.Applicative
@@ -262,4 +263,27 @@ int crypt_line_3a(crypt_t c, packet_t inner);
 #endif
 
 
+-}
+
+-- ---------------------------------------------------------------------
+
+crypt_lineize :: Crypto -> TxTelex -> TeleHash LinePacket
+crypt_lineize c p = do
+  crypt_lineize_1a c p
+
+{-
+packet_t crypt_lineize(crypt_t c, packet_t p)
+{
+  if(!c || !p || !c->lined) return NULL;
+#ifdef CS_1a
+  if(c->csid == 0x1a) return crypt_lineize_1a(c,p);
+#endif
+#ifdef CS_2a
+  if(c->csid == 0x2a) return crypt_lineize_2a(c,p);
+#endif
+#ifdef CS_3a
+  if(c->csid == 0x3a) return crypt_lineize_3a(c,p);
+#endif
+  return NULL;
+}
 -}

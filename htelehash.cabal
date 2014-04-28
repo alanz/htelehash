@@ -65,10 +65,7 @@ Library
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:
-                       -- TeleHash.Switch
-                       -- TeleHash.Utils
-                       -- TeleHash.Crypto1a
-                       -- TeleHash.Packet
+                       TeleHash.New.Bucket
                        TeleHash.New.Chan
                        TeleHash.New.Convert
                        TeleHash.New.Crypt
@@ -76,7 +73,9 @@ Library
                        TeleHash.New.Hn
                        TeleHash.New.Packet
                        TeleHash.New.Path
+                       TeleHash.New.Paths
                        TeleHash.New.Switch
+                       TeleHash.New.SwitchApi
                        TeleHash.New.Types
                        TeleHash.New.Utils
 

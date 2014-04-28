@@ -109,6 +109,7 @@ data PathJson = PIPv4   PathIPv4
               | PIPv6   PathIPv6
               | PHttp   PathHttp
               | PWebRtc PathWebRtc
+              | PNone
               deriving (Show,Eq,Ord)
 
 showPathJson :: PathJson -> String

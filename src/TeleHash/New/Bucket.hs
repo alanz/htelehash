@@ -1,6 +1,7 @@
 module TeleHash.New.Bucket
   (
-  bucket_load
+    bucket_load
+  , bucket_get
   ) where
 
 import Control.Applicative
@@ -67,13 +68,29 @@ void bucket_free(bucket_t b);
 
 void bucket_add(bucket_t b, hn_t h);
 hn_t bucket_in(bucket_t b, hn_t h);
-
-// simple array index function
-hn_t bucket_get(bucket_t b, int index);
-
-
 -}
 
+-- ---------------------------------------------------------------------
+{-
+// simple array index function
+hn_t bucket_get(bucket_t b, int index);
+-}
+
+-- |simple array index function
+bucket_get :: Bucket -> Int -> Maybe HashName
+bucket_get b index =
+  if index > Set.size b || Set.size b == 0
+    then Nothing
+    else Just $ ghead "bucket_get" $ drop index $ Set.toList b
+{-
+hn_t bucket_get(bucket_t b, int index)
+{
+  if(index >= b->count) return NULL;
+  return b->hns[index];
+}
+-}
+
+-- ---------------------------------------------------------------------
 bucket_load :: FilePath -> TeleHash Bucket
 bucket_load fname = do
   fc <- io $ BL.readFile fname

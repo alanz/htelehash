@@ -2,12 +2,24 @@
 module TeleHash.New.Utils
   (
   -- * telehash-c api
-    packet_set_str
+    PacketApi
+  , packet_set_str
   , packet_get_str
   , packet_set_int
   , packet_set
   , packet_copy
   , packet_get_packet
+  , packet_from_val
+
+   -- * Channels
+   , putChan
+   , queueChan
+   , dequeueChan
+   , rmChan
+   , getChanFromHn
+   , rmChanFromHn
+
+   , getNextUid
 
   -- * Hashcontainers
   , getHN
@@ -16,6 +28,7 @@ module TeleHash.New.Utils
   , withHN
   , withHNM
   , putPath
+  , getPath
 
   -- * Original
   , logT
@@ -91,13 +104,33 @@ import qualified System.Random as R
 -- ---------------------------------------------------------------------
 -- telehash-c api
 
-packet_set_str :: TxTelex -> String -> String -> TxTelex
-packet_set_str packet key val
-  = packet { tJs = HM.insert (Text.pack key) (Aeson.String (Text.pack val)) (tJs packet) }
+class PacketApi a where
+  packet_set_str :: a -> String -> String -> a
+  packet_get_str :: a -> String -> Maybe String
 
+instance PacketApi TxTelex where
+  packet_set_str packet key val
+    = packet { tJs = HM.insert (Text.pack key) (toJSON val) (tJs packet) }
 
-packet_get_str = assert False undefined
-packet_set_int = assert False undefined
+  packet_get_str p key
+    = case HM.lookup (Text.pack key) (tJs p) of
+        Nothing -> Nothing
+        Just (Aeson.String s) -> Just (Text.unpack s)
+        Just v -> Just (show v)
+
+instance PacketApi RxTelex where
+  packet_set_str packet key val
+    = packet { rtJs = HM.insert (Text.pack key) (toJSON val) (rtJs packet) }
+
+  packet_get_str p key
+    = case HM.lookup (Text.pack key) (rtJs p) of
+        Nothing -> Nothing
+        Just (Aeson.String s) -> Just (Text.unpack s)
+        Just v -> Just (show v)
+
+packet_set_int :: TxTelex -> String -> Int -> TxTelex
+packet_set_int p key val
+ = p { tJs = HM.insert (Text.pack key) (toJSON val) (tJs p) }
 
 packet_set :: (Aeson.ToJSON a) => TxTelex -> String -> a -> TxTelex
 packet_set = assert False undefined
@@ -107,6 +140,64 @@ packet_copy = assert False undefined
 
 packet_get_packet :: RxTelex -> String -> Maybe Aeson.Value
 packet_get_packet p key = HM.lookup (Text.pack key) (rtJs p)
+
+packet_from_val :: Aeson.Value -> RxTelex
+packet_from_val (Object v) = packet_new_rx {rtJs = v}
+
+-- ---------------------------------------------------------------------
+-- Channels
+
+-- ---------------------------------------------------------------------
+
+queueChan :: TChan -> TeleHash ()
+queueChan chan = do
+  sw <- get
+  put $ sw { swChans = Map.insert (chUid chan) chan (swChans sw)}
+
+-- ---------------------------------------------------------------------
+
+dequeueChan :: TChan -> TeleHash ()
+dequeueChan chan = do
+  sw <- get
+  put $ sw { swChans = Map.delete (chUid chan) (swChans sw)}
+
+-- ---------------------------------------------------------------------
+
+putChan :: TChan -> TeleHash ()
+putChan chan = do
+  sw <- get
+  put $ sw { swIndexChans = Map.insert (chUid chan) chan (swIndexChans sw)}
+
+-- ---------------------------------------------------------------------
+
+getChanFromHn :: HashName -> ChannelId -> TeleHash (Maybe TChan)
+getChanFromHn hn cid = do
+  hc <- getHN hn
+  return $ Map.lookup cid (hChans hc)
+
+-- ---------------------------------------------------------------------
+
+rmChan :: Uid -> TeleHash ()
+rmChan uid = do
+  sw <- get
+  put $ sw { swIndexChans = Map.delete uid (swIndexChans sw)}
+
+-- ---------------------------------------------------------------------
+
+rmChanFromHn :: HashName -> ChannelId -> TeleHash ()
+rmChanFromHn hn cid = do
+  withHN hn $ \hc ->
+    hc { hChans = Map.delete cid (hChans hc) }
+
+-- ---------------------------------------------------------------------
+
+getNextUid :: TeleHash Uid
+getNextUid = do
+  sw <- get
+  let uid = 1 + swUid sw
+  put sw { swUid = uid }
+  return uid
+
 
 -- ---------------------------------------------------------------------
 
@@ -151,6 +242,13 @@ putPath :: HashName -> Path -> TeleHash ()
 putPath hn path = do
   hc <- getHN hn
   putHN $ hc { hPaths = Map.insert (pJson path) path (hPaths hc)}
+
+-- ---------------------------------------------------------------------
+
+getPath :: HashName -> PathJson -> TeleHash Path
+getPath hn pj = do
+  hc <- getHN hn
+  return $ gfromJust "getPath" $ Map.lookup pj (hPaths hc)
 
 -- ---------------------------------------------------------------------
 -- Logging
@@ -322,3 +420,5 @@ tp = do
   ps =  "{\"parts\": {\"2a\": \"beb07e8864786e1d3d70b0f537e96fb719ca2bbb4a2a3791ca45e215e2f67c9a\",\"1a\": \"6c0da502755941a463454e9d478b16bbe4738e67\"}}"
  vv <- Aeson.decode ps :: Maybe Parts
  return vv
+
+

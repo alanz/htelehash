@@ -30,8 +30,10 @@ import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
+
 import TeleHash.New.Crypt
 import TeleHash.New.Types
+import TeleHash.New.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -50,7 +52,28 @@ import qualified Data.Text.Lazy as TL
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
 
-path_alive = assert False undefined
+-- ---------------------------------------------------------------------
+
+path_alive :: Path -> TeleHash Bool
+path_alive p = do
+  timeNow <- io $ getClockTime
+  case pAtIn p of
+    Nothing -> return False
+    Just t -> do
+      let dt = diffClockTimes timeNow t
+          diff60Sec = TimeDiff 0 0 0 0 0 60 0
+      return (dt < diff60Sec)
+{-
+int path_alive(path_t p)
+{
+  unsigned long now;
+  if(!p) return 0;
+  now = platform_seconds();
+  if((now - p->atIn) < 60) return 1;
+  return 0;
+}
+
+-}
 
 -- ---------------------------------------------------------------------
 

@@ -3,18 +3,7 @@
 module TeleHash.New.Switch
    (
      startSwitchThread
-   -- * Channels
-   , putChan
-   , queueChan
-   , dequeueChan
-   , rmChan
-   , getChanFromHn
-   , rmChanFromHn
 
-   , getNextUid
-
-   -- * Telehash-c api
-   , switch_send
    ) where
 
 import Control.Applicative
@@ -45,6 +34,7 @@ import System.Log.Logger
 import System.Time
 
 import TeleHash.New.Bucket
+import TeleHash.New.Chan
 import TeleHash.New.Crypt
 import TeleHash.New.Packet
 import TeleHash.New.Types
@@ -71,62 +61,6 @@ import qualified Network.Socket.ByteString as SB
 
 -- localIP = "10.0.0.28"
 localIP = "10.2.2.83"
-
--- ---------------------------------------------------------------------
-
-queueChan :: TChan -> TeleHash ()
-queueChan chan = do
-  sw <- get
-  put $ sw { swChans = Map.insert (chUid chan) chan (swChans sw)}
-
--- ---------------------------------------------------------------------
-
-dequeueChan :: TChan -> TeleHash ()
-dequeueChan chan = do
-  sw <- get
-  put $ sw { swChans = Map.delete (chUid chan) (swChans sw)}
-
--- ---------------------------------------------------------------------
-
-putChan :: TChan -> TeleHash ()
-putChan chan = do
-  sw <- get
-  put $ sw { swIndexChans = Map.insert (chUid chan) chan (swIndexChans sw)}
-
--- ---------------------------------------------------------------------
-
-getChanFromHn :: HashName -> ChannelId -> TeleHash (Maybe TChan)
-getChanFromHn hn cid = do
-  hc <- getHN hn
-  return $ Map.lookup cid (hChans hc)
-
--- ---------------------------------------------------------------------
-
-rmChan :: Uid -> TeleHash ()
-rmChan uid = do
-  sw <- get
-  put $ sw { swIndexChans = Map.delete uid (swIndexChans sw)}
-
--- ---------------------------------------------------------------------
-
-rmChanFromHn :: HashName -> ChannelId -> TeleHash ()
-rmChanFromHn hn cid = do
-  withHN hn $ \hc ->
-    hc { hChans = Map.delete cid (hChans hc) }
-
--- ---------------------------------------------------------------------
-
-getNextUid :: TeleHash Uid
-getNextUid = do
-  sw <- get
-  let uid = 1 + swUid sw
-  put sw { swUid = uid }
-  return uid
-
--- ---------------------------------------------------------------------
-
-switch_send = assert False undefined
-
 
 -- ---------------------------------------------------------------------
 
@@ -167,7 +101,10 @@ run ch1 ch2 = do
 
   switch_init testId
 
-  bucket_load "../data/seeds.json"
+  seeds <- bucket_load "./data/seeds.json"
+  logT $ "run:seeds=" ++ show seeds
+  -- bucket_get seeds 0
+
   -- seeds = bucket_load(s->index, "seeds.json");
   -- if(!seeds || !bucket_get(seeds, 0))
   -- {
@@ -175,7 +112,19 @@ run ch1 ch2 = do
   --   return -1;
   -- }
 
-
+  --  create/send a ping packet
+  c <- chan_new (gfromJust "run" (bucket_get seeds 0)) "seek" Nothing
+  p <- chan_packet c
+  sw <- get
+  let p2 = packet_set_str (gfromJust "run" p) "seek" (unHN $ swId sw)
+  logT $ "run:p2=" ++ show p2
+  chan_send c p2
+{-
+  c = chan_new(s, bucket_get(seeds, 0), "seek", 0);
+  p = chan_packet(c);
+  packet_set_str(p,"seek",s->id->hexname);
+  chan_send(c, p);
+-}
 
 
 

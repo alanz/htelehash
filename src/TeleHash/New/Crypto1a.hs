@@ -5,6 +5,7 @@ module TeleHash.New.Crypto1a
     crypt_init_1a
   , crypt_new_1a
   , crypt_private_1a
+  , crypt_lineize_1a
 
   , mkHashFromBS
   , mkHashFromB64
@@ -230,6 +231,36 @@ int crypt_private_1a(crypt_t c, unsigned char *key, int len)
 
   c->isprivate = 1;
   return 0;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+crypt_lineize_1a :: Crypto -> TxTelex -> TeleHash LinePacket
+crypt_lineize_1a c p = do
+  assert False undefined
+
+{-
+packet_t crypt_lineize_1a(crypt_t c, packet_t p)
+{
+  packet_t line;
+  unsigned char iv[16], hmac[32];
+  crypt_1a_t cs = (crypt_1a_t)c->cs;
+
+  line = packet_chain(p);
+  packet_body(line,NULL,16+4+4+packet_len(p));
+  memcpy(line->body,c->lineIn,16);
+  memcpy(line->body+16+4,&(cs->seq),4);
+  memset(iv,0,16);
+  memcpy(iv+12,&(cs->seq),4);
+  cs->seq++;
+
+  aes_128_ctr(cs->keyOut,packet_len(p),iv,packet_raw(p),line->body+16+4+4);
+
+  hmac_256(cs->keyOut,16,line->body+16+4,4+packet_len(p),hmac);
+  fold3(hmac,line->body+16);
+
+  return line;
 }
 -}
 

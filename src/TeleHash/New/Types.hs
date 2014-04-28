@@ -106,7 +106,7 @@ type Uid = Int
 
 data RxTelex = RxTelex
       { rtId     :: !Int
-      , rtSender :: !Path
+      , rtSender :: !PathJson
       , rtAt     :: !ClockTime
       , rtJs     :: !(HM.HashMap Text.Text Aeson.Value)
       , rtPacket :: !Packet
@@ -117,7 +117,7 @@ data RxTelex = RxTelex
 data TxTelex = TxTelex
       { tId     :: !Int
       , tTo     :: !HashName
-      , tOut    :: !PathId
+      , tOut    :: !PathJson
       , tJs     :: !(HM.HashMap Text.Text Aeson.Value)
       , tPacket :: !Packet
       } deriving Show
@@ -126,7 +126,7 @@ packet_new_rx :: RxTelex
 packet_new_rx =
   RxTelex
     { rtId = 0
-    , rtSender = nullPath
+    , rtSender = nullPathJson
     , rtAt = TOD 0 0
     , rtJs = HM.empty
     , rtPacket = newPacket
@@ -138,7 +138,7 @@ packet_new to =
   TxTelex
     { tId = 0
     , tTo = to
-    , tOut = nullPathId
+    , tOut = nullPathJson
     , tJs = HM.empty
     , tPacket = newPacket
     }
@@ -216,11 +216,10 @@ data HashContainer = H
   , hChanOut  :: !ChannelId
   , hCrypto   :: !(Maybe Crypto)
   , hPaths    :: !(Map.Map PathJson Path)
-  , hLast     :: !(Maybe Path)
+  , hLast     :: !(Maybe PathJson)
   , hChans    :: !(Map.Map ChannelId TChan)
   , hOnopen   :: !(Maybe TxTelex)
   , hParts    :: !(Maybe Parts)
-
                                                -- communicating with this remote
   } deriving (Show)
 
@@ -253,7 +252,7 @@ type PathPriority = Int
 -- TODO: provide custom Eq instance, checking core vals only
 data Path = Path
       { pType   :: !PathType
-      , pJson   :: !PathJson
+      , pJson   :: !PathJson -- NOTE: This is the primary key for the path
       , pId     :: !(Maybe HashName) -- local
       , pAtIn   :: !(Maybe ClockTime)
       , pAtOut  :: !(Maybe ClockTime)
@@ -316,7 +315,8 @@ showPath p = showPathJson (pJson p)
 
 nullPath = pathFromPathJson (PWebRtc (PathWebRtc "*null*"))
 
-nullPathId = PId (-1) -- horrible, need better way of doing this
+-- nullPathId = PId (-1) -- horrible, need better way of doing this
+nullPathJson = PNone
 
 -- ---------------------------------------------------------------------
 -- Channel related types
@@ -356,7 +356,7 @@ data TChan = TChan
   , chType     :: !String
   , chReliable :: !Bool
   , chState    :: !ChannelState
-  , chLast     :: !(Maybe PathId)
+  , chLast     :: !(Maybe PathJson)
   , chNext     :: !(Maybe ChannelId)
   , chIn       :: ![RxTelex] -- queue of incoming messages
   , chNotes    :: ![RxTelex]

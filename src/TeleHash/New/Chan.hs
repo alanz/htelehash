@@ -49,11 +49,12 @@ import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
+
 import TeleHash.New.Hn
 import TeleHash.New.Types
-import TeleHash.New.Switch
 import TeleHash.New.Utils
 import TeleHash.New.Path
+import TeleHash.New.SwitchApi
 import TeleHash.New.Packet
 
 import qualified Crypto.Hash.SHA256 as SHA256
@@ -334,14 +335,19 @@ chan_packet chan = do
         Nothing -> return Nothing
         Just p -> do
           let p1 = p { tTo = chTo chan }
-          alive <- path_alive (chLast chan)
+          hc <- getHN (chTo chan)
+          alive <- case chLast chan of
+                       Nothing -> return False
+                       Just lpj -> do
+                         lp <- getPath (chTo chan) lpj
+                         path_alive lp
           let p2 = if alive
                      then p1 { tOut = gfromJust "chan_packet" $ chLast chan }
                      else p1
               p3 = if chState chan == ChanStarting
                      then packet_set_str p2 "type" (chType chan)
                      else p2
-              p4 = packet_set_int p3 "c" (chId chan)
+              p4 = packet_set_int p3 "c" (unChannelId $ chId chan)
           return (Just p4)
 
 {-
@@ -435,8 +441,11 @@ chan_fail c merr = do
       if chState c /= ChanEnded
         then do
           e <- chan_packet c
-          e2 <- packet_set_str e "err" err
-          chan_send c e2
+          case e of
+            Nothing -> return ()
+            Just e1 -> do
+              let e2 = packet_set_str e1 "err" err
+              chan_send c e2
         else return ()
     Nothing -> return ()
   assert False undefined
@@ -495,7 +504,7 @@ chan_note c mnote = do
   let r = case mnote of
            Just n -> n
            Nothing -> packet_new_rx
-  let r2 = packet_set_str r ".from" (chUid c)
+  let r2 = packet_set_str r ".from" (show $ chUid c)
   return r2
 
 {-
