@@ -7,6 +7,15 @@ module TeleHash.New.Utils
   , packet_set_int
   , packet_set
   , packet_copy
+  , packet_get_packet
+
+  -- * Hashcontainers
+  , getHN
+  , getHNMaybe
+  , putHN
+  , withHN
+  , withHNM
+  , putPath
 
   -- * Original
   , logT
@@ -25,6 +34,9 @@ module TeleHash.New.Utils
   , parts2hn
   , showSwitch
   , randomHEX
+  , parseJs
+  , parseJsVal
+
   ) where
 
 import Control.Applicative
@@ -53,6 +65,8 @@ import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
+
+import TeleHash.New.Paths
 import TeleHash.New.Types
 import TeleHash.New.Packet
 
@@ -77,7 +91,11 @@ import qualified System.Random as R
 -- ---------------------------------------------------------------------
 -- telehash-c api
 
-packet_set_str = assert False undefined
+packet_set_str :: TxTelex -> String -> String -> TxTelex
+packet_set_str packet key val
+  = packet { tJs = HM.insert (Text.pack key) (Aeson.String (Text.pack val)) (tJs packet) }
+
+
 packet_get_str = assert False undefined
 packet_set_int = assert False undefined
 
@@ -86,6 +104,53 @@ packet_set = assert False undefined
 
 packet_copy :: TxTelex -> TeleHash TxTelex
 packet_copy = assert False undefined
+
+packet_get_packet :: RxTelex -> String -> Maybe Aeson.Value
+packet_get_packet p key = HM.lookup (Text.pack key) (rtJs p)
+
+-- ---------------------------------------------------------------------
+
+getHN :: HashName -> TeleHash HashContainer
+getHN hn = do
+  sw <- get
+  return $ gfromJust ("getHN " ++ (show hn)) (Map.lookup hn (swIndex sw))
+
+-- ---------------------------------------------------------------------
+
+getHNMaybe :: HashName -> TeleHash (Maybe HashContainer)
+getHNMaybe hn = do
+  sw <- get
+  return $ (Map.lookup hn (swIndex sw))
+
+
+-- ---------------------------------------------------------------------
+
+putHN :: HashContainer -> TeleHash ()
+putHN hc = do
+  sw <- get
+  put $ sw { swIndex = Map.insert (hHashName hc) hc (swIndex sw) }
+
+-- ---------------------------------------------------------------------
+
+withHN :: HashName -> (HashContainer -> HashContainer) -> TeleHash ()
+withHN hn fn = do
+  hc <- getHN hn
+  putHN (fn hc)
+
+-- ---------------------------------------------------------------------
+
+withHNM :: HashName -> (HashContainer -> TeleHash HashContainer) -> TeleHash ()
+withHNM hn fn = do
+  hc <- getHN hn
+  hc' <- fn hc
+  putHN hc'
+
+-- ---------------------------------------------------------------------
+
+putPath :: HashName -> Path -> TeleHash ()
+putPath hn path = do
+  hc <- getHN hn
+  putHN $ hc { hPaths = Map.insert (pJson path) path (hPaths hc)}
 
 -- ---------------------------------------------------------------------
 -- Logging
@@ -212,3 +277,48 @@ randomHEX len = do
 
 -- ---------------------------------------------------------------------
 
+parseJs :: (FromJSON a) => (HM.HashMap Text.Text Aeson.Value) -> Maybe a
+parseJs v = r
+  where
+    mp = fromJSON (Object v)
+    r = case mp of
+        Error _err1 -> Nothing
+        Success val -> Just val
+
+parseJsVal :: (FromJSON a) => (Aeson.Value) -> Maybe a
+parseJsVal v = r
+  where
+    mp = fromJSON v
+    r = case mp of
+        Error _err1 -> Nothing
+        Success val -> Just val
+
+
+-- ---------------------------------------------------------------------
+
+{-
+seeds=Just 
+(Object fromList 
+ [("ce9d2cfccf34345b1c1a1c5b6c72cb0cf625ec88cdc64b54921303b26a655949"
+    ,Object fromList 
+      [("admin",String "http://github.com/quartzjer"),
+       ("keys",Object fromList 
+          [("3a",String "azQ23XvFzj3238HlcUNsnIntl5VJY7ABMSQZWB6SFgo="),
+           ("2a",String "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA6mvKCqjGj7PI2o+NXLRdgwDXx98271HN01ut873FrbJ4kkk3OmA//TpYTRKaE6xmeetXZnocci4q6X09TbfKpm2eNK0d898vWiYpGiRvQuy/5nUGM2bge3CPOS3wQZWv5ZSvpRkhGufekzCg5p6WpdUG0u9D382E9LzdLidFnzHvIdfp0eOc2EMcX7/JSj5w7BbwsXfZNaWpOkUAQEYfPi/qF/teo0y8cTh70JVufCRDx+2/FtA/c8+JpjtgeCZoFO3bYuKjCQiYmm4Zqcu1A6DYttCPkSKPXjirn9pdZFZBRH7IS7Mj5AJo2/L9nFYyLAE5xwMpBCE2rCY6wyzs7wIDAQAB"),
+           ("1a",String "vRQvjqB6PM7QevqIW2YF3hY/AgDlhP7d0YDo1H6dZJAcYxbcsS/1Qw==")])
+      ,("parts",Object fromList 
+          [("3a",String "61b979399a285ec8a7159ea75f2953090612f26fe8ec80b4bdd3d746c7cba1f8"),("2a",String "df99cf38a79eb730b7b5c583faa4bcb21ccb044b5548df27837e608a3da8c57a"),("1a",String "4dd170c2523653dfaca8d2eca6c10ef4f703b3a95f4b77f57b81476d037e40b1")])
+
+       ,("paths",Array (fromList 
+            [Object fromList 
+               [("type",String "http"),("http",String "http://208.68.164.253:42424")]
+            ,Object fromList 
+               [("ip",String "208.68.164.253"),("port",Number 42424.0),("type",String "ipv4")]
+            ,Object fromList [("ip",String "2605:da00:5222:5269:230:48ff:fe35:6572"),("port",Number 42424.0),("type",String "ipv6")]]))])])
+-}
+
+tp = do
+ let
+  ps =  "{\"parts\": {\"2a\": \"beb07e8864786e1d3d70b0f537e96fb719ca2bbb4a2a3791ca45e215e2f67c9a\",\"1a\": \"6c0da502755941a463454e9d478b16bbe4738e67\"}}"
+ vv <- Aeson.decode ps :: Maybe Parts
+ return vv

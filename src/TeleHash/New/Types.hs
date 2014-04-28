@@ -42,6 +42,7 @@ module TeleHash.New.Types
   , Id(..)
   , SeedInfo(..)
   , Path(..)
+  , pathFromPathJson
   ) where
 
 import Control.Applicative
@@ -156,7 +157,7 @@ type TeleHash = StateT Switch IO
 
 data Switch = Switch
        { swId          :: !HashName
-       , swSeeds       :: !Bucket
+       , swSeeds       :: !(Set.Set HashName)
        , swOut         :: ![TxTelex] -- packets waiting to be delivered
        , swLast        :: !(Maybe TxTelex)
        , swParts       :: !TxTelex
@@ -215,11 +216,11 @@ data HashContainer = H
   , hCsid     :: !String
   , hChanOut  :: !ChannelId
   , hCrypto   :: !Crypto
-  , hPaths    :: ![Path]
+  , hPaths    :: !(Map.Map PathJson Path)
   , hLast     :: !(Maybe Path)
   , hChans    :: !(Map.Map ChannelId TChan)
   , hOnopen   :: !(Maybe TxTelex)
-  , hParts    :: !(Maybe TxTelex)
+  , hParts    :: !(Maybe Parts)
 
                                                -- communicating with this remote
   } deriving (Show)
@@ -242,17 +243,27 @@ type PathPriority = Int
 
 -- TODO: provide custom Eq instance, checking core vals only
 data Path = Path
-      { pJson     :: !PathJson
+      { pType   :: !PathType
+      , pJson   :: !PathJson
+      , pId     :: !(Maybe HashName) -- local
+      , pAtIn   :: !(Maybe ClockTime)
+      , pAtOut  :: !(Maybe ClockTime)
+      } deriving (Show,Eq)
 
-      , pRelay    :: !(Maybe TChan)  -- relay
-      , pId       :: !(Maybe HashName) -- local
-      , pLastIn   :: !(Maybe ClockTime)
-      , pLastOut  :: !(Maybe ClockTime)
-      , pPriority :: !(Maybe PathPriority)
-      , pIsSeed   :: !Bool
-      , pGone     :: !Bool -- may not be meaningful due to functional
-                           -- nature of haskell
-      } deriving (Show)
+{-
+typedef struct path_struct
+{
+  char type[12];
+  char *json;
+  char *id;
+  char ip[46];
+  uint16_t port;
+  unsigned long atIn, atOut;
+} *path_t;
+-}
+
+instance Ord Path where
+  compare p1 p2 = compare (pJson p1) (pJson p2)
 
 instance Aeson.ToJSON Path where
   toJSON p = Aeson.toJSON (pJson p)
@@ -261,14 +272,11 @@ instance Aeson.ToJSON Path where
 
 pathFromPathJson :: PathJson -> Path
 pathFromPathJson pj
-  = Path { pJson = pj
-         , pRelay = Nothing
+  = Path { pType = pjsonType pj
+         , pJson = pj
          , pId = Nothing
-         , pLastIn = Nothing
-         , pLastOut = Nothing
-         , pPriority = Nothing
-         , pIsSeed = False
-         , pGone = False
+         , pAtIn = Nothing
+         , pAtOut = Nothing
          }
 
 -- ---------------------------------------------------------------------
@@ -396,6 +404,10 @@ unHash :: Hash -> String
 unHash (Hash str) = str
 
 type Parts = [(String,String)] -- [(csid,key)]
+
+instance Aeson.FromJSON Parts where
+  parseJSON (Aeson.Object v) = do
+    return $ map (\(k,String val) -> (Text.unpack k,Text.unpack val)) $ HM.toList v
 
 -- ---------------------------------------------------------------------
 
@@ -526,12 +538,50 @@ data CSet = CS
 data SeedInfo = SI
   { sId       :: !String
   , sAdmin    :: !String
-  , sPaths    :: ![Path]
-  , sParts    :: !Parts -- crypto ids?
+  , sPaths    :: ![PathJson]
+  , sParts    :: !Parts
   , sKeys     :: ![(String,String)] -- crypto scheme name, crypto key
   , sIsBridge :: !Bool
   } deriving Show
 
+emptySeed = SI "" "" [] [] [] False
+
+instance Aeson.FromJSON SeedInfo where
+  parseJSON (Aeson.Object v) = do
+     admin <- v .: "admin"
+     -- let admin = "blah"
+
+     paths <- v .: "paths"
+     -- let paths = []
+
+     parts <- v .: "parts"
+     -- let parts = []
+
+     keys  <- v .: "keys"
+     -- let keys = []
+
+     return SI { sId = "foo"
+               , sAdmin = admin
+               , sPaths = paths
+               , sParts = parts
+               , sKeys = keys
+               , sIsBridge = False
+               }
+
+instance Aeson.FromJSON [SeedInfo] where
+  parseJSON (Aeson.Object v) = do
+     let (idval,vv) = head $ HM.toList v
+     seed <- v .: idval
+     return [seed]
+{-
+    if HM.size v > 0
+      then do
+        let (idval,vv) = head $ HM.toList v
+        -- parseJSON vv
+        fail $ "AZ got :" ++ show vv
+      else mzero
+-}
+  parseJSON _ = mzero
 
 -- ---------------------------------------------------------------------
 

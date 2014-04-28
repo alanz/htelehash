@@ -3,12 +3,6 @@
 module TeleHash.New.Switch
    (
      startSwitchThread
-   -- * Hashcontainers
-   , getHN
-   , putHN
-   , withHN
-   , withHNM
-
    -- * Channels
    , putChan
    , queueChan
@@ -50,11 +44,9 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
+import TeleHash.New.Bucket
 import TeleHash.New.Crypt
-import TeleHash.New.Crypto1a
-import TeleHash.New.Hn
 import TeleHash.New.Packet
-import TeleHash.New.Paths
 import TeleHash.New.Types
 import TeleHash.New.Utils
 
@@ -79,36 +71,6 @@ import qualified Network.Socket.ByteString as SB
 
 -- localIP = "10.0.0.28"
 localIP = "10.2.2.83"
-
--- ---------------------------------------------------------------------
-
-getHN :: HashName -> TeleHash HashContainer
-getHN hn = do
-  sw <- get
-  return $ gfromJust ("getHN " ++ (show hn)) (Map.lookup hn (swIndex sw))
-
-
--- ---------------------------------------------------------------------
-
-putHN :: HashContainer -> TeleHash ()
-putHN hc = do
-  sw <- get
-  put $ sw { swIndex = Map.insert (hHashName hc) hc (swIndex sw) }
-
--- ---------------------------------------------------------------------
-
-withHN :: HashName -> (HashContainer -> HashContainer) -> TeleHash ()
-withHN hn fn = do
-  hc <- getHN hn
-  putHN (fn hc)
-
--- ---------------------------------------------------------------------
-
-withHNM :: HashName -> (HashContainer -> TeleHash HashContainer) -> TeleHash ()
-withHNM hn fn = do
-  hc <- getHN hn
-  hc' <- fn hc
-  putHN hc'
 
 -- ---------------------------------------------------------------------
 
@@ -205,6 +167,13 @@ run ch1 ch2 = do
 
   switch_init testId
 
+  bucket_load "../data/seeds.json"
+  -- seeds = bucket_load(s->index, "seeds.json");
+  -- if(!seeds || !bucket_get(seeds, 0))
+  -- {
+  --   printf("failed to load seeds.json: %s\n", crypt_err());
+  --   return -1;
+  -- }
 
 
 
@@ -537,9 +506,10 @@ testSeeds = do
 initialSeeds :: [SeedInfo]
 -- initialSeeds = [seed195,seed253]
 -- initialSeeds = [seed253]
-initialSeeds = [seedLocal]
+-- initialSeeds = [seedLocal]
+initialSeeds = []
 
-
+{-
 seedLocal:: SeedInfo
 seedLocal =
 
@@ -555,13 +525,9 @@ seedLocal =
               -}
 
                 pJson = PIPv4 (PathIPv4 localIP 42424)
-              , pLastIn = Nothing
-              , pLastOut = Nothing
-              , pRelay = Nothing
+              , pAtIn = Nothing
+              , pAtOut = Nothing
               , pId = Nothing
-              , pPriority = Nothing
-              , pIsSeed = True
-              , pGone = False
               }
       ]
     , sParts =
@@ -595,13 +561,9 @@ seed195 =
               -}
                 pJson = PIPv4 (PathIPv4 "208.126.199.195" 42424)
 
-              , pLastIn = Nothing
-              , pLastOut = Nothing
-              , pRelay = Nothing
+              , pAtIn = Nothing
+              , pAtOut = Nothing
               , pId = Nothing
-              , pPriority = Nothing
-              , pIsSeed = True
-              , pGone = False
               }
 
 {-
@@ -638,15 +600,12 @@ seed253 =
               , pPort = 42424
               , pHttp = ""
               -}
-                pJson = PIPv4 (PathIPv4 "208.68.164.253" 42424)
+                pType = PtIPv4
+              , pJson = PIPv4 (PathIPv4 "208.68.164.253" 42424)
 
-              , pLastIn = Nothing
-              , pLastOut = Nothing
-              , pRelay = Nothing
+              , pAtIn = Nothing
+              , pAtOut = Nothing
               , pId = Nothing
-              , pPriority = Nothing
-              , pIsSeed = True
-              , pGone = False
               }
 {-
        , Path { pType = PathType "ipv6"
@@ -683,7 +642,7 @@ seed253 =
         ]
     , sIsBridge = True
     }
-
+-}
 
 -- ---------------------------------------------------------------------
 
@@ -699,7 +658,7 @@ switch_new = do
   rng <- initRNG
   return $ Switch
        { swId          = HN "foo"
-       , swSeeds       = Bucket
+       , swSeeds       = Set.empty
        , swOut         = [] -- packets waiting to be delivered
        , swLast        = Nothing
        , swParts       = packet_new (HN "foo")
@@ -744,14 +703,14 @@ switch_init anId = do
   mc <- crypt_new "1a" (id1a anId)
   c <- crypt_private (gfromJust "switch_init" mc) (id1a_secret anId)
   logT $ "loaded " ++ show anId
-  
+
   sw <- get
-  parts <- packet_set_str (swParts sw) (cCsid c) (cPart c)
+  let parts = packet_set_str (swParts sw) (cCsid c) (unHash $ cPart c)
   put $ sw { swIndexCrypto = Map.insert "1a" c (swIndexCrypto sw)
            , swParts = parts
            , swId = parts2hn [("1a",unHash $ cPart c)]
            }
-  assert False undefined
+
 {-
 
 int switch_init(switch_t s, packet_t keys)
