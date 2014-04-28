@@ -34,6 +34,7 @@ import System.Time
 import TeleHash.New.Crypt
 import TeleHash.New.Path
 import TeleHash.New.Paths
+import TeleHash.New.Packet
 import TeleHash.New.Types
 import TeleHash.New.Utils
 
@@ -72,16 +73,16 @@ hn_fromjson p = do
         Just parts -> do
           mhn <- hn_getparts parts
           case mhn of
-            Nothing -> return ()
+            Nothing -> return Nothing
             Just hn -> do
               -- if any paths are stored, associate them
               let mpp4 = packet_get_packet p "paths"
               case mpp4 of
-                Nothing -> return ()
+                Nothing -> return Nothing
                 Just pp4 -> do
                   let mpaths = parseJsVal pp4 :: Maybe [PathJson]
                   case mpaths of
-                    Nothing -> return ()
+                    Nothing -> return Nothing
                     Just paths -> do
                       forM_ paths $ \path -> do
                         mpath2 <- hn_path hn path
@@ -92,11 +93,19 @@ hn_fromjson p = do
                       -- already have crypto
                       hc <- getHN hn
                       case (hCrypto hc) of
-                        Just _ -> return hn
+                        Just _ -> return (Just hn)
                         Nothing -> do
-                          assert False undefined
-
-          assert False undefined
+                          if (BC.length (unBody $ paBody $ rtPacket p) /= 0)
+                            then do
+                              c <- crypt_new (hCsid hc) Nothing (Just (unBody $ paBody $ rtPacket p))
+                              putHN $ hc { hCrypto = c}
+                              return $ Just hn
+                            else do
+                              assert False undefined
+              hcFinal <- getHN hn
+              if isNothing (hCrypto hcFinal)
+                then return Nothing
+                else return (Just hn)
 
 {-
 // derive a hn from json seed or connect format
@@ -152,12 +161,15 @@ hn_getparts parts = do
   let hashName = parts2hn parts
   mhc <- getHNMaybe hashName
   case mhc of
-    Nothing -> return Nothing
-    Just hc -> do
-      putHN $ hc { hCsid = "1a"
-                 , hParts = Just parts
-                 }
-      return (Just (hHashName hc))
+    Nothing -> do
+      putHN $ newHashContainer hashName
+      return ()
+    Just _ -> return ()
+  hc <- getHN hashName
+  putHN $ hc { hCsid = "1a"
+             , hParts = Just parts
+             }
+  return (Just (hHashName hc))
 
 {-
 hn_t hn_getparts(xht_t index, packet_t p)

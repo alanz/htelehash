@@ -83,14 +83,15 @@ bucket_load fname = do
   let mv = Aeson.decode fc :: Maybe Value
   logT $ "seedinfo=" ++ show mv
   case mv of
-    Nothing -> assert False undefined
+    Nothing -> return Set.empty
     Just (Object vv) -> do
       let go (Object o) = hn_fromjson (packet_new_rx { rtJs = o})
           go _          = return Nothing
       hns <- mapM go $ HM.elems vv
       logT $ "bucket_load: hns=" ++ show hns
-      assert False undefined
+      return $ Set.fromList $ catMaybes hns
     Just _ -> assert False undefined
+
 {-
 bucket_t bucket_load(xht_t index, char *file)
 {
@@ -108,8 +109,8 @@ bucket_t bucket_load(xht_t index, char *file)
   }
 
   // check each value, since js0n is key,len,value,len,key,len,value,len for objects
-	for(i=0;p->js[i];i+=4)
-	{
+  for(i=0;p->js[i];i+=4)
+    {
     p2 = packet_new();
     packet_json(p2, p->json+p->js[i+2], p->js[i+3]);
     hn = hn_fromjson(index, p2);
@@ -117,7 +118,7 @@ bucket_t bucket_load(xht_t index, char *file)
     if(!hn) continue;
     if(!b) b = bucket_new();
     bucket_add(b, hn);
-	}
+    }
 
   packet_free(p);
   return b;

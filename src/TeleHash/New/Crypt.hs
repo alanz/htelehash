@@ -93,9 +93,9 @@ int crypt_init()
 // takes binary or string key format, creates a crypt object
 crypt_t crypt_new(char csid, unsigned char *key, int len);
 -}
-crypt_new :: String -> String -> TeleHash (Maybe Crypto)
-crypt_new csid key = do
-  logT $ "crypt_new " ++ show (csid,key)
+crypt_new :: String -> Maybe String -> Maybe BC.ByteString -> TeleHash (Maybe Crypto)
+crypt_new csid mKeyStr mKeyBin = do
+  logT $ "crypt_new " ++ show (csid,mKeyStr,mKeyBin)
 {-
   let c = Crypto
            { cCsid      = csid
@@ -109,7 +109,7 @@ crypt_new csid key = do
            , cKey       :: !String
            , cCs        :: !String -- TBD, individual crypto structures
 -}
-  c <- crypt_new_1a key
+  c <- crypt_new_1a mKeyStr mKeyBin
   return c
 
 {-

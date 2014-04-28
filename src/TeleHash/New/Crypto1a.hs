@@ -96,16 +96,23 @@ mkHashFromB64 str = r
 
 -- ---------------------------------------------------------------------
 
-crypt_new_1a :: String -> TeleHash (Maybe Crypto)
-crypt_new_1a pub = do
-  let mbs = decode $ BC.pack pub
+crypt_new_1a :: Maybe String -> Maybe BC.ByteString -> TeleHash (Maybe Crypto)
+crypt_new_1a mPubStr mPubBin = do
+  mbs <- case mPubStr of
+          Just pub -> do
+            let mbs = decode $ BC.pack pub
+            case mbs of
+              Left _err -> do
+                logT $ "invalid public key b64decode failed:" ++ pub
+                return Nothing
+              Right bs -> return (Just bs)
+
+          Nothing -> return mPubBin
   case mbs of
-    Left _err -> do
-      logT $ "invalid public key b64decode failed:" ++ pub
-      return Nothing
-    Right bs -> do
+    Nothing -> return Nothing
+    Just bs -> do
       if BC.length bs /= 40
-        then do logT $ "invalid public key wrong len:" ++ pub
+        then do logT $ "invalid public key wrong len:" ++ (show bs)
                 return Nothing
         else do
           -- create line ephemeral key
@@ -142,7 +149,7 @@ crypt_new_1a pub = do
                       , cAtIn      = Nothing
                       , cLineOut   = randomHexVal
                       , cLineIn    = ""
-                      , cKey       = pub
+                      , cKey       = bs
                       , cCs        = cs
                       }
 

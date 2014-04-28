@@ -21,6 +21,7 @@ module TeleHash.New.Types
   , nullHandler
 
   , HashContainer(..)
+  , newHashContainer
 
   -- * Channel related types
   , TChan(..)
@@ -143,9 +144,7 @@ packet_new to =
     }
 
 
-data Bucket = Bucket
-      {
-      } deriving Show
+type Bucket = Set.Set HashName
 
 -- ---------------------------------------------------------------------
 
@@ -215,7 +214,7 @@ data HashContainer = H
   { hHashName :: !HashName
   , hCsid     :: !String
   , hChanOut  :: !ChannelId
-  , hCrypto   :: !Crypto
+  , hCrypto   :: !(Maybe Crypto)
   , hPaths    :: !(Map.Map PathJson Path)
   , hLast     :: !(Maybe Path)
   , hChans    :: !(Map.Map ChannelId TChan)
@@ -237,7 +236,17 @@ typedef struct hn_struct
   packet_t onopen, parts;
 } *hn_t;
 -}
-
+newHashContainer :: HashName -> HashContainer
+newHashContainer hn = H { hHashName = hn
+                        , hCsid = ""
+                        , hChanOut = CID 0
+                        , hCrypto = Nothing
+                        , hPaths = Map.empty
+                        , hLast = Nothing
+                        , hChans = Map.empty
+                        , hOnopen = Nothing
+                        , hParts = Nothing
+                        }
 
 type PathPriority = Int
 
@@ -450,7 +459,7 @@ data Crypto = Crypto
   , cAtIn      :: !(Maybe ClockTime)
   , cLineOut   :: !String
   , cLineIn    :: !String
-  , cKey       :: !String
+  , cKey       :: !BC.ByteString
   , cCs        :: !Crypt1a
   } deriving Show
 

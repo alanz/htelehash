@@ -700,7 +700,7 @@ switch_t switch_new(uint32_t prime)
 switch_init :: Id -> TeleHash ()
 switch_init anId = do
   logT $ "loading pk " ++ id1a anId ++ " sk " ++ id1a_secret anId
-  mc <- crypt_new "1a" (id1a anId)
+  mc <- crypt_new "1a" (Just (id1a anId)) Nothing
   c <- crypt_private (gfromJust "switch_init" mc) (id1a_secret anId)
   logT $ "loaded " ++ show anId
 
