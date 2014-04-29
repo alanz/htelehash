@@ -16,6 +16,13 @@ module TeleHash.New.Crypto1a
 
 {-
 
+Now
+
+    ECC secp160r1 - small key sizes, balance of strong crypto (~1024bit) and still supportable with low cpu
+    HMAC-SHA256 - common implementations available for embedded environments
+    AES-128-CTR - low impact cipher, many implementations including hardware ones
+
+was
     SHA1 - well trusted and performs well on small devices
     ECC secp160r1 - small key sizes, balance of strong crypto (~1024bit) and still supportable with low cpu
     HMAC-SHA1 - common implementations available for embedded environments
@@ -32,7 +39,9 @@ import Crypto.Number.Serialize
 import Crypto.PubKey.ECC.ECDSA
 import Crypto.PubKey.ECC.Generate
 import Crypto.Random
+import Data.Bits
 import Data.ByteString.Base64
+import Data.Int
 import Data.List
 import Data.Maybe
 import Data.Word
@@ -148,7 +157,7 @@ crypt_new_1a mPubStr mPubBin = do
                       , cKeyLen    = 40
                       , cAtOut     = timeNow
                       , cAtIn      = Nothing
-                      , cLineOut   = randomHexVal
+                      , cLineOut   = BC.pack randomHexVal
                       , cLineIn    = ""
                       , cKey       = bs
                       , cCs        = cs
@@ -218,7 +227,7 @@ crypt_private_1a c key = do
 int crypt_private_1a(crypt_t c, unsigned char *key, int len)
 {
   crypt_1a_t cs = (crypt_1a_t)c->cs;
-  
+
   if(!key || len <= 0) return 1;
 
   if(len == uECC_BYTES)
@@ -236,9 +245,72 @@ int crypt_private_1a(crypt_t c, unsigned char *key, int len)
 
 -- ---------------------------------------------------------------------
 
-crypt_lineize_1a :: Crypto -> TxTelex -> TeleHash LinePacket
+fold1 :: BC.ByteString -> BC.ByteString
+fold1 inVal = lbsTocbs $ foldn 16 (cbsTolbs inVal)
+
+foldn :: Int64 -> BL.ByteString -> BL.ByteString
+foldn n inVal = BL.pack r
+  where
+    (front,back) = BL.splitAt n inVal
+    r = map (\(f,b) -> xor f b) $ BL.zip front back
+
+{-
+void fold1(unsigned char in[32], unsigned char out[16])
+{
+  unsigned char i;
+  for(i=0;i<16;i++) out[i] = in[i] ^ in[i+16];
+}
+-}
+
+
+-- ---------------------------------------------------------------------
+
+fold3 :: BC.ByteString -> BC.ByteString
+fold3 inVal = lbsTocbs f3
+  where
+    f1 = foldn 16 (cbsTolbs inVal)
+    f2 = foldn 8 f1
+    f3 = foldn 4 f2
+
+{-
+void fold3(unsigned char in[32], unsigned char out[4])
+{
+  unsigned char i, buf[16];
+  for(i=0;i<16;i++) buf[i] = in[i] ^ in[i+16];
+  for(i=0;i<8;i++) buf[i] ^= buf[i+8];
+  for(i=0;i<4;i++) out[i] = buf[i] ^ buf[i+4];
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+crypt_lineize_1a :: Crypto -> TxTelex -> TeleHash (Crypto,Maybe LinePacket)
 crypt_lineize_1a c p = do
-  assert False undefined
+  let
+    cs = cCs c
+    (LP body) = toLinePacket (tPacket p)
+
+    ivPrefix = lbsTocbs $ BL.pack $ take 12 (repeat (0::Word8))
+    iv = lbsTocbs $ Binary.encode (cs1aSeq cs)
+    ivc = BC.append ivPrefix iv
+
+    keyOut = (gfromJust "crypt_lineize_1a" $ cs1aKeyOut cs)
+    ctx = initAES keyOut
+    cbody = encryptCTR ctx ivc body
+
+    hm = hmac SHA256.hash 64 keyOut (BC.append iv cbody)
+    hmFinal = fold3 hm
+
+    final = foldl' BC.append BC.empty [cLineIn c,hmFinal,iv,cbody]
+
+    rc = c { cCs = cs { cs1aSeq = (cs1aSeq cs) + 1 } }
+    r = (rc,Just $ toLinePacket (Packet HeadEmpty (Body final)))
+  return r
+
+  -- 16 bytes of lineIn
+  --  4 bytes of fold3 of hmac (put in at end)
+  --  4 bytes of seq
+  -- nn bytes of aes encrypted body
 
 {-
 packet_t crypt_lineize_1a(crypt_t c, packet_t p)

@@ -107,6 +107,7 @@ import qualified System.Random as R
 class PacketApi a where
   packet_set_str :: a -> String -> String -> a
   packet_get_str :: a -> String -> Maybe String
+  packet_set :: (Aeson.ToJSON b) => a -> String -> b -> a
 
 instance PacketApi TxTelex where
   packet_set_str packet key val
@@ -118,6 +119,9 @@ instance PacketApi TxTelex where
         Just (Aeson.String s) -> Just (Text.unpack s)
         Just v -> Just (show v)
 
+  packet_set p key val
+    = p { tJs = HM.insert (Text.pack key) (toJSON val) (tJs p) }
+
 instance PacketApi RxTelex where
   packet_set_str packet key val
     = packet { rtJs = HM.insert (Text.pack key) (toJSON val) (rtJs packet) }
@@ -128,12 +132,14 @@ instance PacketApi RxTelex where
         Just (Aeson.String s) -> Just (Text.unpack s)
         Just v -> Just (show v)
 
+  packet_set p key val
+    = p { rtJs = HM.insert (Text.pack key) (toJSON val) (rtJs p) }
+
+
 packet_set_int :: TxTelex -> String -> Int -> TxTelex
 packet_set_int p key val
  = p { tJs = HM.insert (Text.pack key) (toJSON val) (tJs p) }
 
-packet_set :: (Aeson.ToJSON a) => TxTelex -> String -> a -> TxTelex
-packet_set = assert False undefined
 
 packet_copy :: TxTelex -> TeleHash TxTelex
 packet_copy = assert False undefined

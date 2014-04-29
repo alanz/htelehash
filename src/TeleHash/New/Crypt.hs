@@ -267,9 +267,11 @@ int crypt_line_3a(crypt_t c, packet_t inner);
 
 -- ---------------------------------------------------------------------
 
-crypt_lineize :: Crypto -> TxTelex -> TeleHash LinePacket
+crypt_lineize :: Crypto -> TxTelex -> TeleHash (Crypto,Maybe LinePacket)
 crypt_lineize c p = do
-  crypt_lineize_1a c p
+  if cLined c
+    then crypt_lineize_1a c p
+    else return (c,Nothing)
 
 {-
 packet_t crypt_lineize(crypt_t c, packet_t p)

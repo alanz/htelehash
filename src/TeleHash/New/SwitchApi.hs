@@ -73,8 +73,19 @@ switch_send p = do
           logT $ "switch_send:crypto not set up"
           return ()
         Just crypto -> do
-          lined <- crypt_lineize crypto p
-          assert False undefined
+
+          (crypto1,mlined) <- crypt_lineize crypto p
+          putHN $ hc { hCrypto = Just crypto1 }
+          case mlined of
+            Just lined -> do
+              switch_sendingQ lined
+            Nothing -> do
+              -- queue most recent packet to be sent after opened
+              hc2 <- getHN (tTo p)
+              putHN $ hc2 { hOnopen = Just p }
+
+              -- no line, so generate open instead
+              switch_open (tTo p) Nothing
 
 {-
 void switch_send(switch_t s, packet_t p)
@@ -99,5 +110,55 @@ void switch_send(switch_t s, packet_t p)
 }
 -}
 
+-- ---------------------------------------------------------------------
+
+switch_sendingQ = assert False undefined
+
+-- ---------------------------------------------------------------------
+
+switch_open :: HashName -> Maybe Path -> TeleHash ()
+switch_open hn direct = do
+  hc <- getHN hn
+  case hCrypto hc of
+    Nothing -> do
+      logT $ "switch_open: can't open, no key for " ++ (unHN (hHashName hc))
+      sw <- get
+      case (swHandler sw) of
+        Just handle -> handle hn
+        Nothing -> return ()
+    Just crypto -> do
+      -- actually send the open
+      sw <- get
+      let inner = packet_new (hHashName hc)
+          inner2 = packet_set_str inner "to" (unHN $ hHashName hc)
+          inner3 = packet_set inner2 "from" (swParts sw)
+      assert False undefined
+
+{-
+// tries to send an open if we haven't
+void switch_open(switch_t s, hn_t to, path_t direct)
+{
+  packet_t open, inner;
+
+  if(!to) return;
+  if(!to->c)
+  {
+    DEBUG_PRINTF("can't open, no key for %s",to->hexname);
+    if(s->handler) s->handler(s,to);
+    return;
+  }
+
+  // actually send the open
+  inner = packet_new();
+  packet_set_str(inner,"to",to->hexname);
+  packet_set(inner,"from",(char*)s->parts->json,s->parts->json_len);
+  open = crypt_openize((crypt_t)xht_get(s->index,to->hexid), to->c, inner);
+  DEBUG_PRINTF("opening to %s %hu %s",to->hexid,packet_len(open),to->hexname);
+  if(!open) return;
+  open->to = to;
+  if(direct) open->out = direct;
+  switch_sendingQ(s, open);
+}
+-}
 -- ---------------------------------------------------------------------
 

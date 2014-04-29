@@ -610,7 +610,7 @@ switch_new = do
        , swSeeds       = Set.empty
        , swOut         = [] -- packets waiting to be delivered
        , swLast        = Nothing
-       , swParts       = packet_new (HN "foo")
+       , swParts       = []
        , swChans       = Map.empty
        , swUid         = 0
        , swCap         = 256 -- default cap size
@@ -619,7 +619,7 @@ switch_new = do
        , swIndex       = Map.empty
        , swIndexChans  = Map.empty
        , swIndexCrypto = Map.empty
-       , swHandler     = nullHandler
+       , swHandler     = Nothing
 
        , swH           = Nothing
        , swChan        = Nothing
@@ -654,7 +654,7 @@ switch_init anId = do
   logT $ "loaded " ++ show anId
 
   sw <- get
-  let parts = packet_set_str (swParts sw) (cCsid c) (unHash $ cPart c)
+  let parts = [((cCsid c),(unHash $ cPart c))]
   put $ sw { swIndexCrypto = Map.insert "1a" c (swIndexCrypto sw)
            , swParts = parts
            , swId = parts2hn [("1a",unHash $ cPart c)]

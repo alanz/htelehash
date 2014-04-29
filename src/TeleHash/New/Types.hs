@@ -159,7 +159,8 @@ data Switch = Switch
        , swSeeds       :: !(Set.Set HashName)
        , swOut         :: ![TxTelex] -- packets waiting to be delivered
        , swLast        :: !(Maybe TxTelex)
-       , swParts       :: !TxTelex
+       -- , swParts       :: !TxTelex
+       , swParts       :: !Parts
        , swChans       :: !(Map.Map Uid TChan) -- channels waiting to be processed
        , swUid         :: !Uid
        , swCap         :: !Int
@@ -168,7 +169,7 @@ data Switch = Switch
        , swIndex       :: !(Map.Map HashName HashContainer)
        , swIndexChans  :: !(Map.Map Uid TChan) -- all channels
        , swIndexCrypto :: !(Map.Map String Crypto)
-       , swHandler     :: !(HashContainer -> TeleHash ()) -- called w/ a hn that has no key info
+       , swHandler     :: !(Maybe (HashName -> TeleHash ())) -- called w/ a hn that has no key info
 
        , swH      :: !(Maybe SocketHandle)
        , swChan   :: !(Maybe (Chan Signal))
@@ -178,8 +179,8 @@ data Switch = Switch
        }
      deriving Show
 
-instance Show (HashContainer -> TeleHash ()) where
-  show _ = "(HashContainer -> TeleHash ())"
+instance Show (HashName -> TeleHash ()) where
+  show _ = "(HashName -> TeleHash ())"
 
 instance Show (Chan Signal) where
   show _ = "(Chan Signal)"
@@ -457,8 +458,8 @@ data Crypto = Crypto
   , cKeyLen    :: !Int
   , cAtOut     :: !ClockTime
   , cAtIn      :: !(Maybe ClockTime)
-  , cLineOut   :: !String
-  , cLineIn    :: !String
+  , cLineOut   :: !BC.ByteString
+  , cLineIn    :: !BC.ByteString
   , cKey       :: !BC.ByteString
   , cCs        :: !Crypt1a
   } deriving Show
