@@ -78,7 +78,7 @@ switch_send p = do
           putHN $ hc { hCrypto = Just crypto1 }
           case mlined of
             Just lined -> do
-              switch_sendingQ lined
+              switch_sendingQ $ p { tChain = Just lined}
             Nothing -> do
               -- queue most recent packet to be sent after opened
               hc2 <- getHN (tTo p)
@@ -112,7 +112,56 @@ void switch_send(switch_t s, packet_t p)
 
 -- ---------------------------------------------------------------------
 
-switch_sendingQ = assert False undefined
+switch_sendingQ :: TxTelex -> TeleHash ()
+switch_sendingQ p = do
+  assert False undefined
+{-
+// internally adds to sending queue
+void switch_sendingQ(switch_t s, packet_t p)
+{
+  packet_t dup;
+  if(!p) return;
+
+  // if there's no path, find one or copy to many
+  if(!p->out)
+  {
+    // just being paranoid
+    if(!p->to)
+    {
+      packet_free(p);
+      return;
+    }
+
+    // if the last path is alive, just use that
+    if(path_alive(p->to->last)) p->out = p->to->last;
+    else{
+      int i;
+      // try sending to all paths
+      for(i=0; p->to->paths[i]; i++)
+      {
+        dup = packet_copy(p);
+        dup->out = p->to->paths[i];
+        switch_sendingQ(s, dup);
+      }
+      packet_free(p);
+      return;
+    }
+  }
+
+  // update stats
+  p->out->atOut = platform_seconds();
+
+  // add to the end of the queue
+  if(s->last)
+  {
+    s->last->next = p;
+    s->last = p;
+    return;
+  }
+  s->last = s->out = p;
+}
+
+-}
 
 -- ---------------------------------------------------------------------
 
@@ -129,10 +178,27 @@ switch_open hn direct = do
     Just crypto -> do
       -- actually send the open
       sw <- get
-      let inner = packet_new (hHashName hc)
-          inner2 = packet_set_str inner "to" (unHN $ hHashName hc)
+      let inner1 = packet_new (hHashName hc)
+          inner2 = packet_set_str inner1 "to" (unHN $ hHashName hc)
           inner3 = packet_set inner2 "from" (swParts sw)
-      assert False undefined
+          inner = OpenizeInner { oiAt = cAtOut crypto
+                               , oiTo = hHashName hc
+                               , oiFrom = swParts sw
+                               , oiLine = cLineHex crypto
+                               }
+      case Map.lookup "1a" (swIndexCrypto sw) of
+        Nothing -> do
+          logT $ "switch_open: missing crypto"
+          assert False undefined
+        Just cryptoSelf -> do
+          mopen <- crypt_openize cryptoSelf crypto inner
+          logT $ "opening to " ++ show ("1a",hHashName hc)
+          case mopen of
+            Nothing -> do
+              logT $ "switch_open: could not openize, discarding"
+              return ()
+            Just open -> do
+              switch_sendingQ $ inner3 { tChain = Just open }
 
 {-
 // tries to send an open if we haven't

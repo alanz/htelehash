@@ -23,6 +23,8 @@ module TeleHash.New.Types
   , HashContainer(..)
   , newHashContainer
 
+  , OpenizeInner(..)
+
   -- * Channel related types
   , TChan(..)
   , ChannelId(..)
@@ -120,6 +122,7 @@ data TxTelex = TxTelex
       , tOut    :: !PathJson
       , tJs     :: !(HM.HashMap Text.Text Aeson.Value)
       , tPacket :: !Packet
+      , tChain  :: !(Maybe LinePacket)
       } deriving Show
 
 packet_new_rx :: RxTelex
@@ -141,6 +144,7 @@ packet_new to =
     , tOut = nullPathJson
     , tJs = HM.empty
     , tPacket = newPacket
+    , tChain = Nothing
     }
 
 
@@ -438,6 +442,14 @@ data OpenizeInner = OpenizeInner
                     , oiLine :: !String -- TODO: should be its own type
                     }
 
+instance ToJSON OpenizeInner where
+  toJSON (OpenizeInner (TOD at _) to from line)
+    = object ["at" .= at
+             ,"to" .= unHN to
+             ,"from" .= from
+             ,"line" .= line
+             ]
+
 -- ---------------------------------------------------------------------
 
 data DeOpenizeResult = DeOpenizeVerifyFail
@@ -460,6 +472,7 @@ data Crypto = Crypto
   , cAtIn      :: !(Maybe ClockTime)
   , cLineOut   :: !BC.ByteString
   , cLineIn    :: !BC.ByteString
+  , cLineHex   :: !String
   , cKey       :: !BC.ByteString
   , cCs        :: !Crypt1a
   } deriving Show

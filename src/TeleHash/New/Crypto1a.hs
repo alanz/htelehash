@@ -6,6 +6,7 @@ module TeleHash.New.Crypto1a
   , crypt_new_1a
   , crypt_private_1a
   , crypt_lineize_1a
+  , crypt_openize_1a
 
   , mkHashFromBS
   , mkHashFromB64
@@ -158,6 +159,7 @@ crypt_new_1a mPubStr mPubBin = do
                       , cAtOut     = timeNow
                       , cAtIn      = Nothing
                       , cLineOut   = BC.pack randomHexVal
+                      , cLineHex   = randomHexVal
                       , cLineIn    = ""
                       , cKey       = bs
                       , cCs        = cs
@@ -338,6 +340,71 @@ packet_t crypt_lineize_1a(crypt_t c, packet_t p)
 
 -- ---------------------------------------------------------------------
 
+crypt_openize_1a :: Crypto -> Crypto -> OpenizeInner -> TeleHash (Maybe LinePacket)
+crypt_openize_1a self c inner = do
+  let cs = cCs c
+      scs = cCs self
+  let Public1a (PublicKey _ ourPub) = (cs1aIdPublic cs)
+      js = lbsTocbs $ Aeson.encode inner
+      innerPacket = Packet (HeadJson js) (Body $ pointTow8s ourPub)
+      (LP innerPacketBody) = toLinePacket innerPacket
+      body = innerPacketBody
+
+  -- get the shared secret to create the iv+key for the open aes
+  secret <- uECC_shared_secret (cs1aIdPublic cs) (cs1aLinePrivate cs)
+  let hash = fold1 $ SHA256.hash secret
+
+      Just iv = i2ospOf 16 1
+      cbody = encryptCTR (initAES hash) iv body
+
+  -- generate secret for hmac
+  secret2 <- uECC_shared_secret (cs1aIdPublic cs) (gfromJust "crypt_openize_1a" $ cs1aIdPrivate scs)
+  let (Public1a (PublicKey _ linePub)) = cs1aLinePublic cs
+      macd = BC.append (pointTow8s linePub) cbody
+      hmacVal = fold3 $ hmac SHA256.hash 64 secret2 macd
+
+  let bodyFinal = BC.append hmacVal macd
+
+  return $ Just $ toNetworkPacket $ OpenPacket 0x1a bodyFinal
+
+{-
+// create a new open packet
+packet_t crypt_openize_1a(crypt_t self, crypt_t c, packet_t inner)
+{
+  unsigned char secret[uECC_BYTES], iv[16], hash[32];
+  packet_t open;
+  int inner_len;
+  crypt_1a_t cs = (crypt_1a_t)c->cs, scs = (crypt_1a_t)self->cs;
+
+  open = packet_chain(inner);
+  packet_json(open,&(self->csid),1);
+  inner_len = packet_len(inner);
+  if(!packet_body(open,NULL,4+40+inner_len)) return NULL;
+
+  // copy in the line public key
+  memcpy(open->body+4, cs->line_public, 40);
+
+  // get the shared secret to create the iv+key for the open aes
+  if(!uECC_shared_secret(cs->id_public, cs->line_private, secret)) return packet_free(open);
+  crypt_hash(secret,uECC_BYTES,hash);
+  fold1(hash,hash);
+  memset(iv,0,16);
+  iv[15] = 1;
+
+  // encrypt the inner
+  aes_128_ctr(hash,inner_len,iv,packet_raw(inner),open->body+4+40);
+
+  // generate secret for hmac
+  if(!uECC_shared_secret(cs->id_public, scs->id_private, secret)) return packet_free(open);
+  hmac_256(secret,uECC_BYTES,open->body+4,40+inner_len,hash);
+  fold3(hash,open->body);
+
+  return open;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
 pointTow8s :: ECC.Point -> B.ByteString
 pointTow8s ECC.PointO = B.empty
 pointTow8s (ECC.Point i1 i2)= B.append i1_20 i2_20
@@ -361,3 +428,34 @@ bsToPoint bs = (ECC.Point i1 i2)
     i2 = os2ip b2
 
 
+-- ---------------------------------------------------------------------
+
+uECC_shared_secret :: TeleHash.New.Types.PublicKey -> TeleHash.New.Types.PrivateKey -> TeleHash BC.ByteString
+uECC_shared_secret publicKey privateKey = do
+  let (Public1a (PublicKey _ pubPoint)) = publicKey
+      (Private1a (PrivateKey _ privPoint)) = privateKey
+  let (ECC.Point sharedX _Y) = ECC.pointMul curve privPoint pubPoint
+      (Just longkey) = i2ospOf 20 sharedX
+  return longkey
+  -- assert False undefined
+{-
+int uECC_shared_secret(const uint8_t p_publicKey[uECC_BYTES*2], const uint8_t p_privateKey[uECC_BYTES], uint8_t p_secret[uECC_BYTES])
+{
+    EccPoint l_public;
+    uECC_word_t l_private[uECC_WORDS];
+    uECC_word_t l_random[uECC_WORDS];
+    
+    g_rng((uint8_t *)l_random, sizeof(l_random));
+    
+    vli_bytesToNative(l_private, p_privateKey);
+    vli_bytesToNative(l_public.x, p_publicKey);
+    vli_bytesToNative(l_public.y, p_publicKey + uECC_BYTES);
+    
+    EccPoint l_product;
+    EccPoint_mult(&l_product, &l_public, l_private, (vli_isZero(l_random) ? 0: l_random), vli_numBits(l_private, uECC_WORDS));
+    
+    vli_nativeToBytes(p_secret, l_product.x);
+    
+    return !EccPoint_isZero(&l_product);
+}
+-}

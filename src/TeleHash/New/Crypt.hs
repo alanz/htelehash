@@ -4,6 +4,7 @@ module TeleHash.New.Crypt
   , crypt_new
   , crypt_private
   , crypt_lineize
+  , crypt_openize
   ) where
 
 import Control.Applicative
@@ -289,3 +290,39 @@ packet_t crypt_lineize(crypt_t c, packet_t p)
   return NULL;
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+crypt_openize :: Crypto -> Crypto -> OpenizeInner -> TeleHash (Maybe LinePacket)
+crypt_openize self c inner = do
+  if (cCsid self) /= (cCsid c)
+    then do
+      logT $ "crypt_openize:csid mismatch:" ++ show (cCsid self,cCsid c)
+      return Nothing
+    else do
+      crypt_openize_1a self c inner
+
+{-
+packet_t crypt_openize(crypt_t self, crypt_t c, packet_t inner)
+{
+  if(!c || !self || self->csid != c->csid) return NULL;
+
+  packet_set_str(inner,"line",(char*)c->lineHex);
+  packet_set_int(inner,"at",(int)c->atOut);
+  packet_body(inner,self->key,self->keylen);
+
+#ifdef CS_1a
+  if(c->csid == 0x1a) return crypt_openize_1a(self,c,inner);
+#endif
+#ifdef CS_2a
+  if(c->csid == 0x2a) return crypt_openize_2a(self,c,inner);
+#endif
+#ifdef CS_3a
+  if(c->csid == 0x3a) return crypt_openize_3a(self,c,inner);
+#endif
+
+  return NULL;
+}
+-}
+
+-- ---------------------------------------------------------------------

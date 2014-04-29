@@ -10,6 +10,7 @@ module TeleHash.New.Utils
   , packet_copy
   , packet_get_packet
   , packet_from_val
+  , packet_body
 
    -- * Channels
    , putChan
@@ -47,6 +48,7 @@ module TeleHash.New.Utils
   , parts2hn
   , showSwitch
   , randomHEX
+  , asHexString
   , parseJs
   , parseJsVal
 
@@ -149,6 +151,9 @@ packet_get_packet p key = HM.lookup (Text.pack key) (rtJs p)
 
 packet_from_val :: Aeson.Value -> RxTelex
 packet_from_val (Object v) = packet_new_rx {rtJs = v}
+
+packet_body :: TxTelex -> BC.ByteString -> TxTelex
+packet_body p bs = p { tPacket = (tPacket p) { paBody = Body bs }}
 
 -- ---------------------------------------------------------------------
 -- Channels
@@ -378,6 +383,11 @@ randomHEX len = do
   let (bytes,newRNG) = cprgGenerate len (swRNG sw)
   put $ sw {swRNG = newRNG}
   return $ BC.unpack $ B16.encode bytes
+
+-- ---------------------------------------------------------------------
+
+asHexString :: BC.ByteString -> String
+asHexString bs = BC.unpack $ B16.encode bs
 
 -- ---------------------------------------------------------------------
 
