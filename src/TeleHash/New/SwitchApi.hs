@@ -116,7 +116,7 @@ void switch_send(switch_t s, packet_t p)
 --  |internally adds to sending queue
 switch_sendingQ :: TxTelex -> TeleHash ()
 switch_sendingQ p = do
-  logT $ "switch_sendingQ " ++ show p
+  -- logT $ "switch_sendingQ " ++ show p
   -- if there's no path, find one or copy to many
   mp <- if tOut p == PNone
           then do
@@ -132,9 +132,9 @@ switch_sendingQ p = do
                   case hLast to of
                     Just lastJson -> do
                       lastPath <- getPath (hHashName to) lastJson
-                      logT $ "switch_sendingQ:lastPath=" ++ show lastPath
+                      -- logT $ "switch_sendingQ:lastPath=" ++ show lastPath
                       alive <- path_alive lastPath
-                      logT $ "switch_sendingQ:alive=" ++ show alive
+                      -- logT $ "switch_sendingQ:alive=" ++ show alive
                       if alive
                         then return (True, p { tOut = lastJson })
                         else return (False,p)
@@ -144,12 +144,12 @@ switch_sendingQ p = do
                   else do
                     -- try sending to all paths
                     forM_ (Map.elems (hPaths to)) $ \path1 -> do
-                      logT $ "switch_sendingQ:processing path=" ++ show path1
+                      -- logT $ "switch_sendingQ:processing path=" ++ show path1
                       switch_sendingQ $ p { tOut = pJson path1 }
                     return Nothing
           else do
             return (Just p)
-  logT $ "switch_sendingQ:mp=" ++ show mp
+  -- logT $ "switch_sendingQ:mp=" ++ show mp
   case mp of
     Nothing -> return ()
     Just p3 -> do

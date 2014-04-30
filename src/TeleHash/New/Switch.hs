@@ -103,7 +103,8 @@ run ch1 ch2 = do
 
   switch_init testId
 
-  seeds <- bucket_load "./data/seeds.json"
+  -- seeds <- bucket_load "./data/seeds.json"
+  seeds <- bucket_load "./data/seeds.json.local"
   logT $ "run:seeds=" ++ show seeds
   -- bucket_get seeds 0
 
@@ -125,7 +126,7 @@ run ch1 ch2 = do
 
   let sendall = do
         mp <- switch_sending
-        logT $ "switch_sending returned:" ++ show mp
+        -- logT $ "switch_sending returned:" ++ show mp
         case mp of
           Nothing -> return ()
           Just p -> do
@@ -133,8 +134,12 @@ run ch1 ch2 = do
               Nothing -> do
                 assert False undefined
               Just lp -> do
-                logT $ "sendall:sending " ++ show (tOut p,lp)
-                ipv4Send (tOut p) lp Nothing
+                case (tOut p) of
+                  (PIPv4 _) -> do
+                    logT $ "sendall:sending " ++ show (tOut p)
+                    ipv4Send (tOut p) lp Nothing
+                  _ -> do
+                    logT $ "sendall:not sending " ++ show (tOut p)
             sendall
 
   sendall
