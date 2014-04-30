@@ -36,6 +36,7 @@ import System.Time
 import TeleHash.New.Bucket
 import TeleHash.New.Chan
 import TeleHash.New.Crypt
+import TeleHash.New.Paths
 import TeleHash.New.Packet
 import TeleHash.New.Types
 import TeleHash.New.SwitchApi
@@ -121,8 +122,23 @@ run ch1 ch2 = do
   logT $ "run:p2=" ++ show p2
   chan_send c p2
   logT $ "run:chan_send done"
-  p <- switch_sending
-  logT $ "switch_sending returned:" ++ show p
+
+  let sendall = do
+        mp <- switch_sending
+        logT $ "switch_sending returned:" ++ show mp
+        case mp of
+          Nothing -> return ()
+          Just p -> do
+            case tChain p of
+              Nothing -> do
+                assert False undefined
+              Just lp -> do
+                logT $ "sendall:sending " ++ show (tOut p,lp)
+                ipv4Send (tOut p) lp Nothing
+            sendall
+
+  sendall
+  logT $ "run:sendall done"
 
 {-
   c = chan_new(s, bucket_get(seeds, 0), "seek", 0);
@@ -706,3 +722,20 @@ int switch_init(switch_t s, packet_t keys)
 }
 
 -}
+
+-- --------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+
+-- | Send the body of the packet in the telex. It is already encrypted
+ipv4Send :: PathJson -> LinePacket -> Maybe HashName -> TeleHash ()
+ipv4Send path msg _ = do
+  -- logT $ "ipv4Send:" ++ show (path)
+  -- logT $ "ipv4Send:" ++ show (B16.encode $ lbsTocbs $ unLP msg)
+  -- logT $ "ipv4Send:" ++ (show $ gfromJust "ipv4Send" $ pathIp path) ++ ":" ++ (show $ pathPort path)
+  addr <- io (addrFromHostPort (show $ gfromJust "ipv4Send.1" $ pjsonIp path)
+                               (show $ gfromJust "ipv4Send.2" $ pjsonPort path))
+
+  sender <- gets swSender
+  sender msg addr
+  return ()
