@@ -2,15 +2,14 @@
 module TeleHash.New.Utils
   (
   -- * telehash-c api
-    PacketApi
-  , packet_set_str
-  , packet_get_str
+    PacketApi(..)
+
   , packet_set_int
-  , packet_set
   , packet_copy
   , packet_get_packet
   , packet_from_val
   , packet_body
+
 
    -- * Channels
    , putChan
@@ -106,10 +105,13 @@ import qualified System.Random as R
 -- ---------------------------------------------------------------------
 -- telehash-c api
 
+-- TODO: strip this down to a simple getJS/putJS interface, then
+-- harvest commonality
 class PacketApi a where
   packet_set_str :: a -> String -> String -> a
   packet_get_str :: a -> String -> Maybe String
   packet_set :: (Aeson.ToJSON b) => a -> String -> b -> a
+  packet_has_key :: a -> String -> Bool
 
 instance PacketApi TxTelex where
   packet_set_str packet key val
@@ -124,6 +126,8 @@ instance PacketApi TxTelex where
   packet_set p key val
     = p { tJs = HM.insert (Text.pack key) (toJSON val) (tJs p) }
 
+  packet_has_key p key = HM.member (Text.pack key) (tJs p)
+
 instance PacketApi RxTelex where
   packet_set_str packet key val
     = packet { rtJs = HM.insert (Text.pack key) (toJSON val) (rtJs packet) }
@@ -137,6 +141,7 @@ instance PacketApi RxTelex where
   packet_set p key val
     = p { rtJs = HM.insert (Text.pack key) (toJSON val) (rtJs p) }
 
+  packet_has_key p key = HM.member (Text.pack key) (rtJs p)
 
 packet_set_int :: TxTelex -> String -> Int -> TxTelex
 packet_set_int p key val

@@ -2,6 +2,7 @@ module TeleHash.New.SwitchApi
   (
    -- * Telehash-c api
      switch_send
+  , switch_sending
   ) where
 
 import Control.Applicative
@@ -112,9 +113,55 @@ void switch_send(switch_t s, packet_t p)
 
 -- ---------------------------------------------------------------------
 
+--  |internally adds to sending queue
 switch_sendingQ :: TxTelex -> TeleHash ()
 switch_sendingQ p = do
-  assert False undefined
+  logT $ "switch_sendingQ " ++ show p
+  -- if there's no path, find one or copy to many
+  mp <- if tOut p == PNone
+          then do
+            -- just being paranoid
+            case packet_get_str p "to" of
+              Nothing -> do
+                logT $ "switch_sendingQ:trying to send without dest:" ++ show p
+                return Nothing
+              Just toVal -> do
+                -- if the last path is alive, just use that
+                to <- getHN (HN toVal)
+                (done,p2) <- do
+                  case hLast to of
+                    Just lastJson -> do
+                      lastPath <- getPath (hHashName to) lastJson
+                      logT $ "switch_sendingQ:lastPath=" ++ show lastPath
+                      alive <- path_alive lastPath
+                      logT $ "switch_sendingQ:alive=" ++ show alive
+                      if alive
+                        then return (True, p { tOut = lastJson })
+                        else return (False,p)
+                    Nothing -> return (False,p)
+                if done
+                  then return (Just p2)
+                  else do
+                    -- try sending to all paths
+                    forM_ (Map.elems (hPaths to)) $ \path1 -> do
+                      logT $ "switch_sendingQ:processing path=" ++ show path1
+                      switch_sendingQ $ p { tOut = pJson path1 }
+                    return Nothing
+          else do
+            return (Just p)
+  logT $ "switch_sendingQ:mp=" ++ show mp
+  case mp of
+    Nothing -> return ()
+    Just p3 -> do
+      timeNow <- io getClockTime
+      path <- getPath (tTo p3) (tOut p3)
+      putPath (tTo p3) (path { pAtOut = Just timeNow })
+      sw <- get
+      put $ sw { swOut = (swOut sw) ++ [p3]
+               , swLast = Just p3
+               }
+      return ()
+
 {-
 // internally adds to sending queue
 void switch_sendingQ(switch_t s, packet_t p)
@@ -228,3 +275,27 @@ void switch_open(switch_t s, hn_t to, path_t direct)
 -}
 -- ---------------------------------------------------------------------
 
+switch_sending :: TeleHash (Maybe TxTelex)
+switch_sending = do
+  sw <- get
+  case (swOut sw) of
+    [] -> return Nothing
+    (p:ps) -> do
+      put $ sw { swOut = ps
+               , swLast = if null ps then Nothing else (swLast sw)
+               }
+      return (Just p)
+
+{-
+packet_t switch_sending(switch_t s)
+{
+  packet_t p;
+  if(!s || !s->out) return NULL;
+  p = s->out;
+  s->out = p->next;
+  if(!s->out) s->last = NULL;
+  return p;
+}
+-}
+
+-- ---------------------------------------------------------------------

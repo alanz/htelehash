@@ -38,6 +38,7 @@ import TeleHash.New.Chan
 import TeleHash.New.Crypt
 import TeleHash.New.Packet
 import TeleHash.New.Types
+import TeleHash.New.SwitchApi
 import TeleHash.New.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
@@ -119,6 +120,10 @@ run ch1 ch2 = do
   let p2 = packet_set_str (gfromJust "run" p) "seek" (unHN $ swId sw)
   logT $ "run:p2=" ++ show p2
   chan_send c p2
+  logT $ "run:chan_send done"
+  p <- switch_sending
+  logT $ "switch_sending returned:" ++ show p
+
 {-
   c = chan_new(s, bucket_get(seeds, 0), "seek", 0);
   p = chan_packet(c);

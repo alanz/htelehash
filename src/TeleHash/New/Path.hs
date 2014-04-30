@@ -57,6 +57,7 @@ import qualified Network.Socket.ByteString as SB
 path_alive :: Path -> TeleHash Bool
 path_alive p = do
   timeNow <- io $ getClockTime
+  logT $ "pathAlive: comparing " ++ show (timeNow,pAtIn p)
   case pAtIn p of
     Nothing -> return False
     Just t -> do
