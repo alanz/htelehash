@@ -6,6 +6,7 @@ module TeleHash.New.Crypt
   , crypt_lineize
   , crypt_openize
   , crypt_deopenize
+  , crypt_line
   ) where
 
 import Control.Applicative
@@ -271,7 +272,7 @@ int crypt_line_3a(crypt_t c, packet_t inner);
 
 crypt_lineize :: Crypto -> TxTelex -> TeleHash (Crypto,Maybe LinePacket)
 crypt_lineize c p = do
-  if cLined c
+  if cLined c /= LineNone
     then crypt_lineize_1a c p
     else return (c,Nothing)
 
@@ -357,4 +358,62 @@ packet_t crypt_deopenize(crypt_t self, packet_t open)
   return NULL;
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+crypt_line :: DeOpenizeResult -> Crypto -> OpenizeInner -> TeleHash (Maybe Crypto)
+crypt_line open c inner = do
+  if (isJust (cAtIn c) && oiAt inner  <= fromJust (cAtIn c))
+    || length (oiLine inner) /= 32
+    then return Nothing
+    else do
+      let lineid = b16Tobs (BC.pack $ oiLine inner)
+      logT $ "crypt_line:lineid=" ++ show lineid
+      let lined = if lineid == cLineIn c
+                    then Lined -- same line
+                    else LineReset -- new one
+      let c2 = c { cLined = lined
+                 , cLineIn = lineid
+                 }
+      mc3 <- crypt_line_1a open c2
+      case mc3 of
+        Nothing -> return Nothing
+        Just c3 -> do
+          return $ Just $ c3 { cAtIn = Just (oiAt inner) }
+
+{-
+int crypt_line(crypt_t c, packet_t inner)
+{
+  int ret = 1;
+  unsigned long at;
+  char *hline;
+  unsigned char lineid[16];
+
+  if(!inner) return ret;
+  if(!c) return packet_free(inner)||1;
+
+  at = strtol(packet_get_str(inner,"at"), NULL, 10);
+  hline = packet_get_str(inner,"line");
+  if(!hline || at <= 0 || at <= c->atIn || strlen(hline) != 32) return packet_free(inner)||1;
+  util_unhex((unsigned char*)hline,32,lineid);
+  c->lined = (memcmp(lineid,c->lineIn,16) == 0)?2:1; // flag for line reset state
+  memcpy(c->lineIn,lineid,16); // needed for crypt_line_*
+
+#ifdef CS_1a
+  if(c->csid == 0x1a) ret = crypt_line_1a(c,inner);
+#endif
+#ifdef CS_2a
+  if(c->csid == 0x2a) ret = crypt_line_2a(c,inner);
+#endif
+#ifdef CS_3a
+  if(c->csid == 0x3a) ret = crypt_line_3a(c,inner);
+#endif
+  if(ret) return ret;
+
+  c->atIn = at;
+  packet_free(inner);
+  return 0;
+}
+-}
+
 -- ---------------------------------------------------------------------

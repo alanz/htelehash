@@ -29,6 +29,8 @@ module TeleHash.New.Utils
   , withHNM
   , putPath
   , getPath
+  , putHexLine
+  , getHexLine
 
   -- * Original
   , logT
@@ -47,9 +49,12 @@ module TeleHash.New.Utils
   , parts2hn
   , showSwitch
   , randomHEX
+  , randomWord32
   , asHexString
   , parseJs
   , parseJsVal
+  , b16Tobs
+  , showJson
 
   ) where
 
@@ -60,6 +65,7 @@ import Control.Monad
 import Control.Monad.Error
 import Control.Monad.State
 import Crypto.Random
+import Crypto.Number.Serialize
 import Data.Aeson (object,(.=), (.:), (.:?) )
 import Data.Aeson.Encode
 import Data.Aeson.Types
@@ -80,6 +86,7 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
+import TeleHash.New.Convert
 import TeleHash.New.Paths
 import TeleHash.New.Types
 import TeleHash.New.Packet
@@ -267,6 +274,21 @@ getPath hn pj = do
   return $ gfromJust "getPath" $ Map.lookup pj (hPaths hc)
 
 -- ---------------------------------------------------------------------
+
+putHexLine :: String -> HashName -> TeleHash ()
+putHexLine lineHex hn = do
+  sw <- get
+  put $ sw { swIndexLines = Map.insert lineHex hn (swIndexLines sw)}
+
+-- ---------------------------------------------------------------------
+
+getHexLine :: String -> TeleHash HashName
+getHexLine lineHex = do
+  sw <- get
+  return $ gfromJust ("getLine " ++ lineHex)
+         $ Map.lookup lineHex (swIndexLines sw)
+
+-- ---------------------------------------------------------------------
 -- Logging
 
 logT :: String -> TeleHash ()
@@ -391,6 +413,15 @@ randomHEX len = do
 
 -- ---------------------------------------------------------------------
 
+randomWord32 :: TeleHash Word32
+randomWord32 = do
+  sw <- get
+  let (bytes,newRNG) = cprgGenerate 4 (swRNG sw)
+  put $ sw {swRNG = newRNG}
+  return $ fromIntegral $ os2ip bytes
+
+-- ---------------------------------------------------------------------
+
 asHexString :: BC.ByteString -> String
 asHexString bs = BC.unpack $ B16.encode bs
 
@@ -412,6 +443,17 @@ parseJsVal v = r
         Error _err1 -> Nothing
         Success val -> Just val
 
+-- ---------------------------------------------------------------------
+
+b16Tobs :: BC.ByteString -> BC.ByteString
+b16Tobs str = r
+  where
+   (r,_) = B16.decode str
+
+-- ---------------------------------------------------------------------
+
+showJson :: Aeson.ToJSON a => a -> String
+showJson j = BC.unpack $ lbsTocbs $ encode $ j
 
 -- ---------------------------------------------------------------------
 
@@ -442,4 +484,7 @@ tp = do
  vv <- Aeson.decode ps :: Maybe Parts
  return vv
 
+
+
+-- ---------------------------------------------------------------------
 

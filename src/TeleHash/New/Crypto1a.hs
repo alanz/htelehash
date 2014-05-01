@@ -8,6 +8,7 @@ module TeleHash.New.Crypto1a
   , crypt_lineize_1a
   , crypt_openize_1a
   , crypt_deopenize_1a
+  , crypt_line_1a
   , mkHashFromBS
   , mkHashFromB64
   ) where
@@ -148,7 +149,7 @@ crypt_new_1a mPubStr mPubBin = do
                       { cCsid      = "1a"
                       , cPart      = hexName
                       , cIsPrivate = False
-                      , cLined     = False
+                      , cLined     = LineNone
                       , cKeyLen    = 40
                       , cAtOut     = timeNow
                       , cAtIn      = Nothing
@@ -515,6 +516,67 @@ packet_t crypt_deopenize_1a(crypt_t self, packet_t open)
   packet_set_str(inner,"ecc",(char*)b64);
 
   return inner;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+-- |makes sure all the crypto line state is set up, and creates line keys if exist
+crypt_line_1a :: DeOpenizeResult -> Crypto -> TeleHash (Maybe Crypto)
+crypt_line_1a DeOpenizeVerifyFail _ = return Nothing
+crypt_line_1a open c = do
+  let cs = cCs c
+  seqVal <- randomWord32
+
+  -- do the diffie hellman
+  let line_public = doLinePub open
+  secret <- uECC_shared_secret line_public (cs1aLinePrivate cs)
+
+  -- make the line keys
+  let lineOut = cLineOut c
+      lineIn  = cLineIn c
+
+      keyOutCtx = SHA256.updates SHA256.init [secret,lineOut,lineIn]
+      keyOut = fold1 (SHA256.finalize keyOutCtx)
+
+      keyInCtx = SHA256.updates SHA256.init [secret,lineIn,lineOut]
+      keyIn = fold1 (SHA256.finalize keyInCtx)
+
+  return $ Just c { cCs = cs { cs1aKeyOut = Just keyOut
+                             , cs1aKeyIn = Just keyIn
+                             , cs1aSeq = seqVal
+                             }}
+
+{-
+// makes sure all the crypto line state is set up, and creates line keys if exist
+int crypt_line_1a(crypt_t c, packet_t inner)
+{
+  unsigned char line_public[uECC_BYTES*2], secret[uECC_BYTES], input[uECC_BYTES+16+16], hash[32];
+  char *hecc;
+  crypt_1a_t cs;
+  
+  cs = (crypt_1a_t)c->cs;
+  hecc = packet_get_str(inner,"ecc"); // it's where we stashed it
+  if(!hecc || strlen(hecc) != uECC_BYTES*4) return 1;
+  crypt_rand((unsigned char*)&(cs->seq),4); // init seq to random start
+
+  // do the diffie hellman
+  util_unhex((unsigned char*)hecc,uECC_BYTES*4,line_public);
+  if(!uECC_shared_secret(line_public, cs->line_private, secret)) return 1;
+
+  // make line keys!
+  memcpy(input,secret,uECC_BYTES);
+  memcpy(input+uECC_BYTES,c->lineOut,16);
+  memcpy(input+uECC_BYTES+16,c->lineIn,16);
+  crypt_hash(input,uECC_BYTES+16+16,hash);
+  fold1(hash,cs->keyOut);
+
+  memcpy(input+uECC_BYTES,c->lineIn,16);
+  memcpy(input+uECC_BYTES+16,c->lineOut,16);
+  crypt_hash(input,uECC_BYTES+16+16,hash);
+  fold1(hash,cs->keyIn);
+
+  return 0;
 }
 -}
 

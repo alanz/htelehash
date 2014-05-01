@@ -2,6 +2,7 @@ module TeleHash.New.Hn
   (
     hn_fromjson
   , hn_getparts
+  , hn_path
   ) where
 
 import Control.Applicative

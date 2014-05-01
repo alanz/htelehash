@@ -36,6 +36,7 @@ module TeleHash.New.Types
   , Crypt1a(..)
   , PublicKey(..)
   , PrivateKey(..)
+  , LinedState(..)
   , Parts
   , NetworkTelex(..)
   , DeOpenizeResult(..)
@@ -173,6 +174,7 @@ data Switch = Switch
        , swIndex       :: !(Map.Map HashName HashContainer)
        , swIndexChans  :: !(Map.Map Uid TChan) -- all channels
        , swIndexCrypto :: !(Map.Map String Crypto)
+       , swIndexLines  :: !(Map.Map String HashName)
        , swHandler     :: !(Maybe (HashName -> TeleHash ())) -- called w/ a hn that has no key info
 
        , swH      :: !(Maybe SocketHandle)
@@ -454,6 +456,20 @@ instance ToJSON OpenizeInner where
              ,"line" .= line
              ]
 
+instance FromJSON OpenizeInner where
+  parseJSON (Aeson.Object v) = do
+    atVal <- v .: "at"
+    to <-    v .: "to"
+    from <-  v .: "from"
+    line <-  v .: "line"
+    let jsAt = jsAtToClockTime atVal
+    return $ OpenizeInner jsAt (HN to) from line
+  parseJSON _ = mzero
+
+jsAtToClockTime :: Aeson.Value -> ClockTime
+jsAtToClockTime (Aeson.Number atVal) = TOD (round (atVal / 1000)) (((round  atVal) `mod` 1000) * 10^9)
+jsAtToClockTime v = error $ "jsAtToClockTime expecting Aeson.Number, got" ++ show v
+
 -- ---------------------------------------------------------------------
 
 data DeOpenizeResult = DeOpenizeVerifyFail
@@ -466,11 +482,14 @@ data DeOpenizeResult = DeOpenizeVerifyFail
 
 -- ---------------------------------------------------------------------
 
+data LinedState = LineNone | Lined | LineReset
+                deriving (Eq,Show)
+
 data Crypto = Crypto
   { cCsid      :: !String
   , cPart      :: !Hash
   , cIsPrivate :: !Bool
-  , cLined     :: !Bool
+  , cLined     :: !LinedState
   , cKeyLen    :: !Int
   , cAtOut     :: !ClockTime
   , cAtIn      :: !(Maybe ClockTime)
@@ -502,7 +521,7 @@ data Crypt1a = Crypt1a
           , cs1aIdPublic    :: !PublicKey
           , cs1aLinePrivate :: !PrivateKey    -- was hEcc
           , cs1aLinePublic  :: !PublicKey     -- was hEcc
-          , cs1aSeq         :: !Int           -- was hLineIV
+          , cs1aSeq         :: !Word32        -- was hLineIV
           , cs1aKeyOut      :: !(Maybe BC.ByteString) -- was hEncKey
           , cs1aKeyIn       :: !(Maybe BC.ByteString) -- was hDecKey
           } deriving Show

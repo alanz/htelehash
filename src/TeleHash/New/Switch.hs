@@ -34,7 +34,6 @@ import System.Log.Logger
 import System.Time
 
 import TeleHash.New.Bucket
-import TeleHash.New.Chan
 import TeleHash.New.Crypt
 import TeleHash.New.Paths
 import TeleHash.New.Packet
@@ -643,6 +642,7 @@ switch_new = do
        , swIndex       = Map.empty
        , swIndexChans  = Map.empty
        , swIndexCrypto = Map.empty
+       , swIndexLines  = Map.empty
        , swHandler     = Nothing
 
        , swH           = Nothing
