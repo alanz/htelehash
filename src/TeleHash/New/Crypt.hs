@@ -5,6 +5,7 @@ module TeleHash.New.Crypt
   , crypt_private
   , crypt_lineize
   , crypt_openize
+  , crypt_deopenize
   ) where
 
 import Control.Applicative
@@ -325,4 +326,35 @@ packet_t crypt_openize(crypt_t self, crypt_t c, packet_t inner)
 }
 -}
 
+-- ---------------------------------------------------------------------
+
+crypt_deopenize :: NetworkPacket -> TeleHash DeOpenizeResult
+crypt_deopenize open = do
+  sw <- get
+  case Map.lookup "1a" (swIndexCrypto sw) of
+    Just self -> do
+      crypt_deopenize_1a self open
+    Nothing -> do
+      logT $ "crypt_deopenize:mssing crypto for 1a"
+      return DeOpenizeVerifyFail
+
+{-
+packet_t crypt_deopenize(crypt_t self, packet_t open)
+{
+  packet_t ret = NULL;
+  if(!open || !self) return NULL;
+
+#ifdef CS_1a
+  if(self->csid == 0x1a && (ret = crypt_deopenize_1a(self,open))) return ret;
+#endif
+#ifdef CS_2a
+  if(self->csid == 0x2a && (ret = crypt_deopenize_2a(self,open))) return ret;
+#endif
+#ifdef CS_3a
+  if(self->csid == 0x3a && (ret = crypt_deopenize_3a(self,open))) return ret;
+#endif
+
+  return NULL;
+}
+-}
 -- ---------------------------------------------------------------------

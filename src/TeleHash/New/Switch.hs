@@ -124,6 +124,7 @@ run ch1 ch2 = do
   chan_send c p2
   logT $ "run:chan_send done"
 
+  -- TODO: make this a library utility function
   let sendall = do
         mp <- switch_sending
         -- logT $ "switch_sending returned:" ++ show mp
@@ -400,17 +401,18 @@ addrFromHostPort hostname port = do
 
 recvTelex :: BC.ByteString -> NS.SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
-    logT ( ("recvTelex:" ++  (show (msg))))
+    -- logT ( ("recvTelex:" ++  (show (msg))))
     logT $ "recvTelex:rinfo=" ++  show rinfo
 {-
     switch' <- get
     put switch' { swCountRx = (swCountRx switch') + 1 }
     -- switch <- get
     -- seedsIndex <- gets swSeedsIndex
+-}
 
     (Just hostIP,Just port) <- io (NS.getNameInfo [NS.NI_NUMERICHOST] True True rinfo)
     let
-      remoteipp = IPP (hostIP ++ ":" ++ port)
+      remoteipp = (hostIP ++ ":" ++ port)
 
     timeNow <- io getClockTime
     --console.log(["RECV from ", remoteipp, ": ", JSON.stringify(telex)].join(""));
@@ -423,23 +425,19 @@ recvTelex msg rinfo = do
        path = Path
         {
           pJson    = PIPv4 (PathIPv4 (read hostIP) (read port))
-        , pRelay   = Nothing
-        , pId      = Nothing
-        , pLastIn  = Nothing
-        , pLastOut = Nothing
-        , pPriority = Nothing
-        , pIsSeed = False
-        , pGone = False
+        , pType = PtIPv4
+        , pId = Nothing
+        , pAtIn = Just timeNow
+        , pAtOut = Nothing
         }
 
     case maybeRxTelex of
-      Just rxTelex -> receive rxTelex path timeNow
+      Just rxTelex -> switch_receive rxTelex path timeNow
       Nothing -> do
         logT $ "could not parse packet, discarding:" ++ (show $ B16.encode msg)
         return ()
 
 
--}
 
 -- ---------------------------------------------------------------------
 

@@ -7,7 +7,7 @@ module TeleHash.New.Crypto1a
   , crypt_private_1a
   , crypt_lineize_1a
   , crypt_openize_1a
-
+  , crypt_deopenize_1a
   , mkHashFromBS
   , mkHashFromB64
   ) where
@@ -412,6 +412,114 @@ packet_t crypt_openize_1a(crypt_t self, crypt_t c, packet_t inner)
 
 -- ---------------------------------------------------------------------
 
+crypt_deopenize_1a :: Crypto -> NetworkPacket -> TeleHash DeOpenizeResult
+crypt_deopenize_1a self open = do
+  let cs = cCs self
+  case open of
+    LinePacket _ -> do
+      logT $ "crypt_deopenize_1a:trying to deopenize a line packet"
+      return DeOpenizeVerifyFail
+    OpenPacket _ pbody -> do
+      if BC.length pbody <= 44 -- c version checks for 44
+        then do
+          logT $ "crypt_deopenize_1a:body length too short:" ++ show (BC.length pbody)
+          return DeOpenizeVerifyFail
+        else do
+          let
+            mac1  = B16.encode $ BC.take 4 pbody
+            pubBs = BC.take 40 $ BC.drop 4 pbody
+            cbody = BC.drop 44 pbody
+            linePubPoint = (bsToPoint pubBs)
+            linePub = Public1a (PublicKey curve linePubPoint)
+
+          -- get the shared secret to create the iv+key for the open aes
+            pk@(Private1a (PrivateKey _ ourPriv)) = gfromJust "crypt_deopenize_1a.2" $ cs1aIdPrivate cs
+
+          secret <- uECC_shared_secret linePub pk
+          let hash = fold1 $ SHA256.hash secret
+              Just iv = i2ospOf 16 1
+
+          -- decrypt the inner
+          let body = decryptCTR (initAES hash) iv cbody
+              Just inner = fromLinePacket (LP body)
+
+          logT $ "crypt_deopenize_1a:inner=" ++ show inner
+          let HeadJson js = paHead inner
+          logT $ "crypt_deopenize_1a:inner json=" ++ show (js)
+
+          -- generate secret for hmac
+          let Body ekey = paBody inner
+          if BC.length ekey /= 40
+            then do
+              logT $ "crypt_deopenize_1a:got invalid public key size:" ++ show (BC.length ekey)
+              return DeOpenizeVerifyFail
+            else do
+              let epub = Public1a $ PublicKey curve (bsToPoint $ ekey)
+              secret2 <- uECC_shared_secret epub pk
+
+              -- verify
+              let hmacVal = B16.encode $ fold3 $ hmac SHA256.hash 64 secret2 (BC.drop 4 pbody)
+              if hmacVal /= mac1
+                then do
+                  logT $ "crypt_deopenize_1a:invalid hmac:" ++ show (hmacVal,mac1)
+                  return DeOpenizeVerifyFail
+                else do
+                  -- stash the hex line key w/ the inner
+                  let Just json = Aeson.decode (cbsTolbs js) :: Maybe Aeson.Value
+
+                  let ret = DeOpenize
+                       { doLinePub = linePub -- ecc value
+                       , doKey = unBody $ paBody inner
+                       , doJs = json
+                       , doCsid = "1a"
+                       }
+                  return ret
+
+{-
+packet_t crypt_deopenize_1a(crypt_t self, packet_t open)
+{
+  unsigned char secret[uECC_BYTES], iv[16], b64[uECC_BYTES*2*2], hash[32];
+  packet_t inner, tmp;
+  crypt_1a_t cs = (crypt_1a_t)self->cs;
+
+  if(open->body_len <= (4+40)) return NULL;
+  inner = packet_new();
+  if(!packet_body(inner,NULL,open->body_len-(4+40))) return packet_free(inner);
+
+  // get the shared secret to create the iv+key for the open aes
+  if(!uECC_shared_secret(open->body+4, cs->id_private, secret)) return packet_free(inner);
+  crypt_hash(secret,uECC_BYTES,hash);
+  fold1(hash,hash);
+  memset(iv,0,16);
+  iv[15] = 1;
+
+  // decrypt the inner
+  aes_128_ctr(hash,inner->body_len,iv,open->body+4+40,inner->body);
+
+  // load inner packet
+  if((tmp = packet_parse(inner->body,inner->body_len)) == NULL) return packet_free(inner);
+  packet_free(inner);
+  inner = tmp;
+
+  // generate secret for hmac
+  if(inner->body_len != uECC_BYTES*2) return packet_free(inner);
+  if(!uECC_shared_secret(inner->body, cs->id_private, secret)) return packet_free(inner);
+
+  // verify
+  hmac_256(secret,uECC_BYTES,open->body+4,open->body_len-4,hash);
+  fold3(hash,hash);
+  if(memcmp(hash,open->body,4) != 0) return packet_free(inner);
+
+  // stash the hex line key w/ the inner
+  util_hex(open->body+4,40,b64);
+  packet_set_str(inner,"ecc",(char*)b64);
+
+  return inner;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
 pointTow8s :: ECC.Point -> B.ByteString
 pointTow8s ECC.PointO = B.empty
 pointTow8s (ECC.Point i1 i2)= B.append i1_20 i2_20
@@ -451,18 +559,20 @@ int uECC_shared_secret(const uint8_t p_publicKey[uECC_BYTES*2], const uint8_t p_
     EccPoint l_public;
     uECC_word_t l_private[uECC_WORDS];
     uECC_word_t l_random[uECC_WORDS];
-    
+
     g_rng((uint8_t *)l_random, sizeof(l_random));
-    
+
     vli_bytesToNative(l_private, p_privateKey);
     vli_bytesToNative(l_public.x, p_publicKey);
     vli_bytesToNative(l_public.y, p_publicKey + uECC_BYTES);
-    
+
     EccPoint l_product;
     EccPoint_mult(&l_product, &l_public, l_private, (vli_isZero(l_random) ? 0: l_random), vli_numBits(l_private, uECC_WORDS));
-    
+
     vli_nativeToBytes(p_secret, l_product.x);
-    
+
     return !EccPoint_isZero(&l_product);
 }
 -}
+
+-- ---------------------------------------------------------------------

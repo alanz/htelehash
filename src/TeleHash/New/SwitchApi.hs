@@ -3,6 +3,7 @@ module TeleHash.New.SwitchApi
    -- * Telehash-c api
      switch_send
   , switch_sending
+  , switch_receive
   ) where
 
 import Control.Applicative
@@ -299,3 +300,126 @@ packet_t switch_sending(switch_t s)
 -}
 
 -- ---------------------------------------------------------------------
+
+switch_receive :: NetworkPacket -> Path -> ClockTime -> TeleHash ()
+switch_receive rxPacket path timeNow = do
+  -- counterVal <- incPCounter
+  let packet = NetworkTelex
+                { ntSender = path
+                , ntId     = 0 -- counterVal
+                , ntAt     = timeNow
+                , ntPacket = rxPacket
+                }
+
+  case rxPacket of
+    OpenPacket b bs -> do
+      -- process open packet
+      open <- crypt_deopenize rxPacket
+      assert False undefined
+    _ -> do
+      logT $ "switch_receive:not processing:" ++ show rxPacket
+      assert False undefined
+  assert False undefined
+{-
+
+void switch_receive(switch_t s, packet_t p, path_t in)
+{
+  hn_t from;
+  packet_t inner;
+  crypt_t c;
+  chan_t chan;
+  char hex[3];
+  char lineHex[33];
+
+  if(!s || !p || !in) return;
+
+  // handle open packets
+  if(p->json_len == 1)
+  {
+    util_hex(p->json,1,(unsigned char*)hex);
+    c = xht_get(s->index,hex);
+    if(!c) return (void)packet_free(p);
+    inner = crypt_deopenize(c, p);
+    DEBUG_PRINTF("DEOPEN %d",inner);
+    if(!inner) return (void)packet_free(p);
+
+    from = hn_frompacket(s->index, inner);
+    if(crypt_line(from->c, inner) != 0) return; // not new/valid, ignore
+
+    // line is open!
+    DEBUG_PRINTF("line in %d %s %d %s",from->c->lined,from->hexname,from,from->c->lineHex);
+    if(from->c->lined == 1) chan_reset(s, from);
+    xht_set(s->index, (const char*)from->c->lineHex, (void*)from);
+    in = hn_path(from, in);
+    switch_open(s, from, in); // in case we need to send an open
+    if(from->onopen)
+    {
+      packet_t last = from->onopen;
+      from->onopen = NULL;
+      last->out = in;
+      switch_send(s, last);
+    }
+    return;
+  }
+
+  // handle line packets
+  if(p->json_len == 0)
+  {
+    util_hex(p->body, 16, (unsigned char*)lineHex);
+    from = xht_get(s->index, lineHex);
+    if(from)
+    {
+      in = hn_path(from, in);
+      p = crypt_delineize(from->c, p);
+      if(!p)
+      {
+        DEBUG_PRINTF("invlaid line from %s %s",path_json(in),from->hexname);
+        return;
+      }
+
+      // route to the channel
+      if((chan = chan_in(s, from, p)))
+      {
+        // if new channel w/ seq, configure as reliable
+        if(chan->state == CHAN_STARTING && packet_get_str(p,"seq")) chan_reliable(chan, s->window);
+        return chan_receive(chan, p);
+      }
+
+      // bounce it!
+      if(!packet_get_str(p,"err"))
+      {
+        packet_set_str(p,"err","unknown channel");
+        p->to = from;
+        p->out = in;
+        switch_send(s, p);
+      }else{
+        packet_free(p);
+      }
+      return;
+    }
+  }
+
+  // handle valid pong responses, start handshake
+  if(util_cmp("pong",packet_get_str(p,"type")) == 0 && util_cmp(xht_get(s->index,"ping"),packet_get_str(p,"trace")) == 0 && (from = hn_fromjson(s->index,p)) != NULL)
+  {
+    DEBUG_PRINTF("pong from %s",from->hexname);
+    in = hn_path(from, in);
+    switch_open(s,from,in);
+    packet_free(p);
+    return;
+  }
+
+  // handle pings, respond if local only or dedicated seed
+  if(util_cmp("ping",packet_get_str(p,"type")) == 0 && (s->isSeed || path_local(in)))
+  {
+    switch_pong(s,p,in);
+    packet_free(p);
+    return;
+  }
+
+  // nothing processed, clean up
+  packet_free(p);
+}
+
+-}
+
