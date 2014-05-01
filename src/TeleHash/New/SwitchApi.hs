@@ -151,7 +151,8 @@ switch_receive rxPacket path timeNow = do
                       return ()
                     Just lineCrypto -> do
                       -- line is open
-                      logT $ "line in "
+                      logT $ "line in " ++ show (cLined lineCrypto,hfrom,cLineHex lineCrypto)
+                      -- DEBUG_PRINTF("line in %d %s %d %s",from->c->lined,from->hexname,from,from->c->lineHex);
                       let from2 = from { hCrypto = Just lineCrypto }
                       putHN from2
                       if cLined lineCrypto == LineReset
@@ -161,13 +162,38 @@ switch_receive rxPacket path timeNow = do
                       putHexLine (cLineHex lineCrypto) (hHashName from)
                       inVal <- hn_path (hHashName from) (pJson path)
                       switch_open (hHashName from) inVal -- in case
-                      case hOnopen from of
+                      case hOnopen from2 of
                         Nothing ->  do
+                          logT $ "switch_receive:openize:no onopen"
                           return ()
                         Just onopen -> do
-                          putHN $ from { hOnopen = Nothing }
+                          logT $ "switch_receive:openize:processing onopen"
+                          putHN $ from2 { hOnopen = Nothing }
                           switch_send (onopen { tOut = pJson (gfromJust "onopen" inVal) })
                           return ()
+
+    LinePacket pbody -> do
+      -- its a line
+      logT $ "receive:got line msg"
+      let lineID = BC.unpack $ B16.encode $ BC.take 16 pbody
+      logT $ "receive:lineID=" ++ lineID
+      mfrom <- getHexLineMaybe lineID
+      case mfrom of
+        Nothing -> do
+          logT $ "switch_receive: no line found for " ++ lineID
+          return ()
+        Just fromHn -> do
+          from <- getHN fromHn
+          inVal <- hn_path (hHashName from) (pJson path)
+          p <- crypt_delineize (gfromJust "switch_receive" $ hCrypto from) packet
+          logT $ "crypt_delineize result:" ++ show p
+          case p of
+            Left err -> do
+              -- DEBUG_PRINTF("invlaid line from %s %s",path_json(in),from->hexname);
+              logT $ "invalid line from " ++ show (inVal,hHashName from)
+              return ()
+            Right _ -> do
+              assert False undefined
     _ -> do
       logT $ "switch_receive:not processing:" ++ show rxPacket
       assert False undefined

@@ -9,6 +9,7 @@ module TeleHash.New.Crypto1a
   , crypt_openize_1a
   , crypt_deopenize_1a
   , crypt_line_1a
+  , crypt_delineize_1a
   , mkHashFromBS
   , mkHashFromB64
   ) where
@@ -160,6 +161,7 @@ crypt_new_1a mPubStr mPubBin = do
                       , cCs        = cs
                       }
 
+          logT $ "crypt_loadkey_1a:randomHexVal=" ++ show (randomHexVal)
           logT $ "crypt_loadkey_1a:hexName=" ++ show (hexName)
           logT $ "crypt_loadkey_1a:pubkey=" ++ show (B16.encode bs)
           logT $ "crypt_loadkey_1a:parts=" ++ show (cPart c)
@@ -434,7 +436,7 @@ crypt_deopenize_1a self open = do
             linePub = Public1a (PublicKey curve linePubPoint)
 
           -- get the shared secret to create the iv+key for the open aes
-            pk@(Private1a (PrivateKey _ ourPriv)) = gfromJust "crypt_deopenize_1a.2" $ cs1aIdPrivate cs
+            pk  = gfromJust "crypt_deopenize_1a.2" $ cs1aIdPrivate cs
 
           secret <- uECC_shared_secret linePub pk
           let hash = fold1 $ SHA256.hash secret
@@ -533,7 +535,7 @@ crypt_line_1a open c = do
   secret <- uECC_shared_secret line_public (cs1aLinePrivate cs)
 
   -- make the line keys
-  let lineOut = cLineOut c
+  let lineOut = b16Tobs $ cLineOut c
       lineIn  = cLineIn c
 
       keyOutCtx = SHA256.updates SHA256.init [secret,lineOut,lineIn]
@@ -542,10 +544,38 @@ crypt_line_1a open c = do
       keyInCtx = SHA256.updates SHA256.init [secret,lineIn,lineOut]
       keyIn = fold1 (SHA256.finalize keyInCtx)
 
+  logT $ "crypt_line_1a:(secret,lineIn,lineOut)=" ++ show (B16.encode secret,B16.encode lineIn,B16.encode lineOut)
+  logT $ "crypt_line_1a:(keyIn,keyOut)=" ++ show (B16.encode keyIn,B16.encode keyOut)
+
   return $ Just c { cCs = cs { cs1aKeyOut = Just keyOut
                              , cs1aKeyIn = Just keyIn
                              , cs1aSeq = seqVal
                              }}
+
+tl = (B16.encode keyOut,B16.encode keyIn)
+  where
+    secret  = b16ToCbs "f3112580f84c04c74631d9a31fc010ad3424eb64"
+    lineIn  = b16ToCbs "d5f1f542b98912d47187d38e1a847f04"
+    lineOut = b16ToCbs "0369025b3e753eb180eb8c92de94c29f"
+
+    keyOutCtx = SHA256.updates SHA256.init [secret,lineOut,lineIn]
+    keyOut = fold1 (SHA256.finalize keyOutCtx)
+
+    keyInCtx = SHA256.updates SHA256.init [secret,lineIn,lineOut]
+    keyIn = fold1 (SHA256.finalize keyInCtx)
+
+{-
+AZ openline(ecdhe,lineInB,lineOutB) 
+f3112580f84c04c74631d9a31fc010ad3424eb64 
+d5f1f542b98912d47187d38e1a847f04 
+0369025b3e753eb180eb8c92de94c29f
+
+
+AZ openline(encKey,decKey) 
+0a2db12a9507815d1c420e23c9458f20 
+9a611d7a9287f2ea71d8320ccf8a97c1
+-}
+
 
 {-
 // makes sure all the crypto line state is set up, and creates line keys if exist
@@ -577,6 +607,81 @@ int crypt_line_1a(crypt_t c, packet_t inner)
   fold1(hash,cs->keyIn);
 
   return 0;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+crypt_delineize_1a :: Crypto -> NetworkTelex -> TeleHash (Either String RxTelex)
+crypt_delineize_1a c rxTelex = do
+  let cs = cCs c
+  let (LinePacket pbody) = ntPacket rxTelex
+
+  if (BC.length pbody < 16)
+    then do
+      logT $ "crypt_delineize_1a:no / short body"
+      return (Left "crypt_delineize_1a:no / short body")
+    else do
+      -- skip the lineID
+      let body = BC.drop 16 pbody
+          mac1 = BC.take 4 $ BC.drop 16 pbody
+          cbody = BC.drop 20 pbody
+          body2 = BC.drop 8 body
+
+      let iv = BC.take 4 $ BC.drop 4 body
+          Just ivz = i2ospOf 12 0
+          keyIn = gfromJust "crypt_delineize_1a" $ cs1aKeyIn cs
+
+          hm = fold3 $ hmac SHA256.hash 64 keyIn cbody
+
+      if hm /= mac1
+        then do
+          logT $ "hmac mismatch:" ++ show (B16.encode hm,B16.encode mac1)
+          assert False undefined
+          return $ Left $ "hmac mismatch:" ++ show (B16.encode hm,B16.encode mac1)
+        else do
+          let deciphered = decryptCTR (initAES keyIn) (BC.append ivz iv) body2
+              mret = fromLinePacket (LP deciphered)
+          logT $ "crypt_delineize_1a:mret=" ++ show mret
+          case mret of
+            Nothing -> return (Left "invalid decrypted packet")
+            Just ret -> do
+              case paHead ret of
+                HeadEmpty -> return (Left "invalid channel packet")
+                -- HeadByte _ -> return (Left "invalid channel packet")
+                HeadJson js -> do
+                  let mjson = Aeson.decode (cbsTolbs js) :: Maybe Aeson.Value
+                  case mjson of
+                    Nothing -> return (Left "invalid js in packet")
+                    Just (Aeson.Object jsHashMap) ->
+                      return (Right $ RxTelex { rtId = ntId rxTelex
+                                              , rtSender = pJson $ ntSender rxTelex
+                                              , rtAt = ntAt rxTelex
+                                              , rtJs = jsHashMap
+                                              , rtPacket = ret
+                                              , rtChanId = Nothing
+                                              })
+                    Just _ -> return (Left $ "unexpected js type:" ++ show js)
+
+{-
+packet_t crypt_delineize_1a(crypt_t c, packet_t p)
+{
+  packet_t line;
+  unsigned char iv[16], hmac[32];
+  crypt_1a_t cs = (crypt_1a_t)c->cs;
+
+  memset(iv,0,16);
+  memcpy(iv+12,p->body+16+4,4);
+
+  hmac_256(cs->keyIn,16,p->body+16+4,p->body_len-(16+4),hmac);
+  fold3(hmac,hmac);
+  if(memcmp(hmac,p->body+16,4) != 0) return packet_free(p);
+
+  aes_128_ctr(cs->keyIn,p->body_len-(16+4+4),iv,p->body+16+4+4,p->body+16+4+4);
+
+  line = packet_parse(p->body+16+4+4, p->body_len-(16+4+4));
+  packet_free(p);
+  return line;
 }
 -}
 

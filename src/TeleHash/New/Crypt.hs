@@ -7,6 +7,7 @@ module TeleHash.New.Crypt
   , crypt_openize
   , crypt_deopenize
   , crypt_line
+  , crypt_delineize
   ) where
 
 import Control.Applicative
@@ -368,7 +369,7 @@ crypt_line open c inner = do
     then return Nothing
     else do
       let lineid = b16Tobs (BC.pack $ oiLine inner)
-      logT $ "crypt_line:lineid=" ++ show lineid
+      logT $ "crypt_line:lineid=" ++ show (B16.encode lineid)
       let lined = if lineid == cLineIn c
                     then Lined -- same line
                     else LineReset -- new one
@@ -417,3 +418,28 @@ int crypt_line(crypt_t c, packet_t inner)
 -}
 
 -- ---------------------------------------------------------------------
+
+crypt_delineize :: Crypto -> NetworkTelex -> TeleHash (Either String RxTelex)
+crypt_delineize c p = do
+  logT $ "crypt_delineize: cLined=" ++ show (cLined c)
+  if cLined c == LineNone
+    then return (Left "line not open")
+    else crypt_delineize_1a c p
+
+{-
+packet_t crypt_delineize(crypt_t c, packet_t p)
+{
+  if(!c || !p) return NULL;
+  if(!c->lined) return packet_free(p);
+#ifdef CS_1a
+  if(c->csid == 0x1a) return crypt_delineize_1a(c,p);
+#endif
+#ifdef CS_2a
+  if(c->csid == 0x2a) return crypt_delineize_2a(c,p);
+#endif
+#ifdef CS_3a
+  if(c->csid == 0x3a) return crypt_delineize_3a(c,p);
+#endif
+  return NULL;
+}
+-}

@@ -31,6 +31,7 @@ module TeleHash.New.Utils
   , getPath
   , putHexLine
   , getHexLine
+  , getHexLineMaybe
 
   -- * Original
   , logT
@@ -54,6 +55,7 @@ module TeleHash.New.Utils
   , parseJs
   , parseJsVal
   , b16Tobs
+  , b16ToCbs
   , showJson
 
   ) where
@@ -289,6 +291,13 @@ getHexLine lineHex = do
          $ Map.lookup lineHex (swIndexLines sw)
 
 -- ---------------------------------------------------------------------
+
+getHexLineMaybe :: String -> TeleHash (Maybe HashName)
+getHexLineMaybe lineHex = do
+  sw <- get
+  return $ Map.lookup lineHex (swIndexLines sw)
+
+-- ---------------------------------------------------------------------
 -- Logging
 
 logT :: String -> TeleHash ()
@@ -449,6 +458,10 @@ b16Tobs :: BC.ByteString -> BC.ByteString
 b16Tobs str = r
   where
    (r,_) = B16.decode str
+
+b16ToCbs :: String -> BC.ByteString
+b16ToCbs str = r
+  where (r,_) = B16.decode $ BC.pack str
 
 -- ---------------------------------------------------------------------
 
