@@ -94,7 +94,7 @@ run ch1 ch2 = do
   _ <- io (forkIO (timer (1000 * onesec) SignalPingSeeds ch1))
   _ <- io (forkIO (timer (1000 * onesec) SignalScanLines ch1))
   _ <- io (forkIO (timer (3000 * onesec) SignalTapTap ch1))
-  _ <- io (forkIO (timer (30 * onesec) SignalShowSwitch ch1))
+  _ <- io (forkIO (timer (3000 * onesec) SignalShowSwitch ch1))
 
   h <- gets swH
   _ <- io (forkIO (dolisten h ch1))

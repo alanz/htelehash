@@ -52,7 +52,7 @@ import TeleHash.New.Packet
 import TeleHash.New.Types
 import TeleHash.New.Utils
 
-import qualified Crypto.Hash.SHA1 as SHA1
+-- import qualified Crypto.Hash.SHA1 as SHA1
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
 import qualified Crypto.PubKey.ECC.Prim as ECC
@@ -92,18 +92,12 @@ int crypt_init_1a()
 -- ---------------------------------------------------------------------
 
 mkHashFromBS :: BC.ByteString -> Hash
-mkHashFromBS bs =
-  let
-    -- digest = SHA.sha1 $ BL.fromChunks [bs]
-    digest = SHA1.hash bs
-  in
-   Hash (show digest)
+mkHashFromBS bs = Hash (BC.unpack $ B16.encode $ SHA256.hash $ bs)
 
 mkHashFromB64 :: String -> Hash
-mkHashFromB64 str = r
+mkHashFromB64 str = mkHashFromBS bs
   where
     Right bs = decode $ BC.pack str
-    r = Hash (BC.unpack $ B16.encode $ SHA1.hash $ bs)
 
 -- ---------------------------------------------------------------------
 
@@ -165,6 +159,8 @@ crypt_new_1a mPubStr mPubBin = do
                       , cCs        = cs
                       }
 
+          logT $ "crypt_loadkey_1a:hexName=" ++ show (hexName)
+          logT $ "crypt_loadkey_1a:pubkey=" ++ show (B16.encode bs)
           logT $ "crypt_loadkey_1a:parts=" ++ show (cPart c)
           return (Just c)
 
@@ -342,23 +338,34 @@ packet_t crypt_lineize_1a(crypt_t c, packet_t p)
 
 crypt_openize_1a :: Crypto -> Crypto -> OpenizeInner -> TeleHash (Maybe LinePacket)
 crypt_openize_1a self c inner = do
-  let cs = cCs c
-      scs = cCs self
-  let Public1a (PublicKey _ ourPub) = (cs1aIdPublic cs)
+  -- logT $ "crypt_openize_1a entered"
+  -- logT $ "crypt_openize_1a:(self,c,inner)=" ++ show (self,c,inner)
+  let cs  = cCs c -- line crypto
+      scs = cCs self -- self/own crypto
+  let Public1a (PublicKey _ linePub) = (cs1aIdPublic cs)
+      Public1a (PublicKey _ ourPub)  = (cs1aIdPublic scs)
       js = lbsTocbs $ Aeson.encode inner
+      -- innerPacket = Packet (HeadJson js) (Body $ pointTow8s linePub)
       innerPacket = Packet (HeadJson js) (Body $ pointTow8s ourPub)
       (LP innerPacketBody) = toLinePacket innerPacket
       body = innerPacketBody
 
+  -- logT $ "crypt_openize_1a:js=" ++ (BC.unpack js)
+  -- logT $ "crypt_openize_1a:linePub=" ++ show (B16.encode $ pointTow8s linePub)
+
   -- get the shared secret to create the iv+key for the open aes
+  -- uses  line private key and destination public key
   secret <- uECC_shared_secret (cs1aIdPublic cs) (cs1aLinePrivate cs)
+  -- logT $ "crypt_openize_1a:secret=" ++ show (B16.encode secret)
   let hash = fold1 $ SHA256.hash secret
 
       Just iv = i2ospOf 16 1
       cbody = encryptCTR (initAES hash) iv body
 
   -- generate secret for hmac
+  -- line public, own private
   secret2 <- uECC_shared_secret (cs1aIdPublic cs) (gfromJust "crypt_openize_1a" $ cs1aIdPrivate scs)
+  -- logT $ "crypt_openize_1a:secret2=" ++ show (B16.encode secret2)
   let (Public1a (PublicKey _ linePub)) = cs1aLinePublic cs
       macd = BC.append (pointTow8s linePub) cbody
       hmacVal = fold3 $ hmac SHA256.hash 64 secret2 macd

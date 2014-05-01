@@ -423,6 +423,10 @@ instance Aeson.FromJSON Parts where
   parseJSON (Aeson.Object v) = do
     return $ map (\(k,String val) -> (Text.unpack k,Text.unpack val)) $ HM.toList v
 
+instance Aeson.ToJSON Parts where
+  -- toJSON from = Aeson.String $ Text.pack $ "{" ++ (intercalate "," $ map (\(k,v) ->  "\"" ++ k ++ "\":\"" ++ v ++ "\"") from) ++ "}"
+  toJSON from = Aeson.Object $ HM.fromList $ map (\(k,v) -> (Text.pack k,Aeson.String $ Text.pack v)) from
+
 -- ---------------------------------------------------------------------
 
 data NetworkTelex = NetworkTelex
@@ -440,7 +444,7 @@ data OpenizeInner = OpenizeInner
                     , oiTo   :: !HashName
                     , oiFrom :: !Parts
                     , oiLine :: !String -- TODO: should be its own type
-                    }
+                    } deriving Show
 
 instance ToJSON OpenizeInner where
   toJSON (OpenizeInner (TOD at _) to from line)

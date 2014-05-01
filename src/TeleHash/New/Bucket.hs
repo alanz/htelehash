@@ -91,6 +91,7 @@ hn_t bucket_get(bucket_t b, int index)
 -}
 
 -- ---------------------------------------------------------------------
+
 bucket_load :: FilePath -> TeleHash Bucket
 bucket_load fname = do
   fc <- io $ BL.readFile fname
