@@ -374,7 +374,8 @@ getRxTelexType packet
   = case (HM.lookup "type" (rtJs packet)) of
       Nothing -> Nothing
       Just (String typ) -> Just (Text.unpack typ)
-      _ -> Nothing
+      vv -> error $ "getRxTelexType:strange value" ++ show vv
+      -- _ -> Nothing
 
 -- ---------------------------------------------------------------------
 

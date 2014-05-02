@@ -639,6 +639,7 @@ chan_t chan_start(switch_t s, char *hn, char *type)
 -- |new channel, pass Nothing for channel id to create an outgoing one
 chan_new :: HashName -> String -> Maybe ChannelId -> TeleHash TChan
 chan_new toHn typ mcid = do
+  logT $ "chan_new:" ++ show (toHn,typ,mcid)
   to <- getHN toHn
   case hChanOut to of
     CID 0 -> chan_reset toHn
@@ -789,7 +790,7 @@ chan_reset toHn = do
   logT $ "chan_reset:" ++ show toHn
   sw <- get
   to1 <- getHN toHn
-  let base = if (swId sw) < (hHashName to1)
+  let base = if (swId sw) > (hHashName to1)
                then 1 else 2
   withHN toHn $ \hc -> if (hChanOut hc == CID 0)
                         then hc {hChanOut = CID base}
@@ -834,11 +835,15 @@ chan_in hn p = do
         Just chan -> return (Just chan)
         Nothing -> do
           from <- getHN hn
+          logT $ "chan_in:p=" ++ show p
           let mtyp = getRxTelexType p
+          logT $ "chan_in:mtyp=" ++ show mtyp
+          logT $ "chan_in:cid,hChanout from=" ++ show (cid,hChanOut from)
           if (mtyp == Nothing
              || channelSlot cid == channelSlot (hChanOut from))
             then return Nothing
             else do
+              logT $ "chan_in:making new chan"
               chan <- chan_new hn (gfromJust "chan_in" mtyp) (Just cid)
               return (Just chan)
 
