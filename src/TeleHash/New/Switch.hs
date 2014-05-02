@@ -9,6 +9,8 @@ module TeleHash.New.Switch
    , testId
    , ipv4Send
    , recvTelex
+   , sendAll
+
    , onesec
    ) where
 
@@ -400,6 +402,27 @@ recvTelex msg rinfo = do
         logT $ "could not parse packet, discarding:" ++ (show $ B16.encode msg)
         return ()
 
+-- ---------------------------------------------------------------------
+
+-- | Send all queued packets from the switch
+sendAll :: TeleHash ()
+sendAll = do
+  mp <- switch_sending
+  -- logT $ "switch_sending returned:" ++ show mp
+  case mp of
+    Nothing -> return ()
+    Just p -> do
+      case tChain p of
+        Nothing -> do
+          assert False undefined
+        Just lp -> do
+          case (tOut p) of
+            (PIPv4 _) -> do
+              logT $ "sendall:sending " ++ show (tOut p)
+              ipv4Send (tOut p) lp Nothing
+            _ -> do
+              logT $ "sendall:not sending " ++ show (tOut p)
+      sendAll
 
 
 -- ---------------------------------------------------------------------
