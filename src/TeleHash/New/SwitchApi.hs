@@ -1,10 +1,11 @@
 module TeleHash.New.SwitchApi
   (
    -- * Telehash-c api
-     switch_send
+    switch_send
   , switch_sending
   , switch_receive
   , switch_open
+  , switch_pop
 
   -- * chan api
   , chan_start
@@ -121,7 +122,7 @@ switch_receive rxPacket path timeNow = do
     OpenPacket b bs -> do
       -- process open packet
       open <- crypt_deopenize rxPacket
-      logT $ "DEOPEN " ++ show open
+      logT $ "DEOPEN " ++ showJson (doJs open)
       case open of
         DeOpenizeVerifyFail -> do
           return ()
@@ -133,7 +134,7 @@ switch_receive rxPacket path timeNow = do
               logT $ "switch_receive:invalid inner js:" ++ (BC.unpack $ lbsTocbs $ Aeson.encode $ doJs open)
               return ()
             Just inner -> do
-              logT $ "switch_receive:openize:inner=" ++ show inner
+              -- logT $ "switch_receive:openize:inner=" ++ show inner
               mfrom <- hn_getparts (oiFrom inner)
               case mfrom of
                 Nothing -> do
@@ -167,7 +168,7 @@ switch_receive rxPacket path timeNow = do
                           logT $ "switch_receive:openize:no onopen"
                           return ()
                         Just onopen -> do
-                          logT $ "switch_receive:openize:processing onopen"
+                          -- logT $ "switch_receive:openize:processing onopen"
                           putHN $ from2 { hOnopen = Nothing }
                           switch_send (onopen { tOut = pJson (gfromJust "onopen" inVal) })
                           return ()
@@ -186,18 +187,57 @@ switch_receive rxPacket path timeNow = do
           from <- getHN fromHn
           inVal <- hn_path (hHashName from) (pJson path)
           p <- crypt_delineize (gfromJust "switch_receive" $ hCrypto from) packet
-          logT $ "crypt_delineize result:" ++ show p
+          -- logT $ "crypt_delineize result:" ++ show p
           case p of
             Left err -> do
               -- DEBUG_PRINTF("invlaid line from %s %s",path_json(in),from->hexname);
               logT $ "invalid line from " ++ show (inVal,hHashName from)
               return ()
-            Right _ -> do
-              assert False undefined
-    _ -> do
-      logT $ "switch_receive:not processing:" ++ show rxPacket
-      assert False undefined
+            Right rx -> do
+              mchan <- chan_in (hHashName from) rx
+              case mchan of
+                Just chan -> do
+                  sw <- get
+                  -- if new channel w/ seq, configure as reliable
+                  chan2 <- if (chState chan == ChanStarting && packet_has_key rx "seq")
+                             then chan_reliable chan (swWindow sw)
+                             else return chan
+                  chan_receive chan2 rx
+                Nothing -> do
+                  -- bounce it
+                  if packet_has_key rx "err"
+                    then return ()
+                    else do
+                      assert False undefined
+                      {-
+                      // bounce it!
+                      if(!packet_get_str(p,"err"))
+                      {
+                        packet_set_str(p,"err","unknown channel");
+                        p->to = from;
+                        p->out = in;
+                        switch_send(s, p);
+                      }else{
+                        packet_free(p);
+                      }
+                     -}
+    PingPongPacket p -> do
+      -- handle valid pong responses, start handshake
 
+     {-
+       if(util_cmp("pong",packet_get_str(p,"type")) == 0
+          && util_cmp(xht_get(s->index,"ping"),packet_get_str(p,"trace")) == 0
+          && (from = hn_fromjson(s->index,p)) != NULL)
+       {
+         DEBUG_PRINTF("pong from %s",from->hexname);
+         in = hn_path(from, in);
+         switch_open(s,from,in);
+         packet_free(p);
+         return;
+       }
+
+     -}
+      assert False undefined
 {-
 
 void switch_receive(switch_t s, packet_t p, path_t in)
@@ -521,6 +561,28 @@ void switch_sendingQ(switch_t s, packet_t p)
 
 -- ---------------------------------------------------------------------
 
+switch_pop :: TeleHash (Maybe TChan)
+switch_pop = do
+  sw <- get
+  case Map.elems (swChans sw) of
+    [] -> return Nothing
+    (c:cs) -> do
+      chan_dequeue c
+      return $ Just c
+
+{-
+chan_t switch_pop(switch_t s)
+{
+  chan_t c;
+  if(!s->chans) return NULL;
+  c = s->chans;
+  chan_dequeue(c);
+  return c;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
 -- =====================================================================
 -- chan api
 
@@ -529,7 +591,7 @@ void switch_sendingQ(switch_t s, packet_t p)
 -- ---------------------------------------------------------------------
 
 -- |kind of a macro, just make a reliable channel of this type to this hashname
-chan_start :: HashName -> String -> TeleHash ()
+chan_start :: HashName -> String -> TeleHash TChan
 chan_start hn typ = do
   c <- chan_new hn typ Nothing
   window <- gets swWindow
@@ -687,6 +749,7 @@ void chan_free(chan_t c)
 // configures channel as a reliable one, must be in STARTING state, is max # of packets to buffer before backpressure
 chan_t chan_reliable(chan_t c, int window);
 -}
+chan_reliable :: TChan -> Int -> TeleHash TChan
 chan_reliable = assert False undefined
 
 -- ---------------------------------------------------------------------

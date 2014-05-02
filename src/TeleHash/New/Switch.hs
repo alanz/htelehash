@@ -3,7 +3,13 @@
 module TeleHash.New.Switch
    (
      startSwitchThread
-
+   , switch_init
+   , runApp
+   , openSocketIPv4
+   , testId
+   , ipv4Send
+   , recvTelex
+   , onesec
    ) where
 
 import Control.Applicative
@@ -65,6 +71,13 @@ localIP = "10.2.2.83"
 
 -- ---------------------------------------------------------------------
 
+runApp :: Maybe SocketHandle -> TeleHash a -> IO ()
+runApp ms app = do
+  sw <- switch_new
+  _ <- runStateT app (sw { swH = ms })
+  return ()
+
+
 -- ---------------------------------------------------------------------
 --
 -- Set up actions to run on start and end, and run the main loop in
@@ -97,53 +110,6 @@ run ch1 ch2 = do
 
   h <- gets swH
   _ <- io (forkIO (dolisten h ch1))
-
-  crypt_init
-
-  switch_init testId
-
-  -- seeds <- bucket_load "./data/seeds.json"
-  seeds <- bucket_load "./data/seeds.json.local"
-  logT $ "run:seeds=" ++ show seeds
-  -- bucket_get seeds 0
-
-  -- seeds = bucket_load(s->index, "seeds.json");
-  -- if(!seeds || !bucket_get(seeds, 0))
-  -- {
-  --   printf("failed to load seeds.json: %s\n", crypt_err());
-  --   return -1;
-  -- }
-
-  --  create/send a ping packet
-  c <- chan_new (gfromJust "run" (bucket_get seeds 0)) "seek" Nothing
-  p <- chan_packet c
-  sw <- get
-  let p2 = packet_set_str (gfromJust "run" p) "seek" (unHN $ swId sw)
-  logT $ "run:p2=" ++ show p2
-  chan_send c p2
-  logT $ "run:chan_send done"
-
-  -- TODO: make this a library utility function
-  let sendall = do
-        mp <- switch_sending
-        -- logT $ "switch_sending returned:" ++ show mp
-        case mp of
-          Nothing -> return ()
-          Just p -> do
-            case tChain p of
-              Nothing -> do
-                assert False undefined
-              Just lp -> do
-                case (tOut p) of
-                  (PIPv4 _) -> do
-                    logT $ "sendall:sending " ++ show (tOut p)
-                    ipv4Send (tOut p) lp Nothing
-                  _ -> do
-                    logT $ "sendall:not sending " ++ show (tOut p)
-            sendall
-
-  sendall
-  logT $ "run:sendall done"
 
 {-
   c = chan_new(s, bucket_get(seeds, 0), "seek", 0);
@@ -284,6 +250,17 @@ initialize = do
   -- (serveraddr,ip,port) <- resolveToSeedIPP initialSeed
   -- let seedIPP = IPP (ip ++ ":" ++ port)
 
+  sock <- openSocketIPv4
+  ch1 <- newChan
+  ch2 <- newChan
+
+  -- Save off the socket, and server address in a handle
+  sw <- switch_new
+  return (ch1, ch2, sw {swH = Just (SocketHandle sock)
+                       ,swChan = Just ch1})
+
+openSocketIPv4 :: IO Socket
+openSocketIPv4 = do
   -- Establish a socket for communication
   --sock <- socket (addrFamily serveraddr) Datagram defaultProtocol
   sock <- NS.socket NS.AF_INET NS.Datagram defaultProtocol
@@ -294,14 +271,7 @@ initialize = do
 
   socketName <- NS.getSocketName sock
   warningM "Controller" ("server listening " ++ (show socketName))
-
-  ch1 <- newChan
-  ch2 <- newChan
-
-  -- Save off the socket, and server address in a handle
-  sw <- switch_new
-  return (ch1, ch2, sw {swH = Just (SocketHandle sock)
-                       ,swChan = Just ch1})
+  return sock
 
 -- ---------------------------------------------------------------------
 --
@@ -402,12 +372,6 @@ recvTelex :: BC.ByteString -> NS.SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
     -- logT ( ("recvTelex:" ++  (show (msg))))
     logT $ "recvTelex:rinfo=" ++  show rinfo
-{-
-    switch' <- get
-    put switch' { swCountRx = (swCountRx switch') + 1 }
-    -- switch <- get
-    -- seedsIndex <- gets swSeedsIndex
--}
 
     (Just hostIP,Just port) <- io (NS.getNameInfo [NS.NI_NUMERICHOST] True True rinfo)
     let

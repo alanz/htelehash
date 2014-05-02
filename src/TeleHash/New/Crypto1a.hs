@@ -446,9 +446,9 @@ crypt_deopenize_1a self open = do
           let body = decryptCTR (initAES hash) iv cbody
               Just inner = fromLinePacket (LP body)
 
-          logT $ "crypt_deopenize_1a:inner=" ++ show inner
+          -- logT $ "crypt_deopenize_1a:inner=" ++ show inner
           let HeadJson js = paHead inner
-          logT $ "crypt_deopenize_1a:inner json=" ++ show (js)
+          -- logT $ "crypt_deopenize_1a:inner json=" ++ show (js)
 
           -- generate secret for hmac
           let Body ekey = paBody inner
@@ -544,8 +544,8 @@ crypt_line_1a open c = do
       keyInCtx = SHA256.updates SHA256.init [secret,lineIn,lineOut]
       keyIn = fold1 (SHA256.finalize keyInCtx)
 
-  logT $ "crypt_line_1a:(secret,lineIn,lineOut)=" ++ show (B16.encode secret,B16.encode lineIn,B16.encode lineOut)
-  logT $ "crypt_line_1a:(keyIn,keyOut)=" ++ show (B16.encode keyIn,B16.encode keyOut)
+  -- logT $ "crypt_line_1a:(secret,lineIn,lineOut)=" ++ show (B16.encode secret,B16.encode lineIn,B16.encode lineOut)
+  -- logT $ "crypt_line_1a:(keyIn,keyOut)=" ++ show (B16.encode keyIn,B16.encode keyOut)
 
   return $ Just c { cCs = cs { cs1aKeyOut = Just keyOut
                              , cs1aKeyIn = Just keyIn
@@ -642,7 +642,7 @@ crypt_delineize_1a c rxTelex = do
         else do
           let deciphered = decryptCTR (initAES keyIn) (BC.append ivz iv) body2
               mret = fromLinePacket (LP deciphered)
-          logT $ "crypt_delineize_1a:mret=" ++ show mret
+          -- logT $ "crypt_delineize_1a:mret=" ++ show mret
           case mret of
             Nothing -> return (Left "invalid decrypted packet")
             Just ret -> do

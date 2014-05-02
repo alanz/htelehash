@@ -48,6 +48,7 @@ import qualified Data.ByteString.Lazy as BL
 -- The line is coded as 0x00 0x00 followed by the encrypted line packet
 data NetworkPacket = OpenPacket Word8 BC.ByteString
                    | LinePacket BC.ByteString
+                   | PingPongPacket Packet
                    deriving (Eq,Show)
 
 
@@ -59,6 +60,8 @@ instance Binary NetworkPacket where
   put (LinePacket    bs) = do put (0::Word8)
                               put (0::Word8)
                               put bs
+  put (PingPongPacket p) = do let LP b = toLinePacket p
+                              put b
 
   get = do h  <- get
            case h::Word16 of
@@ -68,6 +71,10 @@ instance Binary NetworkPacket where
                      -- pb <- get
                      pb <- getRemainingLazyByteString
                      return (OpenPacket cs (lbsTocbs pb))
+             x -> do rest <- getRemainingLazyByteString
+                     let
+                       Just bb = i2ospOf 2 (fromIntegral x)
+                     return $ PingPongPacket ((decode (BL.append (cbsTolbs bb) rest)) :: Packet)
 
 -- ---------------------------------------------------------------------
 
@@ -102,7 +109,7 @@ any app-specific usage.
  -}
 
 data Body = Body BC.ByteString
-          deriving Show
+          deriving (Eq,Show)
 unBody (Body b) = b
 
 
@@ -110,7 +117,7 @@ unBody (Body b) = b
 data Packet = Packet { paHead :: Head
                      , paBody :: Body
                      }
-            deriving Show
+            deriving (Eq,Show)
 
 newPacket :: Packet
 newPacket = Packet { paHead = HeadEmpty
@@ -135,8 +142,8 @@ networkPacketLen (LinePacket   pb) = (BC.length pb)
 -- ---------------------------------------------------------------------
 
 instance Binary Packet where
-  put p = do put (paHead p)
-             put (paBody p)
+  put p = do let LP b = toLinePacket p
+             put b
 
   get = do h  <- get
            -- pb <- getRemainingLazyByteString
