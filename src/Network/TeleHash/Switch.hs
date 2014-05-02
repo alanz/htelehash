@@ -10,7 +10,8 @@ module Network.TeleHash.Switch
    , ipv4Send
    , recvTelex
    , sendAll
-
+   , sendDgram
+   , addrFromHostPort
    , onesec
    ) where
 
@@ -314,20 +315,20 @@ doSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
 doSendDgram (LP msgJson) address = do
   -- logT $ "doSendDgram to:" ++ show addr
   Just socketh <- gets swH
-  io (sendDgram socketh msgJson address)
+  io (sendDgram (slSocket socketh) msgJson address)
 
 
 -- ---------------------------------------------------------------------
 
-sendDgram :: SocketHandle -> BC.ByteString -> NS.SockAddr -> IO ()
-sendDgram socketh msgJson address =
+sendDgram :: Socket -> BC.ByteString -> NS.SockAddr -> IO ()
+sendDgram sock msgJson address =
   sendstr msgJson
     where
       -- Send until everything is done
       sendstr :: BC.ByteString -> IO ()
       sendstr omsg
         | BC.length omsg == 0  = return ()
-        | otherwise = do sent <- SB.sendTo (slSocket socketh) omsg address
+        | otherwise = do sent <- SB.sendTo sock omsg address
                          sendstr (BC.drop sent omsg)
 
 {-

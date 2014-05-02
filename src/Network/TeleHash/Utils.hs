@@ -10,16 +10,16 @@ module Network.TeleHash.Utils
   , packet_from_val
   , packet_body
 
+  -- * Channels
+  , putChan
+  , getChan
+  , queueChan
+  , dequeueChan
+  , rmChan
+  , getChanFromHn
+  , rmChanFromHn
 
-   -- * Channels
-   , putChan
-   , queueChan
-   , dequeueChan
-   , rmChan
-   , getChanFromHn
-   , rmChanFromHn
-
-   , getNextUid
+  , getNextUid
 
   -- * Hashcontainers
   , getHN
@@ -192,6 +192,13 @@ putChan :: TChan -> TeleHash ()
 putChan chan = do
   sw <- get
   put $ sw { swIndexChans = Map.insert (chUid chan) chan (swIndexChans sw)}
+
+-- ---------------------------------------------------------------------
+
+getChan :: Uid -> TeleHash TChan
+getChan chanUid = do
+  sw <- get
+  return $ gfromJust ("getChan:" ++ show chanUid) $ Map.lookup chanUid (swChans sw)
 
 -- ---------------------------------------------------------------------
 

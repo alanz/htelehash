@@ -6,6 +6,8 @@ module Network.TeleHash.SwitchApi
   , switch_receive
   , switch_open
   , switch_pop
+  , switch_seed
+  , switch_loop
 
   -- * chan api
   , chan_start
@@ -208,7 +210,10 @@ switch_receive rxPacket path timeNow = do
                   if packet_has_key rx "err"
                     then return ()
                     else do
-                      assert False undefined
+                      let txp = packet_new fromHn
+                          tx = txp { tOut = pJson path }
+                          tx2 = packet_set_str tx "err" "unknown channel"
+                      switch_send tx2
                       {-
                       // bounce it!
                       if(!packet_get_str(p,"err"))
@@ -583,6 +588,32 @@ chan_t switch_pop(switch_t s)
 
 -- ---------------------------------------------------------------------
 
+switch_seed :: HashName -> TeleHash ()
+switch_seed hn = do
+  sw <- get
+  put $ sw { swSeeds = Set.insert hn (swSeeds sw)}
+{-
+void switch_seed(switch_t s, hn_t hn)
+{
+  if(!s->seeds) s->seeds = bucket_new();
+  bucket_add(s->seeds, hn);
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+-- |give all channels a chance
+switch_loop :: TeleHash ()
+switch_loop = return ()
+{-
+void switch_loop(switch_t s)
+{
+  // give all channels a chance
+}
+-}
+
+-- ---------------------------------------------------------------------
+
 -- =====================================================================
 -- chan api
 
@@ -615,18 +646,22 @@ chan_new :: HashName -> String -> Maybe ChannelId -> TeleHash TChan
 chan_new toHn typ mcid = do
   to <- getHN toHn
   case hChanOut to of
-    CID 0 -> return ()
-    CID _ -> chan_reset toHn
+    CID 0 -> chan_reset toHn
+    CID _ -> return ()
 
+  to2 <- getHN toHn
   -- use new id if none given
-  let (cid,cout) =
-        case mcid of
-          Nothing -> (c,co)
-            where c = hChanOut to
-                  co = c + 2
-          Just c -> (c,hChanOut to)
+  cid <- case mcid of
+           Nothing -> do
+             let c = hChanOut to2
+                 co = c + 2
+             withHN toHn $ \hc -> hc {hChanOut = co}
+             return c
+           Just c -> do
+             logT $ "chan_new:using cid:" ++ show c
+             return c
 
-  logT $ "channel new " ++ show (cid,typ)
+  logT $ "chan_new:channel new " ++ show (cid,typ)
   uid <- getNextUid
   let chan = TChan
               { chId       = cid
@@ -685,7 +720,7 @@ chan_t chan_new(switch_t s, hn_t to, char *type, uint32_t id)
 
 chan_free :: TChan -> TeleHash ()
 chan_free chan = do
-  logT $ "chan_free " ++ show (chId chan)
+  logT $ "chan_free " ++ show (chId chan,chUid chan)
   -- remove references
   chan_dequeue chan
 
@@ -708,7 +743,6 @@ chan_free chan = do
     else do
       logT $ "unused notes on channel " ++ show (chId chan)
 
-  assert False undefined
 
 {-
 void chan_free(chan_t c)
@@ -757,6 +791,7 @@ chan_reliable = assert False undefined
 -- |resets channel state for a hashname
 chan_reset :: HashName -> TeleHash ()
 chan_reset toHn = do
+  logT $ "chan_reset:" ++ show toHn
   sw <- get
   to1 <- getHN toHn
   let base = if (swId sw) < (hHashName to1)
@@ -889,8 +924,9 @@ packet_t chan_packet(chan_t c)
 packet_t chan_pop(chan_t c);
 -}
 -- TODO: use channel uid, rather than direct
-chan_pop :: TChan -> TeleHash (Maybe RxTelex)
-chan_pop chan = do
+chan_pop :: Uid -> TeleHash (Maybe RxTelex)
+chan_pop chanUid = do
+  chan <- getChan chanUid
   if (chReliable chan)
     then chan_seq_pop chan
     else do
@@ -948,7 +984,7 @@ chan_t chan_end(chan_t c, packet_t p)
 -- |immediately fails/removes channel, if err tries to send message
 chan_fail :: TChan -> Maybe String -> TeleHash TChan
 chan_fail c merr = do
-  logT $ "channel fail " ++ show (chId c,merr)
+  logT $ "channel fail " ++ show (chId c,chUid c,merr)
   case merr of
     Just err -> do
       if chState c /= ChanEnded
