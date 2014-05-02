@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module TeleHash.New.Paths
+module Network.TeleHash.Paths
   (
     PathJson(..)
   , PathIPv4(..)
@@ -20,7 +20,7 @@ module TeleHash.New.Paths
 import Control.Applicative
 import Data.Aeson
 import Data.IP
-import TeleHash.New.Convert
+import Network.TeleHash.Convert
 
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.HashMap.Strict as HM

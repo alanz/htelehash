@@ -1,4 +1,4 @@
-module TeleHash.New.Bucket
+module Network.TeleHash.Bucket
   (
     bucket_load
   , bucket_get
@@ -30,11 +30,11 @@ import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
-import TeleHash.New.Crypt
-import TeleHash.New.Hn
-import TeleHash.New.Paths
-import TeleHash.New.Types
-import TeleHash.New.Utils
+import Network.TeleHash.Crypt
+import Network.TeleHash.Hn
+import Network.TeleHash.Paths
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH

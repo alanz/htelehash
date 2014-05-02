@@ -3,7 +3,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module TeleHash.New.Types
+module Network.TeleHash.Types
   (
     HashName(..)
   , unHN
@@ -76,9 +76,9 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
--- import TeleHash.New.Crypt
-import TeleHash.New.Packet
-import TeleHash.New.Paths
+-- import Network.TeleHash.Crypt
+import Network.TeleHash.Packet
+import Network.TeleHash.Paths
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH

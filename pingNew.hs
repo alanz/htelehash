@@ -8,13 +8,13 @@ import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 
-import TeleHash.New.Bucket
-import TeleHash.New.Crypt
-import TeleHash.New.Paths
-import TeleHash.New.Switch
-import TeleHash.New.SwitchApi
-import TeleHash.New.Types
-import TeleHash.New.Utils
+import Network.TeleHash.Bucket
+import Network.TeleHash.Crypt
+import Network.TeleHash.Paths
+import Network.TeleHash.Switch
+import Network.TeleHash.SwitchApi
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 import qualified Network.Socket.ByteString as SB
 

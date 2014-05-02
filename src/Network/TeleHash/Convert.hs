@@ -1,4 +1,4 @@
-module TeleHash.New.Convert where
+module Network.TeleHash.Convert where
 
 import Data.ByteString as S (ByteString, unpack)
 import Data.ByteString.Char8 as C8 (pack)

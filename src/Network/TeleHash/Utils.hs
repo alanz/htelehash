@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module TeleHash.New.Utils
+module Network.TeleHash.Utils
   (
   -- * telehash-c api
     PacketApi(..)
@@ -88,10 +88,10 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
-import TeleHash.New.Convert
-import TeleHash.New.Paths
-import TeleHash.New.Types
-import TeleHash.New.Packet
+import Network.TeleHash.Convert
+import Network.TeleHash.Paths
+import Network.TeleHash.Types
+import Network.TeleHash.Packet
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH

@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module TeleHash.New.Crypto1a
+module Network.TeleHash.Crypto1a
   (
     -- cset_1a
     crypt_init_1a
@@ -49,10 +49,10 @@ import Data.List
 import Data.Maybe
 import Data.Word
 import System.Time
-import TeleHash.New.Convert
-import TeleHash.New.Packet
-import TeleHash.New.Types
-import TeleHash.New.Utils
+import Network.TeleHash.Convert
+import Network.TeleHash.Packet
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 -- import qualified Crypto.Hash.SHA1 as SHA1
 import qualified Crypto.Hash.SHA256 as SHA256
@@ -712,7 +712,7 @@ bsToPoint bs = (ECC.Point i1 i2)
 
 -- ---------------------------------------------------------------------
 
-uECC_shared_secret :: TeleHash.New.Types.PublicKey -> TeleHash.New.Types.PrivateKey -> TeleHash BC.ByteString
+uECC_shared_secret :: Network.TeleHash.Types.PublicKey -> Network.TeleHash.Types.PrivateKey -> TeleHash BC.ByteString
 uECC_shared_secret publicKey privateKey = do
   let (Public1a (PublicKey _ pubPoint)) = publicKey
       (Private1a (PrivateKey _ privPoint)) = privateKey

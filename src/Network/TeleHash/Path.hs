@@ -1,4 +1,4 @@
-module TeleHash.New.Path
+module Network.TeleHash.Path
   (
     path_alive
   , path_match
@@ -31,9 +31,9 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
-import TeleHash.New.Crypt
-import TeleHash.New.Types
-import TeleHash.New.Utils
+import Network.TeleHash.Crypt
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH

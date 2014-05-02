@@ -1,4 +1,4 @@
-module TeleHash.New.SwitchApi
+module Network.TeleHash.SwitchApi
   (
    -- * Telehash-c api
     switch_send
@@ -56,14 +56,14 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
-import TeleHash.New.Convert
-import TeleHash.New.Crypt
-import TeleHash.New.Hn
-import TeleHash.New.Packet
-import TeleHash.New.Path
-import TeleHash.New.Paths
-import TeleHash.New.Types
-import TeleHash.New.Utils
+import Network.TeleHash.Convert
+import Network.TeleHash.Crypt
+import Network.TeleHash.Hn
+import Network.TeleHash.Packet
+import Network.TeleHash.Path
+import Network.TeleHash.Paths
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH

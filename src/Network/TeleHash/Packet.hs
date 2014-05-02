@@ -1,4 +1,4 @@
-module TeleHash.New.Packet
+module Network.TeleHash.Packet
   (
     NetworkPacket(..)
   , Packet(..)
@@ -33,7 +33,7 @@ import Data.Binary
 import Data.Bits
 import Data.Binary.Get
 import Data.Binary.Put
-import TeleHash.New.Convert
+import Network.TeleHash.Convert
 
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC

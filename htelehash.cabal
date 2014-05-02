@@ -65,18 +65,18 @@ Library
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:
-                       TeleHash.New.Bucket
-                       TeleHash.New.Convert
-                       TeleHash.New.Crypt
-                       TeleHash.New.Crypto1a
-                       TeleHash.New.Hn
-                       TeleHash.New.Packet
-                       TeleHash.New.Path
-                       TeleHash.New.Paths
-                       TeleHash.New.Switch
-                       TeleHash.New.SwitchApi
-                       TeleHash.New.Types
-                       TeleHash.New.Utils
+                       TeleHash.Network.Bucket
+                       TeleHash.Network.Convert
+                       TeleHash.Network.Crypt
+                       TeleHash.Network.Crypto1a
+                       TeleHash.Network.Hn
+                       TeleHash.Network.Packet
+                       TeleHash.Network.Path
+                       TeleHash.Network.Paths
+                       TeleHash.Network.Switch
+                       TeleHash.Network.SwitchApi
+                       TeleHash.Network.Types
+                       TeleHash.Network.Utils
 
   --ghc-options:         -Wall
   ghc-options:         -Wall -fhpc

@@ -1,4 +1,4 @@
-module TeleHash.New.Hn
+module Network.TeleHash.Hn
   (
     hn_fromjson
   , hn_getparts
@@ -32,12 +32,12 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
-import TeleHash.New.Crypt
-import TeleHash.New.Path
-import TeleHash.New.Paths
-import TeleHash.New.Packet
-import TeleHash.New.Types
-import TeleHash.New.Utils
+import Network.TeleHash.Crypt
+import Network.TeleHash.Path
+import Network.TeleHash.Paths
+import Network.TeleHash.Packet
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH

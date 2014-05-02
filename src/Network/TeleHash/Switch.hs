@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module TeleHash.New.Switch
+module Network.TeleHash.Switch
    (
      startSwitchThread
    , switch_init
@@ -41,13 +41,13 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
-import TeleHash.New.Bucket
-import TeleHash.New.Crypt
-import TeleHash.New.Paths
-import TeleHash.New.Packet
-import TeleHash.New.Types
-import TeleHash.New.SwitchApi
-import TeleHash.New.Utils
+import Network.TeleHash.Bucket
+import Network.TeleHash.Crypt
+import Network.TeleHash.Paths
+import Network.TeleHash.Packet
+import Network.TeleHash.Types
+import Network.TeleHash.SwitchApi
+import Network.TeleHash.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH

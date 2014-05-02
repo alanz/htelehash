@@ -1,4 +1,4 @@
-module TeleHash.New.Crypt
+module Network.TeleHash.Crypt
   (
     crypt_init
   , crypt_new
@@ -37,10 +37,10 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 import System.Time
 
-import TeleHash.New.Crypto1a
-import TeleHash.New.Packet
-import TeleHash.New.Types
-import TeleHash.New.Utils
+import Network.TeleHash.Crypto1a
+import Network.TeleHash.Packet
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
