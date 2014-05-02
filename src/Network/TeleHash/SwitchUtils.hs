@@ -180,14 +180,17 @@ int util_readone(switch_t s, int sock, path_t in)
 
 -- ---------------------------------------------------------------------
 
-util_chan_popall :: TChan -> TeleHash ()
-util_chan_popall c = do
+util_chan_popall :: TChan -> Maybe (RxTelex -> TeleHash ()) -> TeleHash ()
+util_chan_popall c mfn = do
   mp <- chan_pop (chUid c)
   case mp of
     Nothing -> return ()
     Just p -> do
-      logT $ "unhandled channel packet:"  ++ showJson (rtJs p)
-      util_chan_popall c
+      case mfn of
+        Nothing -> do
+          logT $ "util_chan_popall:unhandled channel packet:"  ++ showJson (rtJs p)
+        Just fn -> fn p
+      util_chan_popall c mfn
 {-
       while((p = chan_pop(c)))
       {

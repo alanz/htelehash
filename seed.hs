@@ -9,7 +9,9 @@ import System.Log.Handler.Simple
 import System.Log.Logger
 
 import Network.TeleHash.Bucket
+import Network.TeleHash.Ext.Connect
 import Network.TeleHash.Ext.Link
+import Network.TeleHash.Ext.Path
 import Network.TeleHash.Crypt
 import Network.TeleHash.Paths
 import Network.TeleHash.Switch
@@ -67,13 +69,11 @@ app = do
             logT $ "channel active " ++ show (chState c,chUid c,chTo c)
             case chType c of
               "link" -> ext_link c
-            -- TODO: process extensions
-            -- if(util_cmp(c->type,"connect") == 0) ext_connect(c);
-            -- if(util_cmp(c->type,"link") == 0) ext_link(c);
-            -- if(util_cmp(c->type,"path") == 0) ext_path(c);
+              "path" -> ext_path c
+              "connect" -> ext_connect c
               typ -> do
                 logT $ "not processing channel type:" ++ typ
-                util_chan_popall c
+                util_chan_popall c Nothing
             if chState c == ChanEnded
               then chan_free c
               else return ()

@@ -474,33 +474,28 @@ switch_sendingQ p = do
   -- if there's no path, find one or copy to many
   mp <- if tOut p == PNone
           then do
-            -- just being paranoid
-            case packet_get_str p "to" of
-              Nothing -> do
-                logT $ "switch_sendingQ:trying to send without dest:" ++ show p
+            let toVal = tTo p
+            -- if the last path is alive, just use that
+            to <- getHN toVal
+            (done,p2) <- do
+              case hLast to of
+                Just lastJson -> do
+                  lastPath <- getPath (hHashName to) lastJson
+                  -- logT $ "switch_sendingQ:lastPath=" ++ show lastPath
+                  alive <- path_alive lastPath
+                  -- logT $ "switch_sendingQ:alive=" ++ show alive
+                  if alive
+                    then return (True, p { tOut = lastJson })
+                    else return (False,p)
+                Nothing -> return (False,p)
+            if done
+              then return (Just p2)
+              else do
+                -- try sending to all paths
+                forM_ (Map.elems (hPaths to)) $ \path1 -> do
+                  -- logT $ "switch_sendingQ:processing path=" ++ show path1
+                  switch_sendingQ $ p { tOut = pJson path1 }
                 return Nothing
-              Just toVal -> do
-                -- if the last path is alive, just use that
-                to <- getHN (HN toVal)
-                (done,p2) <- do
-                  case hLast to of
-                    Just lastJson -> do
-                      lastPath <- getPath (hHashName to) lastJson
-                      -- logT $ "switch_sendingQ:lastPath=" ++ show lastPath
-                      alive <- path_alive lastPath
-                      -- logT $ "switch_sendingQ:alive=" ++ show alive
-                      if alive
-                        then return (True, p { tOut = lastJson })
-                        else return (False,p)
-                    Nothing -> return (False,p)
-                if done
-                  then return (Just p2)
-                  else do
-                    -- try sending to all paths
-                    forM_ (Map.elems (hPaths to)) $ \path1 -> do
-                      -- logT $ "switch_sendingQ:processing path=" ++ show path1
-                      switch_sendingQ $ p { tOut = pJson path1 }
-                    return Nothing
           else do
             return (Just p)
   -- logT $ "switch_sendingQ:mp=" ++ show mp

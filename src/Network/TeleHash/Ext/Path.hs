@@ -1,6 +1,6 @@
-module Network.TeleHash.Ext.Link
+module Network.TeleHash.Ext.Path
   (
-  ext_link
+  ext_path
   ) where
 
 import Control.Applicative
@@ -60,25 +60,19 @@ import qualified Network.Socket.ByteString as SB
 
 -- ---------------------------------------------------------------------
 
-ext_link :: TChan -> TeleHash ()
-ext_link c = do
-  logT $ "ext_link entered for:" ++ show (chId c, chUid c)
-  util_chan_popall c Nothing
-  -- always respond/ack
-  reply <- chan_packet c
-  chan_send c (gfromJust "ext_link" reply)
+ext_path :: TChan -> TeleHash ()
+ext_path c = do
+  logT $ "ext_path entered for:" ++ show (chId c, chUid c)
+  util_chan_popall c (Just (\p -> logT $ "TODO path packet:" ++ showJson (rtJs p)))
+
 {-
-void ext_link(chan_t c)
+void ext_path(chan_t c)
 {
   packet_t p;
   while((p = chan_pop(c)))
   {
-    DEBUG_PRINTF("TODO link packet %.*s\n", p->json_len, p->json);
+    DEBUG_PRINTF("TODO path packet %.*s\n", p->json_len, p->json);
     packet_free(p);
   }
-  // always respond/ack
-  chan_send(c,chan_packet(c));
 }
 -}
-
--- ---------------------------------------------------------------------

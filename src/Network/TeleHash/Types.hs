@@ -114,7 +114,6 @@ data RxTelex = RxTelex
       , rtJs     :: !(HM.HashMap Text.Text Aeson.Value)
       , rtPacket :: !Packet
       , rtChanId :: !(Maybe ChannelId) -- tFrom
-      -- , tFrom   :: !HashName
       } deriving Show
 
 data TxTelex = TxTelex

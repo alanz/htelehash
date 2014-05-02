@@ -120,6 +120,7 @@ class PacketApi a where
   packet_set_str :: a -> String -> String -> a
   packet_get_str :: a -> String -> Maybe String
   packet_set :: (Aeson.ToJSON b) => a -> String -> b -> a
+  packet_get :: a -> String -> Maybe Aeson.Value
   packet_has_key :: a -> String -> Bool
 
 instance PacketApi TxTelex where
@@ -135,6 +136,8 @@ instance PacketApi TxTelex where
   packet_set p key val
     = p { tJs = HM.insert (Text.pack key) (toJSON val) (tJs p) }
 
+  packet_get p key = HM.lookup (Text.pack key) (tJs p)
+
   packet_has_key p key = HM.member (Text.pack key) (tJs p)
 
 instance PacketApi RxTelex where
@@ -149,6 +152,8 @@ instance PacketApi RxTelex where
 
   packet_set p key val
     = p { rtJs = HM.insert (Text.pack key) (toJSON val) (rtJs p) }
+
+  packet_get p key = HM.lookup (Text.pack key) (rtJs p)
 
   packet_has_key p key = HM.member (Text.pack key) (rtJs p)
 
@@ -190,6 +195,7 @@ dequeueChan chan = do
 
 putChan :: TChan -> TeleHash ()
 putChan chan = do
+  logT $ "putChan:" ++ show (chId chan, chUid chan)
   sw <- get
   put $ sw { swIndexChans = Map.insert (chUid chan) chan (swIndexChans sw)}
 
@@ -198,7 +204,7 @@ putChan chan = do
 getChan :: Uid -> TeleHash TChan
 getChan chanUid = do
   sw <- get
-  return $ gfromJust ("getChan:" ++ show chanUid) $ Map.lookup chanUid (swChans sw)
+  return $ gfromJust ("getChan:" ++ show chanUid) $ Map.lookup chanUid (swIndexChans sw)
 
 -- ---------------------------------------------------------------------
 
