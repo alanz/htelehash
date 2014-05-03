@@ -638,6 +638,7 @@ switch_new = do
        , swSender      = doSendDgram
 
        , swThtp        = Nothing
+       , swIndexChat   = Map.empty
 
        , swRNG         = rng
        }

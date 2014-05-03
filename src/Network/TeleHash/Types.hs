@@ -50,6 +50,8 @@ module Network.TeleHash.Types
 
   -- * Extensions types
   , Thtp(..)
+  , Chat(..)
+  , ChatR(..)
   ) where
 
 import Control.Applicative
@@ -184,7 +186,8 @@ data Switch = Switch
        , swSender :: !(LinePacket -> SockAddr -> TeleHash ())
 
        -- extensions
-       , swThtp :: Maybe Thtp
+       , swThtp      :: !(Maybe Thtp)
+       , swIndexChat :: !(Map.Map String Chat)
 
        , swRNG  :: !SystemRNG
        }
@@ -547,6 +550,63 @@ typedef struct crypt_1a_struct
 data Thtp = Thtp { thIndex :: Map.Map String TxTelex
                  , thGlob :: Maybe TxTelex
                  } deriving (Show)
+
+-- ---------------------------------------------------------------------
+-- Chat
+
+data Chat = Chat
+     { ecEp     :: String
+     , ecId     :: String
+     , ecIdHash :: String
+     , ecOrigin :: HashName
+     , ecHub    :: TChan
+     , ecRHash  :: String
+     , ecLocal  :: Word8
+     , ecSeed   :: Word32
+     , ecSeq    :: Word16
+     , ecRoster :: TxTelex
+     , ecConn   :: Map.Map String String
+     , ecLog    :: Map.Map String String
+     , ecMsgs   :: TxTelex
+     , ecJoin   :: String
+     , ecSent   :: String
+     , ecAfter  :: String
+     } deriving Show
+
+{-
+typedef struct chat_struct
+{
+  char ep[32+1], id[32+1+64+1], idhash[9];
+  hn_t origin;
+  switch_t s;
+  chan_t hub;
+  char rhash[9];
+  uint8_t local, seed[4];
+  uint16_t seq;
+  packet_t roster;
+  xht_t conn, log;
+  packet_t msgs;
+  char *join, *sent, *after;
+} *chat_t;
+-}
+
+data ChatR = Chatr
+      { ecrChat :: Chat
+      , ecrIn :: RxTelex
+      , ecrJoined :: Int
+      , ecrOnline :: Int
+      } deriving Show
+
+{-
+// chatr is just per-chat-channel state holder
+typedef struct chatr_struct
+{
+  chat_t chat;
+  packet_t in;
+  int joined;
+  int online;
+} *chatr_t;
+-}
 
 
 -- =====================================================================

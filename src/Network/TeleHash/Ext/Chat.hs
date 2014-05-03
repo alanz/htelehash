@@ -61,14 +61,6 @@ import qualified Network.Socket.ByteString as SB
 -- ---------------------------------------------------------------------
 
 {-
-// chatr is just per-chat-channel state holder
-typedef struct chatr_struct
-{
-  chat_t chat;
-  packet_t in;
-  int joined;
-  int online;
-} *chatr_t;
 
 chatr_t chatr_new(chat_t chat)
 {
@@ -140,7 +132,15 @@ void chat_cache(chat_t chat, char *hn, char *id)
 
 -- ---------------------------------------------------------------------
 
-chat_get = assert False undefined
+
+chat_get :: String -> TeleHash Chat
+chat_get sid = do
+  sw <- get
+  case Map.lookup sid (swIndexChat sw) of
+    Just chat -> return chat
+    Nothing -> do
+      -- if there's an id, validate and optionally parse out originator
+      assert False undefined
 
 
 {-
