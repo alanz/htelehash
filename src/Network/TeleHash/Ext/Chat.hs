@@ -32,14 +32,15 @@ import System.Time
 
 import Network.TeleHash.Convert
 import Network.TeleHash.Crypt
+import Network.TeleHash.Ext.Thtp
 import Network.TeleHash.Hn
 import Network.TeleHash.Packet
 import Network.TeleHash.Path
 import Network.TeleHash.Paths
-import Network.TeleHash.Types
-import Network.TeleHash.Utils
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.SwitchUtils
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -49,6 +50,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
+import qualified Data.Digest.Murmur as Murmur
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
@@ -59,6 +61,15 @@ import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
 
 -- ---------------------------------------------------------------------
+
+chatr_new :: Chat -> ChatR
+chatr_new chat
+  = ChatR
+      { ecrChat = chat
+      , ecrIn = packet_new_rx
+      , ecrJoined = 0
+      , ecrOnline = 0
+      }
 
 {-
 
@@ -81,9 +92,6 @@ void chatr_free(chatr_t r)
 
 -- ---------------------------------------------------------------------
 
-data ChatId = ChatId { ciEndpoint   :: !String
-                     , ciOriginator :: !(Maybe HashName)
-                     } deriving (Eq,Show)
 
 
 
@@ -126,34 +134,6 @@ parseChatId str = r
 
 -- ---------------------------------------------------------------------
 
--- |validate endpoint part of an id
-chat_eplen :: String -> Int
-chat_eplen sid = r
-  where
-    r = assert False undefined
-
-
-
-{-
-// validate endpoint part of an id
-int chat_eplen(char *id)
-{
-  int at;
-  if(!id) return -1;
-  for(at=0;id[at];at++)
-  {
-    if(id[at] == '@') return at;
-    if(id[at] >= 'a' && id[at] <= 'z') continue;
-    if(id[at] >= '0' && id[at] <= '9') continue;
-    if(id[at] == '_') continue;
-    return -1;
-  }
-  return 0;
-}
--}
-
--- ---------------------------------------------------------------------
-
 {-
 char *chat_rhash(chat_t chat)
 {
@@ -171,7 +151,12 @@ char *chat_rhash(chat_t chat)
   util_murmur((unsigned char*)buf,at,chat->rhash);
   return chat->rhash;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+chat_cache = assert False undefined
+{-
 // if id is NULL it requests the roster, otherwise requests message id
 void chat_cache(chat_t chat, char *hn, char *id)
 {
@@ -193,31 +178,81 @@ void chat_cache(chat_t chat, char *hn, char *id)
 
 -- ---------------------------------------------------------------------
 
-
-chat_get :: String -> TeleHash (Maybe Chat)
-chat_get sid = do
+putChat :: Chat -> TeleHash ()
+putChat chat = do
   sw <- get
-  case Map.lookup sid (swIndexChat sw) of
-    Just chat -> return (Just chat)
-    Nothing -> do
+  put $ sw {swIndexChat = Map.insert (ecId chat) chat (swIndexChat sw) }
+
+-- ---------------------------------------------------------------------
+
+
+chat_get :: Maybe String -> TeleHash (Maybe Chat)
+chat_get mid = do
+  sw <- get
+  mcid <- case mid of
+    Just sid -> do
       -- if there's an id, validate and optionally parse out originator
       case parseChatId sid of
         Nothing -> do
           logT $ "invalid chatid:" ++ sid
           return Nothing
         Just cid -> do
-          morigin <- case ciOriginator cid of
+          case ciOriginator cid of
             Just hn -> do
               mo <- getHNMaybe hn
               case mo of
                 Nothing -> return Nothing
-                Just _  -> return (Just hn)
-            Nothing -> return $ Just (swId sw)
-          case morigin of
-            Nothing -> return Nothing
-            Just origin -> do
-              assert False undefined
+                Just _  -> return $ Just (cid { ciOriginator = Just hn })
+            Nothing -> return $ Just (cid { ciOriginator = Just  (swId sw)})
 
+    Nothing -> do
+      epVal <- randomHEX 8
+      return $ Just (ChatId epVal (Just (swId sw)))
+
+  case mcid of
+    Nothing -> return Nothing
+    Just cid -> do
+      case Map.lookup cid (swIndexChat sw) of
+        Just chat -> return (Just chat)
+        Nothing -> do
+          hubc <- chan_new (swId sw) "chat" Nothing
+
+          randWord32 <- randomWord32
+          let chat = Chat
+                { ecEp     = ciEndpoint cid
+                , ecId     = cid
+                , ecIdHash = Murmur.hash (chatIdToString cid)
+                , ecOrigin = gfromJust "chat_get" (ciOriginator cid)
+                , ecRHash  = ""
+                , ecLocal  = ciOriginator cid == Just (swId sw)
+                , ecSeed   = randWord32
+                , ecSeq    = 1000
+                , ecRoster = packet_new (swId sw)
+                , ecConn   = Map.empty
+                , ecLog    = Map.empty
+                , ecMsgs   = Nothing
+                , ecJoin   = Nothing
+                , ecSent   = Nothing
+                , ecAfter  = Nothing
+
+                , ecHub    = chId hubc
+
+                }
+          -- an admin channel for distribution and thtp requests
+          let chatr = chatr_new chat
+          let hub = hubc { cArg = Just chatr }
+          note <- chan_note hub Nothing
+          let note2 = packet_set_str note "glob" ("/chat/" ++ (show $ ecIdHash chat) ++ "/")
+          logT $ "chat,glob:" ++ show (ecId chat,packet_get_str note2 "glob")
+          thtp_glob Nothing (Just note2)
+          putChat chat
+
+          -- any other hashname and we try to initialize
+          if not (ecLocal chat)
+            then do
+              chat_cache chat (ecOrigin chat) Nothing
+            else return ()
+          return (Just chat)
 
 {-
 chat_t chat_get(switch_t s, char *id)

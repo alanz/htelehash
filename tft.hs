@@ -46,6 +46,7 @@ app = do
   crypt_init
 
   switch_init testId
+
   seek_auto
   myId <- io myThreadId
   let nick = show myId
@@ -66,7 +67,7 @@ app = do
   logT $ "loaded hashname " ++ show (swId sw)
 
   -- new chat, must be after-init
-  chat <- chat_get "tft"
+  chat <- chat_get (Just "tft")
 
   assert False undefined
 

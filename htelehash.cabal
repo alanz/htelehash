@@ -61,7 +61,8 @@ Library
                    , scientific
                    -- , tls
                    , vector
-                   , mvc
+                   -- , mvc
+                   , murmurhash3
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:

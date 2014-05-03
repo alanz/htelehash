@@ -670,10 +670,17 @@ switch_init anId = do
 
   sw <- get
   let parts = [((cCsid c),(unHash $ cPart c))]
-  put $ sw { swIndexCrypto = Map.insert "1a" c (swIndexCrypto sw)
+  let sw2 = sw { swIndexCrypto = Map.insert "1a" c (swIndexCrypto sw)
            , swParts = parts
            , swId = parts2hn [("1a",unHash $ cPart c)]
            }
+  put sw2
+
+  -- Make sure our own id is a known hashname
+  putHN $ (newHashContainer (swId sw2)) { hCrypto = Just c
+                                        , hCsid = "1a" -- hardcoded for now
+                                        , hParts = Just parts
+                                        }
 
 {-
 

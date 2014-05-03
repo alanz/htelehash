@@ -684,6 +684,7 @@ chan_new toHn typ mcid = do
               , chIn       = []
               , chNotes    = []
               , chHandler  = Nothing
+              , cArg       = Nothing
               }
   withHN toHn (\hc -> hc { hChans = Map.insert cid chan (hChans hc) })
 

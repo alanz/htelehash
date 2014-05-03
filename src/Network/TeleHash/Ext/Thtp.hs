@@ -1,6 +1,7 @@
 module Network.TeleHash.Ext.Thtp
   (
-  thtp_path
+    thtp_path
+  , thtp_glob
   ) where
 
 import Control.Applicative
@@ -122,7 +123,14 @@ void thtp_free(switch_t s)
   xht_free(t->index);
   free(t);
 }
+-}
+-- ---------------------------------------------------------------------
 
+thtp_glob :: Maybe String -> Maybe RxTelex -> TeleHash ()
+thtp_glob mglob mnote = do
+  t <- thtp_get
+  assert False undefined
+{-
 // TODO support NULL note to delete
 void thtp_glob(switch_t s, char *glob, packet_t note)
 {

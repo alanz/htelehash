@@ -50,6 +50,9 @@ module Network.TeleHash.Types
 
   -- * Extensions types
   , Thtp(..)
+
+  , ChatId(..)
+  , chatIdToString
   , Chat(..)
   , ChatR(..)
   ) where
@@ -101,7 +104,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy as TL
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
-
+import qualified Data.Digest.Murmur as Murmur
 
 -- ---------------------------------------------------------------------
 
@@ -187,7 +190,7 @@ data Switch = Switch
 
        -- extensions
        , swThtp      :: !(Maybe Thtp)
-       , swIndexChat :: !(Map.Map String Chat)
+       , swIndexChat :: !(Map.Map ChatId Chat)
 
        , swRNG  :: !SystemRNG
        }
@@ -376,6 +379,7 @@ data TChan = TChan
   , chIn       :: ![RxTelex] -- queue of incoming messages
   , chNotes    :: ![RxTelex]
   , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
+  , cArg       :: !(Maybe ChatR)
   } deriving (Show)
 
 {-
@@ -401,6 +405,8 @@ typedef struct chan_struct
 
 -- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)
 data ChannelId = CID Int deriving (Eq,Show,Ord)
+
+unChannelId :: ChannelId -> Int
 unChannelId (CID c) = c
 
 instance Num ChannelId where
@@ -554,23 +560,32 @@ data Thtp = Thtp { thIndex :: Map.Map String TxTelex
 -- ---------------------------------------------------------------------
 -- Chat
 
+data ChatId = ChatId { ciEndpoint   :: !String
+                     , ciOriginator :: !(Maybe HashName)
+                     } deriving (Eq,Show,Ord)
+
+chatIdToString :: ChatId -> String
+chatIdToString (ChatId ep Nothing) = ep
+chatIdToString (ChatId ep (Just (HN o))) = ep ++ "@" ++ o
+
+
 data Chat = Chat
-     { ecEp     :: String
-     , ecId     :: String
-     , ecIdHash :: String
-     , ecOrigin :: HashName
-     , ecHub    :: TChan
-     , ecRHash  :: String
-     , ecLocal  :: Word8
-     , ecSeed   :: Word32
-     , ecSeq    :: Word16
-     , ecRoster :: TxTelex
-     , ecConn   :: Map.Map String String
-     , ecLog    :: Map.Map String String
-     , ecMsgs   :: TxTelex
-     , ecJoin   :: String
-     , ecSent   :: String
-     , ecAfter  :: String
+     { ecEp     :: !String
+     , ecId     :: !ChatId
+     , ecIdHash :: !Murmur.Hash
+     , ecOrigin :: !HashName
+     , ecHub    :: !ChannelId
+     , ecRHash  :: !String
+     , ecLocal  :: !Bool
+     , ecSeed   :: !Word32
+     , ecSeq    :: !Word16
+     , ecRoster :: !TxTelex
+     , ecConn   :: !(Map.Map String String)
+     , ecLog    :: !(Map.Map String String)
+     , ecMsgs   :: !(Maybe TxTelex)
+     , ecJoin   :: !(Maybe String)
+     , ecSent   :: !(Maybe String)
+     , ecAfter  :: !(Maybe String)
      } deriving Show
 
 {-
@@ -590,11 +605,11 @@ typedef struct chat_struct
 } *chat_t;
 -}
 
-data ChatR = Chatr
-      { ecrChat :: Chat
-      , ecrIn :: RxTelex
-      , ecrJoined :: Int
-      , ecrOnline :: Int
+data ChatR = ChatR
+      { ecrChat   :: !Chat
+      , ecrIn     :: !RxTelex
+      , ecrJoined :: !Int
+      , ecrOnline :: !Int
       } deriving Show
 
 {-
