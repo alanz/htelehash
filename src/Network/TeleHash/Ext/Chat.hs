@@ -77,7 +77,64 @@ void chatr_free(chatr_t r)
   packet_free(r->in);
   free(r);
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+data ChatId = ChatId { ciEndpoint   :: !String
+                     , ciOriginator :: !(Maybe HashName)
+                     } deriving (Eq,Show)
+
+
+
+-- |Every chat is identified by a unique endpoint@originator. The
+-- originator is always the hashname that first created the chat, and
+-- the endpoint is up to 32 lower case alphanumeric word characters
+-- (ASCII [a-z0-9_]) in length. The endpoint is typically
+-- automatically generated on demand to be unique and not visible.
+parseChatId :: String -> Maybe ChatId
+parseChatId str = r
+  where
+    (f,b) = break (=='@') str
+    b2 = if null b
+           then b
+           else if head b == '@'
+                  then tail b
+                  else b
+    okChar c = (c >= 'a' && c <= 'z')
+               || (c >= '0' && c <= '9')
+               || c == '_'
+    badChar c = not (okChar c)
+
+    fOk = (not (null f))
+          && (null (filter (badChar) f))
+
+    isHex :: Char -> Bool
+    isHex x | ((y >= '0') && (y <= '9')) || ((y >= 'a') && (y <= 'f')) = True
+                    | otherwise = False
+                            where y = toLower x
+    notHex c = not (isHex c)
+
+    bOk = (null b2)
+          || ((null (filter notHex b2))
+           && length b2 == 32)
+
+    r = if fOk && bOk
+          then if null b2 then Just (ChatId f Nothing)
+                          else Just (ChatId f (Just (HN b2)))
+          else Nothing
+
+-- ---------------------------------------------------------------------
+
+-- |validate endpoint part of an id
+chat_eplen :: String -> Int
+chat_eplen sid = r
+  where
+    r = assert False undefined
+
+
+
+{-
 // validate endpoint part of an id
 int chat_eplen(char *id)
 {
@@ -93,7 +150,11 @@ int chat_eplen(char *id)
   }
   return 0;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+{-
 char *chat_rhash(chat_t chat)
 {
   char *buf, *str;
@@ -133,14 +194,29 @@ void chat_cache(chat_t chat, char *hn, char *id)
 -- ---------------------------------------------------------------------
 
 
-chat_get :: String -> TeleHash Chat
+chat_get :: String -> TeleHash (Maybe Chat)
 chat_get sid = do
   sw <- get
   case Map.lookup sid (swIndexChat sw) of
-    Just chat -> return chat
+    Just chat -> return (Just chat)
     Nothing -> do
       -- if there's an id, validate and optionally parse out originator
-      assert False undefined
+      case parseChatId sid of
+        Nothing -> do
+          logT $ "invalid chatid:" ++ sid
+          return Nothing
+        Just cid -> do
+          morigin <- case ciOriginator cid of
+            Just hn -> do
+              mo <- getHNMaybe hn
+              case mo of
+                Nothing -> return Nothing
+                Just _  -> return (Just hn)
+            Nothing -> return $ Just (swId sw)
+          case morigin of
+            Nothing -> return Nothing
+            Just origin -> do
+              assert False undefined
 
 
 {-
