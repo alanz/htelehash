@@ -69,8 +69,11 @@ Library
                        TeleHash.Network.Convert
                        TeleHash.Network.Crypt
                        TeleHash.Network.Crypto1a
+                       TeleHash.Network.Ext.Chat
                        TeleHash.Network.Ext.Connect
                        TeleHash.Network.Ext.Link
+                       TeleHash.Network.Ext.Seek
+                       TeleHash.Network.Ext.Thtp
                        TeleHash.Network.Ext.Path
                        TeleHash.Network.Hn
                        TeleHash.Network.Packet
@@ -84,17 +87,22 @@ Library
   --ghc-options:         -Wall
   ghc-options:         -Wall -fhpc
 
--- executable             main
---     hs-source-dirs:    . src
---     main-is:           main.hs
---     ghc-options:  -Wall -fhpc
 
-
-executable             pingNew
+executable             ping
     hs-source-dirs:    . src
     main-is:           pingNew.hs
-    -- ghc-options:  -Wall -fhpc
     ghc-options:  -Wall
+
+executable             seed
+    hs-source-dirs:    . src
+    main-is:           seed.hs
+    ghc-options:  -Wall
+
+executable             tft
+    hs-source-dirs:    . src
+    main-is:           tft.hs
+    ghc-options:  -Wall
+
 
 -- test-suite             runtests
 --     type:

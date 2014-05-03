@@ -637,6 +637,8 @@ switch_new = do
        , swChan        = Nothing
        , swSender      = doSendDgram
 
+       , swThtp        = Nothing
+
        , swRNG         = rng
        }
 

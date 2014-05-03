@@ -3,6 +3,7 @@ module Network.TeleHash.SwitchUtils
     util_loadjson
   , util_sendall
   , ipv4SendSocket
+  , util_server
   , util_readone
 
   , util_chan_popall
@@ -199,3 +200,56 @@ util_chan_popall c mfn = do
       }
 
 -}
+
+-- ---------------------------------------------------------------------
+
+util_server :: Int -> Int -> IO Socket
+util_server port ms = do
+  -- Establish a socket for communication
+  --sock <- socket (addrFamily serveraddr) Datagram defaultProtocol
+  sock <- NS.socket NS.AF_INET NS.Datagram defaultProtocol
+
+  -- We want to listen on all interfaces (0.0.0.0)
+  bindAddr <- NS.inet_addr "0.0.0.0"
+  NS.bindSocket sock (NS.SockAddrInet (NS.PortNum $ fromIntegral port) bindAddr)
+
+  -- setSocketOption sock RecvTimeOut ms
+
+  socketName <- NS.getSocketName sock
+  warningM "Controller" ("server listening " ++ (show socketName))
+  return sock
+
+{-
+int util_server(int port, int ms)
+{
+  int sock;
+  struct	sockaddr_in sad;
+  struct timeval tv;
+
+  // create a udp socket
+  if( (sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP) ) < 0 )
+  {
+    printf("failed to create socket\n");
+    return -1;
+  }
+  memset(&sad,0,sizeof(sad));
+  sad.sin_family = AF_INET;
+  sad.sin_port = htons(port);
+  sad.sin_addr.s_addr = htonl(INADDR_ANY);
+  if (bind (sock, (struct sockaddr *)&sad, sizeof(sad)) < 0)
+  {
+    perror("bind failed");
+    return -1;
+  }
+  tv.tv_sec = ms/1000;
+  tv.tv_usec = (ms%1000)*1000;
+  if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
+  {
+    perror("setsockopt");
+    return -1;
+  }
+  return sock;
+}
+
+-}
+ -- --------------------------------------------------------------------

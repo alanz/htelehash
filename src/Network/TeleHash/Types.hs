@@ -47,6 +47,9 @@ module Network.TeleHash.Types
   , SeedInfo(..)
   , Path(..)
   , pathFromPathJson
+
+  -- * Extensions types
+  , Thtp(..)
   ) where
 
 import Control.Applicative
@@ -179,6 +182,9 @@ data Switch = Switch
        , swH      :: !(Maybe SocketHandle)
        , swChan   :: !(Maybe (Chan Signal))
        , swSender :: !(LinePacket -> SockAddr -> TeleHash ())
+
+       -- extensions
+       , swThtp :: Maybe Thtp
 
        , swRNG  :: !SystemRNG
        }
@@ -534,6 +540,13 @@ typedef struct crypt_1a_struct
 } *crypt_1a_t;
 
 -}
+
+-- =====================================================================
+-- Extension related types
+
+data Thtp = Thtp { thIndex :: Map.Map String TxTelex
+                 , thGlob :: Maybe TxTelex
+                 } deriving (Show)
 
 
 -- =====================================================================

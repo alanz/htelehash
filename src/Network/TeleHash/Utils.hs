@@ -9,6 +9,7 @@ module Network.TeleHash.Utils
   , packet_get_packet
   , packet_from_val
   , packet_body
+  , packet_link
 
   -- * Channels
   , putChan
@@ -170,10 +171,26 @@ packet_get_packet p key = HM.lookup (Text.pack key) (rtJs p)
 
 packet_from_val :: Aeson.Value -> RxTelex
 packet_from_val (Object v) = packet_new_rx {rtJs = v}
+packet_from_val x = error $ "packet_from_val expecting Object,got:" ++ show x
 
 packet_body :: TxTelex -> BC.ByteString -> TxTelex
 packet_body p bs = p { tPacket = (tPacket p) { paBody = Body bs }}
 
+packet_link :: TxTelex -> TxTelex -> TxTelex
+packet_link parent child = r
+  where
+    r = assert False undefined
+{-
+packet_t packet_link(packet_t parent, packet_t child)
+{
+  if(!parent) parent = packet_new();
+  if(!parent) return NULL;
+  if(parent->chain) packet_free(parent->chain);
+  parent->chain = child;
+  if(child && child->chain == parent) child->chain = NULL;
+  return parent;
+}
+-}
 -- ---------------------------------------------------------------------
 -- Channels
 
