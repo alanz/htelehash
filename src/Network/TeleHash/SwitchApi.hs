@@ -364,19 +364,21 @@ switch_send p = do
           logT $ "switch_send:crypto not set up"
           return ()
         Just crypto -> do
-
-          (crypto1,mlined) <- crypt_lineize crypto p
+          -- logT $ "switch_send:p=" ++ show p
+          -- insert the JS into the packet head
+          p2 <- telexToPacket p
+          (crypto1,mlined) <- crypt_lineize crypto p2
           putHN $ hc { hCrypto = Just crypto1 }
           case mlined of
             Just lined -> do
-              switch_sendingQ $ p { tChain = Just lined}
+              switch_sendingQ $ p2 { tChain = Just lined}
             Nothing -> do
               -- queue most recent packet to be sent after opened
-              hc2 <- getHN (tTo p)
-              putHN $ hc2 { hOnopen = Just p }
+              hc2 <- getHN (tTo p2)
+              putHN $ hc2 { hOnopen = Just p2 }
 
               -- no line, so generate open instead
-              switch_open (tTo p) Nothing
+              switch_open (tTo p2) Nothing
 
 {-
 void switch_send(switch_t s, packet_t p)
@@ -400,6 +402,17 @@ void switch_send(switch_t s, packet_t p)
   switch_open(s, p->to, NULL);
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+telexToPacket :: TxTelex -> TeleHash TxTelex
+telexToPacket telex = do
+  case (HM.toList $ tJs telex) of
+    [] -> return $ telex
+    _js -> do
+      logT $ "telexToPacket: encoded js=" ++ (BC.unpack $ lbsTocbs $ encode (tJs telex))
+      let packet = (tPacket telex) { paHead = HeadJson (lbsTocbs $ encode (tJs telex)) }
+      return $ telex { tPacket = packet}
 
 -- ---------------------------------------------------------------------
 
