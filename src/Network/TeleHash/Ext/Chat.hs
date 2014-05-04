@@ -1,6 +1,9 @@
 module Network.TeleHash.Ext.Chat
   (
-  chat_get
+    chat_get
+  , chat_add
+  , chat_message
+  , chat_join
   ) where
 
 import Control.Applicative
@@ -67,7 +70,7 @@ chatr_new chat
   = ChatR
       { ecrChat = chat
       , ecrIn = packet_new_rx
-      , ecrJoined = 0
+      , ecrJoined = False
       , ecrOnline = 0
       }
 
@@ -134,6 +137,15 @@ parseChatId str = r
 
 -- ---------------------------------------------------------------------
 
+chat_rhash :: Chat -> TeleHash Murmur.Hash
+chat_rhash chat = do
+  let r = intercalate "," $ concatMap (\(k,v) -> [k,v]) $ Map.toAscList (ecRoster chat)
+  logT $ "chat_rhash:r=" ++ show r
+  let rhash = Murmur.hash $ r
+      chat2 = chat { ecRHash = rhash }
+  putChat chat2
+  return rhash
+
 {-
 char *chat_rhash(chat_t chat)
 {
@@ -183,6 +195,12 @@ putChat chat = do
   sw <- get
   put $ sw {swIndexChat = Map.insert (ecId chat) chat (swIndexChat sw) }
 
+
+getChat :: ChatId -> TeleHash Chat
+getChat cid = do
+  sw <- get
+  return $ gfromJust ("getChat " ++ show cid) $ Map.lookup cid (swIndexChat sw)
+
 -- ---------------------------------------------------------------------
 
 
@@ -223,11 +241,11 @@ chat_get mid = do
                 , ecId     = cid
                 , ecIdHash = Murmur.hash (chatIdToString cid)
                 , ecOrigin = gfromJust "chat_get" (ciOriginator cid)
-                , ecRHash  = ""
+                , ecRHash  = 0
                 , ecLocal  = ciOriginator cid == Just (swId sw)
                 , ecSeed   = randWord32
                 , ecSeq    = 1000
-                , ecRoster = packet_new (swId sw)
+                , ecRoster = Map.empty
                 , ecConn   = Map.empty
                 , ecLog    = Map.empty
                 , ecMsgs   = Nothing
@@ -244,7 +262,7 @@ chat_get mid = do
           note <- chan_note hub Nothing
           let note2 = packet_set_str note "glob" ("/chat/" ++ (show $ ecIdHash chat) ++ "/")
           logT $ "chat,glob:" ++ show (ecId chat,packet_get_str note2 "glob")
-          thtp_glob Nothing (Just note2)
+          thtp_glob Nothing note2
           putChat chat
 
           -- any other hashname and we try to initialize
@@ -333,7 +351,36 @@ chat_t chat_free(chat_t chat)
   free(chat);
   return NULL;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+chat_message :: Chat -> TeleHash (Maybe TxTelex)
+chat_message chat = do
+  (TOD at _)  <- io getClockTime
+  if ecSeq chat == 0
+    then return Nothing
+    else do
+      sw <- get
+      let p1 = packet_new (swId sw)
+      let idVal = word32AsHexString (ecSeed chat)
+      logT $ "chat_message:idVal=" ++ idVal
+      -- do repeated murmur hash
+      let idW32 = last $ take (fromIntegral $ ecSeq chat) $ iterate Murmur.hash (ecSeed chat)
+          idHex = word32AsHexString idW32
+          idFull = idHex ++ "," ++ show (ecSeq chat)
+      logT $ "chat_message:idFull=" ++ idFull
+      let chat2 = chat { ecSeq = (ecSeq chat) - 1 }
+      putChat chat2
+      let p2 = packet_set_str p1 "id" idFull
+          p3 = packet_set_str p2 "type" "chat"
+          p4 = case (ecAfter chat2) of
+                 Just after -> packet_set_str p3 "after" after
+                 Nothing -> p3
+          p5 = packet_set_int p4 "at" (fromIntegral at)
+      return (Just p5)
+
+{-
 packet_t chat_message(chat_t chat)
 {
   packet_t p;
@@ -356,7 +403,11 @@ packet_t chat_message(chat_t chat)
   if(at > 1396184861) packet_set_int(p,"at",at); // only if platform_seconds() is epoch
   return p;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+{-
 // add msg to queue
 void chat_push(chat_t chat, packet_t msg)
 {
@@ -378,7 +429,14 @@ packet_t chat_pop(chat_t chat)
   msg->next = NULL;
   return msg;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+-- |updates current stored state to notify app of changes
+chat_restate = assert False undefined
+
+{-
 // updates current stored state to notify app of changes
 void chat_restate(chat_t chat, char *hn)
 {
@@ -420,7 +478,7 @@ void chat_restate(chat_t chat, char *hn)
   // if the new state is the same, drop it
   cur = xht_get(chat->log,hn);
   if(packet_cmp(state,cur) == 0) return (void)packet_free(state);
-  
+
   // replace/save new state
   xht_set(chat->log,packet_get_str(state,"from"),state);
   packet_free(cur);
@@ -428,7 +486,40 @@ void chat_restate(chat_t chat, char *hn)
   // notify if not ourselves
   if(util_cmp(hn,chat->s->id->hexname)) chat_push(chat,packet_copy(state));
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+-- |process roster to check connection/join state
+chat_sync :: ChatId -> TeleHash ()
+chat_sync cid = do
+  sw <- get
+  chat <- getChat cid
+  let joined = case ecJoin chat of
+                 Nothing -> False
+                 Just _  -> True
+  let roster = Map.toAscList (ecRoster chat)
+  forM_ roster $ \(part,v) -> do
+    if length part /= 64 || (swId sw) == HN part
+      then return ()
+      else do
+        case Map.lookup part (ecConn chat) of
+          Just uid -> do
+            c <- getChan uid
+            let mr = cArg c
+            case mr of
+              Nothing -> return ()
+              Just r -> do
+                if ecrJoined r == joined
+                  then return ()
+                  else do
+                    logT $ "chat_sync:initiating chat to " ++ show (part,ecId chat)
+                    -- state change
+                    chat_restate chat part
+                    assert False undefined
+          Nothing -> do
+            assert False undefined
+{-
 // process roster to check connection/join state
 void chat_sync(chat_t chat)
 {
@@ -463,7 +554,13 @@ void chat_sync(chat_t chat)
     chan_send(c,p);
   }
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+-- |just add to the log
+chat_log = assert False undefined
+{-
 // just add to the log
 void chat_log(chat_t chat, packet_t msg)
 {
@@ -474,7 +571,37 @@ void chat_log(chat_t chat, packet_t msg)
   xht_set(chat->log,id,msg);
   packet_free(cur);
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+chat_join :: Chat -> TxTelex -> TeleHash (Maybe Chat)
+chat_join chat join = do
+  -- paranoid, don't double-join
+  if isJust (ecJoin chat)
+     && ((ecJoin chat) == (packet_get_str join "id"))
+    then return Nothing
+    else do
+      let j2 = packet_set_str join "type" "join"
+          chat2 = chat {ecJoin = packet_get_str j2 "id"}
+      putChat chat2
+      chat_log (ecId chat2) j2
+      chat3 <- getChat (ecId chat2)
+      sw <- get
+      let chat4 = chat3 { ecRoster = Map.insert (unHN $ swId sw)
+                                                (gfromJust "chat_join" $ ecJoin chat3)
+                                                (ecRoster chat3) }
+      putChat chat4
+      chat_restate chat4 (swId sw)
+      chat5 <- getChat (ecId chat4)
+      chat_rhash chat5
+
+      -- create/activate all chat channels
+      chat_sync (ecId chat5)
+      chat6 <- getChat (ecId chat5)
+      return $ Just chat6
+
+{-
 chat_t chat_join(chat_t chat, packet_t join)
 {
   if(!chat || !join) return NULL;
@@ -488,13 +615,17 @@ chat_t chat_join(chat_t chat, packet_t join)
   packet_set_str(chat->roster,chat->s->id->hexname,chat->join);
   chat_restate(chat,chat->s->id->hexname);
   chat_rhash(chat);
-  
+
   // create/activate all chat channels
   chat_sync(chat);
 
   return chat;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+{-
 // chunk the packet out
 void chat_chunk(chan_t c, packet_t msg)
 {
@@ -540,7 +671,26 @@ chat_t chat_send(chat_t chat, packet_t msg)
   }
   return NULL;
 }
+-}
+-- ---------------------------------------------------------------------
 
+chat_add :: Chat -> String -> String -> TeleHash (Maybe Chat)
+chat_add chat hn val = do
+  if hn == "" || val == "" || (not $ ecLocal chat)
+    then return Nothing
+    else do
+      let roster = Map.insert hn val (ecRoster chat)
+          chat2 = chat { ecRoster = roster }
+      putChat chat2
+      chat_rhash chat2
+      chat_sync (ecId chat2)
+      -- try to load if it's a message id
+      if ',' `elem` val
+        then chat_cache chat2 hn val
+        else return ()
+      return (Just chat2)
+
+{-
 chat_t chat_add(chat_t chat, char *hn, char *val)
 {
   if(!chat || !hn || !val) return NULL;
@@ -552,7 +702,11 @@ chat_t chat_add(chat_t chat, char *hn, char *val)
   if(strchr(val,',')) chat_cache(chat,hn,val);
   return chat;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+{-
 // participant permissions, -1 blocked, 0 read-only, 1 allowed
 int chat_perm(chat_t chat, char *hn)
 {

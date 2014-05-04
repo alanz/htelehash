@@ -554,7 +554,7 @@ typedef struct crypt_1a_struct
 -- Extension related types
 
 data Thtp = Thtp { thIndex :: Map.Map String TxTelex
-                 , thGlob :: Maybe TxTelex
+                 , thGlob :: [RxTelex]
                  } deriving (Show)
 
 -- ---------------------------------------------------------------------
@@ -575,12 +575,12 @@ data Chat = Chat
      , ecIdHash :: !Murmur.Hash
      , ecOrigin :: !HashName
      , ecHub    :: !ChannelId
-     , ecRHash  :: !String
+     , ecRHash  :: !Murmur.Hash
      , ecLocal  :: !Bool
      , ecSeed   :: !Word32
      , ecSeq    :: !Word16
-     , ecRoster :: !TxTelex
-     , ecConn   :: !(Map.Map String String)
+     , ecRoster :: !(Map.Map String String)
+     , ecConn   :: !(Map.Map String Uid) -- For channels
      , ecLog    :: !(Map.Map String String)
      , ecMsgs   :: !(Maybe TxTelex)
      , ecJoin   :: !(Maybe String)
@@ -608,7 +608,7 @@ typedef struct chat_struct
 data ChatR = ChatR
       { ecrChat   :: !Chat
       , ecrIn     :: !RxTelex
-      , ecrJoined :: !Int
+      , ecrJoined :: !Bool
       , ecrOnline :: !Int
       } deriving Show
 

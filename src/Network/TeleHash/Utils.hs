@@ -53,6 +53,7 @@ module Network.TeleHash.Utils
   , randomHEX
   , randomWord32
   , asHexString
+  , word32AsHexString
   , parseJs
   , parseJsVal
   , b16Tobs
@@ -459,6 +460,14 @@ randomWord32 = do
   let (bytes,newRNG) = cprgGenerate 4 (swRNG sw)
   put $ sw {swRNG = newRNG}
   return $ fromIntegral $ os2ip bytes
+
+-- ---------------------------------------------------------------------
+
+word32AsHexString :: Word32 -> String
+word32AsHexString w32 = r
+  where
+    (Just v) = i2ospOf 4 (fromIntegral w32)
+    r = asHexString v
 
 -- ---------------------------------------------------------------------
 

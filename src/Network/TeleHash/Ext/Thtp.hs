@@ -99,7 +99,7 @@ thtp_get = do
   case (swThtp sw) of
     Just t -> return t
     Nothing -> do
-      let t = Thtp Map.empty Nothing
+      let t = Thtp Map.empty []
       put $ sw { swThtp = Just t }
       return t
 
@@ -111,6 +111,13 @@ thtp_t thtp_get(switch_t s)
   return t ? t : thtp_new(s,NULL);
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+thtp_put :: Thtp -> TeleHash ()
+thtp_put t = do
+  sw <- get
+  put $ sw { swThtp = Just t}
 
 -- ---------------------------------------------------------------------
 
@@ -126,10 +133,16 @@ void thtp_free(switch_t s)
 -}
 -- ---------------------------------------------------------------------
 
-thtp_glob :: Maybe String -> Maybe RxTelex -> TeleHash ()
-thtp_glob mglob mnote = do
+thtp_glob :: Maybe String -> RxTelex -> TeleHash ()
+thtp_glob mglob note = do
+  logT $ "thtp_glob:(mglob,mnote)" ++ show (mglob,note)
   t <- thtp_get
-  assert False undefined
+  let note2 =
+       case mglob of
+         Nothing -> note
+         Just v -> packet_set_str note "glob" v
+  thtp_put $ t { thGlob = note2:(thGlob t)}
+
 {-
 // TODO support NULL note to delete
 void thtp_glob(switch_t s, char *glob, packet_t note)

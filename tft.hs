@@ -67,7 +67,13 @@ app = do
   logT $ "loaded hashname " ++ show (swId sw)
 
   -- new chat, must be after-init
-  chat <- chat_get (Just "tft")
+  mchat <- chat_get (Just "tft")
+  let chat = (gfromJust "app" mchat)
+  chat_add chat "*" "invited"
+  mp <- chat_message chat
+  let p1 = gfromJust "app" mp
+      p2 = packet_set_str p1 "text" nick
+  chat_join chat p2
 
   assert False undefined
 
