@@ -55,6 +55,8 @@ module Network.TeleHash.Types
   , chatIdToString
   , Chat(..)
   , ChatR(..)
+
+  , Link(..)
   ) where
 
 import Control.Applicative
@@ -168,7 +170,7 @@ type TeleHash = StateT Switch IO
 
 data Switch = Switch
        { swId          :: !HashName
-       , swSeeds       :: !(Set.Set HashName)
+       , swSeeds       :: !Bucket
        , swOut         :: ![TxTelex] -- packets waiting to be delivered
        , swLast        :: !(Maybe TxTelex)
        -- , swParts       :: !TxTelex
@@ -191,6 +193,7 @@ data Switch = Switch
        -- extensions
        , swThtp      :: !(Maybe Thtp)
        , swIndexChat :: !(Map.Map ChatId Chat)
+       , swLink      :: !(Maybe Link)
 
        , swRNG  :: !SystemRNG
        }
@@ -581,7 +584,7 @@ data Chat = Chat
      , ecSeq    :: !Word16
      , ecRoster :: !(Map.Map String String)
      , ecConn   :: !(Map.Map String Uid) -- For channels
-     , ecLog    :: !(Map.Map String String)
+     , ecLog    :: !(Map.Map String TxTelex)
      , ecMsgs   :: !(Maybe TxTelex)
      , ecJoin   :: !(Maybe String)
      , ecSent   :: !(Maybe String)
@@ -609,7 +612,7 @@ data ChatR = ChatR
       { ecrChat   :: !Chat
       , ecrIn     :: !RxTelex
       , ecrJoined :: !Bool
-      , ecrOnline :: !Int
+      , ecrOnline :: !Bool
       } deriving Show
 
 {-
@@ -623,6 +626,30 @@ typedef struct chatr_struct
 } *chatr_t;
 -}
 
+-- ---------------------------------------------------------------------
+-- Link
+
+data Link = Link
+  { lMeshing :: !Bool
+  , lMeshed  :: !Bucket
+  -- only used when seeding
+  , lSeeding :: !Bool
+  , lBuckets :: ![Bucket]
+  , lLinks   :: !(Map.Map String String)
+  } deriving Show
+
+{-
+typedef struct link_struct
+{
+  // only used when meshing
+  int meshing;
+  bucket_t meshed;
+  // only used when seeding
+  int seeding;
+  bucket_t *buckets;
+  xht_t links;
+} *link_t;
+-}
 
 -- =====================================================================
 -- ---------------------------------------------------------------------

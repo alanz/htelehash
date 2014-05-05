@@ -43,6 +43,9 @@ main = do
 
 app :: TeleHash ()
 app = do
+  sw <- get
+  let (SocketHandle sock) = gfromJust "app" $ swH sw
+
   crypt_init
 
   switch_init testId
@@ -74,6 +77,50 @@ app = do
   let p1 = gfromJust "app" mp
       p2 = packet_set_str p1 "text" nick
   chat_join chat p2
+
+  chat2 <- getChat (ecId chat)
+  logT $ "created chat:" ++ show (chatIdToString $ ecId chat2,packet_get_str p2 "id",word32AsHexString $ ecRHash chat2)
+  logT $ nick ++ ">"
+
+  sw <- get
+  logT $ "seeds:" ++ show (swSeeds sw)
+  -- link_hn bucket_get(s->seeds, 0));
+  link_hn $ head $ Set.toList (swSeeds sw)
+
+  util_sendall sock
+
+  let inPath = PNone
+  let loop = do
+        void $ util_readone sock inPath
+        switch_loop
+        rx_loop
+        util_sendall sock
+        logT $ "Check for and process stdin"
+        loop
+
+      rx_loop = do
+        mc <- switch_pop
+        case mc of
+          Nothing -> return ()
+          Just c -> do
+            -- our internal testing stuff
+            logT $ "TODO: put in internal testing stuff"
+
+            logT $ "channel active " ++ show (chState c,chUid c,chTo c)
+            case chType c of
+              "link" -> ext_link c
+              "path" -> ext_path c
+              "connect" -> ext_connect c
+              typ -> do
+                logT $ "not processing channel type:" ++ typ
+                util_chan_popall c Nothing
+            if chState c == ChanEnded
+              then chan_free c
+              else return ()
+            rx_loop
+
+  -- Start the loop going
+  loop
 
   assert False undefined
 

@@ -10,6 +10,7 @@ module Network.TeleHash.Utils
   , packet_from_val
   , packet_body
   , packet_link
+  , packet_cmp
 
   -- * Channels
   , putChan
@@ -177,6 +178,8 @@ packet_from_val x = error $ "packet_from_val expecting Object,got:" ++ show x
 packet_body :: TxTelex -> BC.ByteString -> TxTelex
 packet_body p bs = p { tPacket = (tPacket p) { paBody = Body bs }}
 
+-- ---------------------------------------------------------------------
+
 packet_link :: TxTelex -> TxTelex -> TxTelex
 packet_link parent child = r
   where
@@ -192,6 +195,32 @@ packet_t packet_link(packet_t parent, packet_t child)
   return parent;
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+packet_cmp :: TxTelex -> TxTelex -> Bool
+packet_cmp a b = assert False undefined
+{-
+int packet_cmp(packet_t a, packet_t b)
+{
+  int i = 0;
+  char *str;
+  if(!a || !b) return -1;
+  if(a->body_len != b->body_len) return -1;
+  if(packet_keys(a) != packet_keys(b)) return -1;
+
+  packet_sort(a);
+  packet_sort(b);
+  while((str = packet_get_istr(a,i)))
+  {
+    if(strcmp(str,packet_get_istr(b,i)) != 0) return -1;
+    i++;
+  }
+
+  return memcmp(a->body,b->body,a->body_len);
+}
+-}
+
 -- ---------------------------------------------------------------------
 -- Channels
 

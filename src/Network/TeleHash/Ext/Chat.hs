@@ -4,6 +4,7 @@ module Network.TeleHash.Ext.Chat
   , chat_add
   , chat_message
   , chat_join
+  , getChat
   ) where
 
 import Control.Applicative
@@ -71,7 +72,7 @@ chatr_new chat
       { ecrChat = chat
       , ecrIn = packet_new_rx
       , ecrJoined = False
-      , ecrOnline = 0
+      , ecrOnline = False
       }
 
 {-
@@ -434,7 +435,54 @@ packet_t chat_pop(chat_t chat)
 -- ---------------------------------------------------------------------
 
 -- |updates current stored state to notify app of changes
-chat_restate = assert False undefined
+chat_restate :: ChatId -> String -> TeleHash ()
+chat_restate cid hn = do
+  if hn == ""
+    then return ()
+    else do
+      chat <- getChat cid
+      -- load from roster
+      case Map.lookup hn (ecRoster chat) of
+        Nothing -> return ()
+        Just idVal -> do
+          --  see if there's a join message cached
+          state <- case Map.lookup idVal (ecLog chat) of
+            Just join -> do
+              return join
+            Nothing -> do
+              if ',' `elem` idVal
+                then do
+                  -- we should have the join id, try to get it again
+                  void $ chat_cache chat hn idVal
+                  return $ packet_set_str (packet_new (HN hn)) "text" "connecting"
+                else do
+                  return $ packet_set_str (packet_new (HN hn)) "text" idVal
+          -- make a state packet
+          let state2 = packet_set_str state "type" "state"
+              state3 = packet_set_str state2 "from" hn
+
+          state4 <- case Map.lookup hn (ecConn chat) of
+            Just uid -> do
+              c <- getChan uid
+              case cArg c of
+                Just r -> do
+                  if ecrOnline r
+                    then do
+                      return $ packet_set_str state3 "online" "true"
+                    else do
+                      return $ packet_set_str state3 "online" "false"
+                Nothing -> do
+                  return $ packet_set_str state3 "online" "false"
+            Nothing -> do
+              return $ packet_set_str state3 "online" "false"
+          -- if the new state is the same, drop it
+          case Map.lookup hn (ecLog chat) of
+            Nothing -> return ()
+            Just cur -> do
+              if packet_cmp state4 cur == True
+                then return ()
+                else do
+                  assert False undefined
 
 {-
 // updates current stored state to notify app of changes
@@ -515,7 +563,7 @@ chat_sync cid = do
                   else do
                     logT $ "chat_sync:initiating chat to " ++ show (part,ecId chat)
                     -- state change
-                    chat_restate chat part
+                    chat_restate (ecId chat) part
                     assert False undefined
           Nothing -> do
             assert False undefined
@@ -559,7 +607,14 @@ void chat_sync(chat_t chat)
 -- ---------------------------------------------------------------------
 
 -- |just add to the log
-chat_log = assert False undefined
+chat_log :: ChatId -> TxTelex -> TeleHash ()
+chat_log cid msg = do
+  chat <- getChat cid
+  case packet_get_str msg "id" of
+    Nothing -> return ()
+    Just idVal -> do
+      putChat (chat { ecLog = Map.insert idVal msg (ecLog chat) })
+
 {-
 // just add to the log
 void chat_log(chat_t chat, packet_t msg)
@@ -592,7 +647,7 @@ chat_join chat join = do
                                                 (gfromJust "chat_join" $ ecJoin chat3)
                                                 (ecRoster chat3) }
       putChat chat4
-      chat_restate chat4 (swId sw)
+      chat_restate (ecId chat4) (unHN $ swId sw)
       chat5 <- getChat (ecId chat4)
       chat_rhash chat5
 

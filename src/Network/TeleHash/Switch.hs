@@ -639,6 +639,7 @@ switch_new = do
 
        , swThtp        = Nothing
        , swIndexChat   = Map.empty
+       , swLink        = Nothing
 
        , swRNG         = rng
        }
