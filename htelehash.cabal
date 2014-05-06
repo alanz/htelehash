@@ -63,6 +63,7 @@ Library
                    , vector
                    -- , mvc
                    , murmurhash3
+                   , stm
   hs-source-dirs: src
   Buildable: False
   Exposed-modules:

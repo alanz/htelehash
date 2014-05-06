@@ -4,7 +4,12 @@ module Network.TeleHash.Ext.Chat
   , chat_add
   , chat_message
   , chat_join
+  , chat_free
+  , chat_send
+
+  -- * persisting
   , getChat
+  , putChat
   ) where
 
 import Control.Applicative
@@ -120,6 +125,7 @@ parseChatId str = r
 
     fOk = (not (null f))
           && (null (filter (badChar) f))
+          && (length f <= 32)
 
     isHex :: Char -> Bool
     isHex x | ((y >= '0') && (y <= '9')) || ((y >= 'a') && (y <= 'f')) = True
@@ -129,12 +135,15 @@ parseChatId str = r
 
     bOk = (null b2)
           || ((null (filter notHex b2))
-           && length b2 == 32)
+           && length b2 == 64)
 
     r = if fOk && bOk
           then if null b2 then Just (ChatId f Nothing)
                           else Just (ChatId f (Just (HN b2)))
           else Nothing
+          -- else Just (ChatId (show (f,length b2,(filter notHex b2))) (Just (HN b2)))
+
+-- tp = parseChatId "alanz@7766e761afb226d7b398379ea1bf12c53dc02580c683b173568b0c6cc3a09c00"
 
 -- ---------------------------------------------------------------------
 
@@ -168,7 +177,32 @@ char *chat_rhash(chat_t chat)
 
 -- ---------------------------------------------------------------------
 
-chat_cache = assert False undefined
+-- |if mid is Nothing it requests the roster, otherwise requests message id
+chat_cache :: Chat -> HashName -> Maybe String -> TeleHash ()
+chat_cache chat hn mid = do
+  if isJust mid
+     && not (',' `elem` (fromJust mid))
+    then return ()
+    else do
+      -- only fetch from the origin until joined
+      let via = if ecJoin chat == Nothing
+                  then hn
+                  else ecOrigin chat
+      if isJust mid && (Map.member (fromJust mid) (ecLog chat))
+        then return () -- cached message id
+        else do
+          sw <- get
+          if swId sw == via
+            then return () -- can't request from ourselves
+            else do
+              hub <- getChan (ecHub chat)
+              note <- chan_note hub Nothing
+              let note2 = packet_set_str note  "to" (unHN via)
+                  note3 = packet_set_str note2 "for" (unHN hn)
+                  note4 = if isNothing mid
+                            then packet_set_str note3 "path" ("/chat/" ++ (word32AsHexString $ ecIdHash chat) ++ "/roster")
+                            else packet_set_str note3 "path" ("/chat/" ++ (word32AsHexString $ ecIdHash chat) ++ "/id/" ++ fromJust mid)
+              void $ thtp_req (rxTelexToTxTelex note4 via)
 {-
 // if id is NULL it requests the roster, otherwise requests message id
 void chat_cache(chat_t chat, char *hn, char *id)
@@ -254,12 +288,12 @@ chat_get mid = do
                 , ecSent   = Nothing
                 , ecAfter  = Nothing
 
-                , ecHub    = chId hubc
+                , ecHub    = chUid hubc
 
                 }
           -- an admin channel for distribution and thtp requests
           let chatr = chatr_new chat
-          let hub = hubc { cArg = Just chatr }
+          let hub = hubc { cArg = CArgChatR chatr }
           note <- chan_note hub Nothing
           let note2 = packet_set_str note "glob" ("/chat/" ++ (show $ ecIdHash chat) ++ "/")
           logT $ "chat,glob:" ++ show (ecId chat,packet_get_str note2 "glob")
@@ -336,6 +370,12 @@ chat_t chat_get(switch_t s, char *id)
 -}
 
 -- ---------------------------------------------------------------------
+
+chat_free :: Chat -> TeleHash ()
+chat_free chat = do
+  sw <- get
+  -- TODO: individually release the connections etc
+  put $ sw {swIndexChat = Map.delete (ecId chat) (swIndexChat sw) }
 
 {-
 chat_t chat_free(chat_t chat)
@@ -453,7 +493,7 @@ chat_restate cid hn = do
               if ',' `elem` idVal
                 then do
                   -- we should have the join id, try to get it again
-                  void $ chat_cache chat hn idVal
+                  void $ chat_cache chat (HN hn) (Just idVal)
                   return $ packet_set_str (packet_new (HN hn)) "text" "connecting"
                 else do
                   return $ packet_set_str (packet_new (HN hn)) "text" idVal
@@ -465,13 +505,13 @@ chat_restate cid hn = do
             Just uid -> do
               c <- getChan uid
               case cArg c of
-                Just r -> do
+                CArgChatR r -> do
                   if ecrOnline r
                     then do
                       return $ packet_set_str state3 "online" "true"
                     else do
                       return $ packet_set_str state3 "online" "false"
-                Nothing -> do
+                _ -> do
                   return $ packet_set_str state3 "online" "false"
             Nothing -> do
               return $ packet_set_str state3 "online" "false"
@@ -556,8 +596,7 @@ chat_sync cid = do
             c <- getChan uid
             let mr = cArg c
             case mr of
-              Nothing -> return ()
-              Just r -> do
+              CArgChatR r -> do
                 if ecrJoined r == joined
                   then return ()
                   else do
@@ -565,6 +604,7 @@ chat_sync cid = do
                     -- state change
                     chat_restate (ecId chat) part
                     assert False undefined
+              _ -> return ()
           Nothing -> do
             assert False undefined
 {-
@@ -680,6 +720,9 @@ chat_t chat_join(chat_t chat, packet_t join)
 
 -- ---------------------------------------------------------------------
 
+chat_chunk :: TChan -> TxTelex -> TeleHash ()
+chat_chunk c msg = do
+  assert False undefined
 {-
 // chunk the packet out
 void chat_chunk(chan_t c, packet_t msg)
@@ -703,7 +746,30 @@ void chat_chunk(chan_t c, packet_t msg)
     len-=space;
   }
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+chat_send :: Chat -> TxTelex -> TeleHash ()
+chat_send chatIn msg = do
+  chat <- getChat (ecId chatIn)
+  chat_log (ecId chat) msg
+
+  -- send as a note to all connected
+  forM_ (Map.elems $ ecRoster chat) $ \idVal -> do
+    case Map.lookup idVal (ecConn chat) of
+      Nothing -> return ()
+      Just cuid -> do
+        c <- getChan cuid
+        case (cArg c) of
+          CArgChatR r -> do
+            if (not (ecrJoined r) || not (ecrOnline r))
+              then return ()
+              else do
+                chat_chunk c msg
+          _ -> return ()
+
+{-
 chat_t chat_send(chat_t chat, packet_t msg)
 {
   char *part;
@@ -741,7 +807,7 @@ chat_add chat hn val = do
       chat_sync (ecId chat2)
       -- try to load if it's a message id
       if ',' `elem` val
-        then chat_cache chat2 hn val
+        then chat_cache chat2 (HN hn) (Just val)
         else return ()
       return (Just chat2)
 

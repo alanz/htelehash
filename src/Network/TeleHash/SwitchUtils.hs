@@ -98,12 +98,13 @@ int util_loadjson(switch_t s)
 -- | Send all queued packets from the switch
 util_sendall :: Socket -> TeleHash ()
 util_sendall sock = do
+  -- logT $ "util_sendall entered"
   mp <- switch_sending
-  -- logT $ "switch_sending returned:" ++ show mp
+  -- logT $ "util_sendall:switch_sending returned:" ++ show mp
   case mp of
     Nothing -> return ()
     Just p -> do
-      case tChain p of
+      case tLp p of
         Nothing -> do
           assert False undefined
         Just lp -> do

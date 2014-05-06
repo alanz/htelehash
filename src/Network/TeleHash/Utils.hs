@@ -10,7 +10,9 @@ module Network.TeleHash.Utils
   , packet_from_val
   , packet_body
   , packet_link
+  , packet_chain
   , packet_cmp
+  , packet_linked
 
   -- * Channels
   , putChan
@@ -180,10 +182,11 @@ packet_body p bs = p { tPacket = (tPacket p) { paBody = Body bs }}
 
 -- ---------------------------------------------------------------------
 
-packet_link :: TxTelex -> TxTelex -> TxTelex
-packet_link parent child = r
-  where
-    r = assert False undefined
+packet_link :: Maybe TxTelex -> TxTelex -> TxTelex
+packet_link mparent child =
+  case mparent of
+    Nothing -> packet_new (HN "packet_link")
+    Just parent -> assert False undefined
 {-
 packet_t packet_link(packet_t parent, packet_t child)
 {
@@ -193,6 +196,31 @@ packet_t packet_link(packet_t parent, packet_t child)
   parent->chain = child;
   if(child && child->chain == parent) child->chain = NULL;
   return parent;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+packet_chain :: TxTelex -> TxTelex
+packet_chain p = r
+  where
+    np = packet_new (tTo p)
+    r = np {tChain = Just p
+            , tTo = tTo p
+            , tOut = tOut p
+            }
+    -- copy in meta pointers for convenience
+{-
+packet_t packet_chain(packet_t p)
+{
+  packet_t np = packet_new();
+  if(!np) return NULL;
+  np->chain = p;
+  // copy in meta-pointers for convenience
+  np->to = p->to;
+  np->from = p->from;
+  np->out = p->out;
+  return np;
 }
 -}
 
@@ -222,6 +250,18 @@ int packet_cmp(packet_t a, packet_t b)
 -}
 
 -- ---------------------------------------------------------------------
+
+packet_linked :: TxTelex -> Maybe TxTelex
+packet_linked parent = tChain parent
+
+{-
+packet_t packet_linked(packet_t parent)
+{
+  if(!parent) return NULL;
+  return parent->chain;
+}
+-}
+-- ---------------------------------------------------------------------
 -- Channels
 
 -- ---------------------------------------------------------------------
@@ -242,7 +282,7 @@ dequeueChan chan = do
 
 putChan :: TChan -> TeleHash ()
 putChan chan = do
-  logT $ "putChan:" ++ show (chId chan, chUid chan)
+  -- logT $ "putChan:" ++ show (chId chan, chUid chan)
   sw <- get
   put $ sw { swIndexChans = Map.insert (chUid chan) chan (swIndexChans sw)}
 

@@ -1,7 +1,9 @@
 module Network.TeleHash.Ext.Thtp
   (
-    thtp_path
+    ext_thtp
+  , thtp_path
   , thtp_glob
+  , thtp_req
   ) where
 
 import Control.Applicative
@@ -190,7 +192,15 @@ packet_t _thtp_glob(thtp_t t, char *p1)
   }
   return NULL;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+-- chunk the packet out
+thtp_send :: TChan -> TxTelex -> TeleHash ()
+thtp_send c req = do
+  assert False undefined
+{-
 // chunk the packet out
 void thtp_send(chan_t c, packet_t req)
 {
@@ -214,7 +224,42 @@ void thtp_send(chan_t c, packet_t req)
     len-=space;
   }
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+-- generate an outgoing request, send the response attached to the note
+thtp_req :: TxTelex -> TeleHash (Maybe TChan)
+thtp_req note = do
+  let method = packet_get_str note "method"
+      path   = packet_get_str note "path"
+      muri   = packet_get_str note "uri"
+
+  logT $ "thtp_req:(method,path,uri)=" ++ show (method,path,muri)
+  to <- if isJust muri && isPrefixOf "thtp://" (fromJust muri)
+          then assert False undefined
+          else return (tTo note)
+  req <- case packet_linked note of
+    Just r -> return r
+    Nothing -> do
+      let r1 = packet_chain note
+          r2 = packet_set_str r1 "path" (fromMaybe "/" path)
+          r3 = packet_set_str r2 "method" (fromMaybe "get" method)
+      return r3
+
+  logT $ "thtp req " ++ show req
+
+  -- open channel and send req
+  c <- chan_new to "thtp" Nothing
+  let c2 = c {cArg = CArgTx (packet_link Nothing note) }
+      c3 = c2 { chHandler = Just ext_thtp } -- shortcut
+  putChan c3
+  chan_reliable c3 10
+  thtp_send c3 req
+  c4 <- getChan (chUid c3)
+  return (Just c4)
+
+{-
 // generate an outgoing request, send the response attached to the note
 chan_t thtp_req(switch_t s, packet_t note)
 {
@@ -253,7 +298,14 @@ chan_t thtp_req(switch_t s, packet_t note)
 
   return c;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+ext_thtp :: ChannelId -> TeleHash ()
+ext_thtp c = do
+  assert False undefined
+{-
 void ext_thtp(chan_t c)
 {
   packet_t p, buf, req, match, note;

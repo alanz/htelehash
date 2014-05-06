@@ -371,7 +371,7 @@ switch_send p = do
           putHN $ hc { hCrypto = Just crypto1 }
           case mlined of
             Just lined -> do
-              switch_sendingQ $ p2 { tChain = Just lined}
+              switch_sendingQ $ p2 { tLp = Just lined}
             Nothing -> do
               -- queue most recent packet to be sent after opened
               hc2 <- getHN (tTo p2)
@@ -449,7 +449,7 @@ switch_open hn direct = do
               logT $ "switch_open: could not openize, discarding"
               return ()
             Just open -> do
-              switch_sendingQ $ inner3 { tChain = Just open }
+              switch_sendingQ $ inner3 { tLp = Just open }
 
 {-
 // tries to send an open if we haven't
@@ -684,7 +684,7 @@ chan_new toHn typ mcid = do
               , chIn       = []
               , chNotes    = []
               , chHandler  = Nothing
-              , cArg       = Nothing
+              , cArg       = CArgNone
               }
   withHN toHn (\hc -> hc { hChans = Map.insert cid chan (hChans hc) })
 

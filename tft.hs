@@ -1,9 +1,12 @@
+{-# LANGUAGE MultiWayIf #-}
 
 -- based on tft.c in telehash-c
 
 import Control.Concurrent
 import Control.Exception
 import Control.Monad.State
+import Data.List
+import Network.Socket
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
@@ -28,24 +31,67 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
 
+-- ---------------------------------------------------------------------
+
+data Input = IConsole String | IUdp BC.ByteString SockAddr
+           deriving (Show)
+
+-- ---------------------------------------------------------------------
+
+-- TODO: use System.Console.ReadLine for this
+readConsole :: (Chan Input) -> IO ()
+readConsole ch = forever $ do
+  s <- getLine
+  putStrLn $ "readConsole: putting [" ++ s ++ "]"
+  writeChan ch (IConsole s)
+
+logg :: String -> String -> IO ()
+logg nick str = do
+  if str /= ""
+    then putStrLn $ str
+    else return ()
+  putStr $ nick ++ "> "
+
+{-
+char nick[16];
+void logg(char * format, ...)
+{
+    char buffer[1024];
+    va_list args;
+    va_start (args, format);
+    vsnprintf (buffer, 1024, format, args);
+    if(strlen(buffer))
+    {
+      printf("\n%s\n%s> ", buffer, nick);
+    }else{
+      printf("%s> ",nick);
+    }
+    va_end (args);
+}
+
+-}
+
+recvUdpMsg :: (Chan Input) -> Socket -> IO ()
+recvUdpMsg ch sock = forever $ do
+  (msg,rinfo) <- (SB.recvFrom sock 1000)
+  writeChan ch (IUdp msg rinfo)
+
+-- ---------------------------------------------------------------------
 
 main = do
   s <- streamHandler stdout DEBUG
   updateGlobalLogger rootLoggerName (setHandlers [s])
 
-  sock <- openSocketIPv4
+  sock <- util_server 0 100
 
   -- (ch1,ch2,thread) <- startSwitchThread
-  runApp (Just $ SocketHandle sock) app
+  runApp (Just $ SocketHandle sock)  app
 
   threadDelay 3000000
 
 
 app :: TeleHash ()
 app = do
-  sw <- get
-  let (SocketHandle sock) = gfromJust "app" $ swH sw
-
   crypt_init
 
   switch_init testId
@@ -60,13 +106,19 @@ app = do
       p2 = packet_set_int p1 "status" 200
       p3 = packet_body p2 (BC.pack "bar\n")
       note = packet_new (HN "null")
-      note2 = packet_link note p3
+      note2 = packet_link (Just note) p3
   thtp_path "/foo" note2
 
   util_loadjson
-  sock <- io $ util_server 0 100
 
   sw <- get
+  let (Just (SocketHandle sock)) = swH sw
+  logT $ "about to launch threads"
+  chInput <- io newChan
+  threadConsole <- io $ forkIO (readConsole chInput)
+  threadUdp     <- io $ forkIO (recvUdpMsg chInput sock)
+  logT $ "threads launched"
+
   logT $ "loaded hashname " ++ show (swId sw)
 
   -- new chat, must be after-init
@@ -89,16 +141,11 @@ app = do
 
   util_sendall sock
 
-  let inPath = PNone
-  let loop = do
-        void $ util_readone sock inPath
-        switch_loop
-        rx_loop
-        util_sendall sock
-        logT $ "Check for and process stdin"
-        loop
+  -- create an admin channel for notes
+  admin <- chan_new (swId sw) ".admin" Nothing
 
-      rx_loop = do
+
+  let rx_loop = do
         mc <- switch_pop
         case mc of
           Nothing -> return ()
@@ -119,8 +166,68 @@ app = do
               else return ()
             rx_loop
 
-  -- Start the loop going
-  loop
+  let inPath = PNone
+  logT $ "about to enter forever loop"
+  forever $ do
+    logT $ "top of forever loop"
+    inp <- io $ readChan chInput
+    case inp of
+      IUdp msg rinfo -> do
+        recvTelex msg rinfo
+      IConsole l -> do
+        logT $ "console gave:" ++ l
+        if | isPrefixOf "/quit" l -> do
+              io $ killThread threadConsole
+              io $ killThread threadUdp
+              me <- io $ myThreadId
+              io $ killThread me
+
+           | isPrefixOf "/nick " l -> do
+              mp <- chat_message chat
+              case mp of
+                Just p -> do
+                  let nick = (drop (length ("/nick ")) l)
+                  let p2 = packet_set_str p "text" nick
+                  void $ chat_join chat p2
+                  io $ logg nick ""
+                Nothing -> return ()
+
+           | isPrefixOf "/get " l -> do
+              io $ logg nick ("get " ++ drop 5 l)
+              p <- chan_note admin Nothing
+              let p2 = rxTelexToTxTelex p (swId sw)
+              let p3 = packet_set_str p2 "uri" (drop 5 l)
+              void $ thtp_req p3
+
+           | isPrefixOf "/chat " l -> do
+              chat_free chat
+              mchat <- chat_get (Just (drop 6 l))
+              case mchat of
+                Nothing -> return ()
+                Just chat2 -> do
+                  putChat chat2
+                  mp <- chat_message chat2
+                  case mp of
+                    Nothing -> return ()
+                    Just p -> do
+                      let p2 = packet_set_str p "text" nick
+                      chat_join chat2 p2
+                      io $ logg nick ("joining chat " ++ show (ecId chat2,packet_get_str p2 "id", ecRHash chat2))
+
+           | otherwise -> do
+              -- default send as message
+              mp <- chat_message chat
+              case mp of
+                Nothing -> return ()
+                Just p -> do
+                  let p2 = packet_set_str p "text" l
+                  chat_send chat p2
+                  io $ logg nick ""
+
+
+    switch_loop
+    rx_loop
+    util_sendall sock
 
   assert False undefined
 

@@ -15,6 +15,7 @@ module Network.TeleHash.Types
   , RxTelex(..)
   , packet_new_rx
   , packet_new
+  , rxTelexToTxTelex
   , TeleHash
   , Switch(..)
   , Bucket(..)
@@ -27,6 +28,7 @@ module Network.TeleHash.Types
 
   -- * Channel related types
   , TChan(..)
+  , CArg(..)
   , ChannelId(..)
   , unChannelId
   , channelSlot
@@ -132,7 +134,8 @@ data TxTelex = TxTelex
       , tOut    :: !PathJson
       , tJs     :: !(HM.HashMap Text.Text Aeson.Value)
       , tPacket :: !Packet
-      , tChain  :: !(Maybe LinePacket)
+      , tChain  :: !(Maybe TxTelex)
+      , tLp     :: !(Maybe LinePacket)
       } deriving Show
 
 packet_new_rx :: RxTelex
@@ -155,6 +158,16 @@ packet_new to =
     , tJs = HM.empty
     , tPacket = newPacket
     , tChain = Nothing
+    , tLp    = Nothing
+    }
+
+rxTelexToTxTelex :: RxTelex -> HashName -> TxTelex
+rxTelexToTxTelex rx hn
+ = (packet_new hn)
+    { tId = 0
+    , tOut = rtSender rx
+    , tJs = rtJs rx
+    , tPacket = rtPacket rx
     }
 
 
@@ -367,6 +380,9 @@ data ChannelState = ChanStarting | ChanOpen | ChanEnding | ChanEnded
 
 type ChannelHandler = (ChannelId -> TeleHash ())
 
+data CArg = CArgNone | CArgTx TxTelex | CArgChatR ChatR
+          deriving (Show)
+
 instance Show ChannelHandler where
   show _ = "ChannelHandler"
 
@@ -382,7 +398,7 @@ data TChan = TChan
   , chIn       :: ![RxTelex] -- queue of incoming messages
   , chNotes    :: ![RxTelex]
   , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
-  , cArg       :: !(Maybe ChatR)
+  , cArg       :: !CArg
   } deriving (Show)
 
 {-
@@ -577,12 +593,12 @@ data Chat = Chat
      , ecId     :: !ChatId
      , ecIdHash :: !Murmur.Hash
      , ecOrigin :: !HashName
-     , ecHub    :: !ChannelId
+     , ecHub    :: !Uid -- hub channel
      , ecRHash  :: !Murmur.Hash
      , ecLocal  :: !Bool
      , ecSeed   :: !Word32
      , ecSeq    :: !Word16
-     , ecRoster :: !(Map.Map String String)
+     , ecRoster :: !(Map.Map String String) -- name (possibly hashname) to id
      , ecConn   :: !(Map.Map String Uid) -- For channels
      , ecLog    :: !(Map.Map String TxTelex)
      , ecMsgs   :: !(Maybe TxTelex)

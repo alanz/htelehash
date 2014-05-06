@@ -413,7 +413,7 @@ sendAll = do
   case mp of
     Nothing -> return ()
     Just p -> do
-      case tChain p of
+      case tLp p of
         Nothing -> do
           assert False undefined
         Just lp -> do
