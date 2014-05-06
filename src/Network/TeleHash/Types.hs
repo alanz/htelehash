@@ -34,6 +34,7 @@ module Network.TeleHash.Types
   , channelSlot
   , ChannelHandler
   , ChannelState(..)
+  , Seq(..)
   , Crypto(..)
   , Crypt1a(..)
   , PublicKey(..)
@@ -391,7 +392,7 @@ data TChan = TChan
   , chUid      :: !Uid -- Switch wide unique Id. pk.
   , chTo       :: !HashName
   , chType     :: !String
-  , chReliable :: !Bool
+  , chReliable :: !Int
   , chState    :: !ChannelState
   , chLast     :: !(Maybe PathJson)
   , chNext     :: !(Maybe ChannelId)
@@ -399,6 +400,7 @@ data TChan = TChan
   , chNotes    :: ![RxTelex]
   , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
   , cArg       :: !CArg
+  , cSeq       :: !(Maybe Seq)
   } deriving (Show)
 
 {-
@@ -421,6 +423,21 @@ typedef struct chan_struct
 
 -}
 
+data Seq = Seq
+  { seId     :: !Int
+  , seNextIn :: !Int
+  , seSeen   :: !Int
+  , seAcked  :: !Int
+  , seIn     :: ![RxTelex] -- Fifo type later
+  } deriving Show
+
+{-
+typedef struct seq_struct
+{
+  uint32_t id, nextin, seen, acked;
+  packet_t *in;
+} *seq_t;
+-}
 
 -- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)
 data ChannelId = CID Int deriving (Eq,Show,Ord)

@@ -677,7 +677,7 @@ chan_new toHn typ mcid = do
               , chUid      = uid
               , chTo       = toHn
               , chType     = typ
-              , chReliable = False
+              , chReliable = 0
               , chState    = ChanStarting
               , chLast     = Nothing
               , chNext     = Nothing
@@ -685,6 +685,7 @@ chan_new toHn typ mcid = do
               , chNotes    = []
               , chHandler  = Nothing
               , cArg       = CArgNone
+              , cSeq       = Nothing
               }
   withHN toHn (\hc -> hc { hChans = Map.insert cid chan (hChans hc) })
 
@@ -737,7 +738,7 @@ chan_free chan = do
   rmChanFromHn (chTo chan) (chId chan)
   rmChan (chUid chan)
 
-  if (chReliable chan)
+  if (chReliable chan /= 0)
     then do
       chan_seq_free chan
       chan_miss_free chan
@@ -794,7 +795,26 @@ void chan_free(chan_t c)
 chan_t chan_reliable(chan_t c, int window);
 -}
 chan_reliable :: TChan -> Int -> TeleHash TChan
-chan_reliable = assert False undefined
+chan_reliable c window = do
+  if window == 0 || chState c /= ChanStarting || chReliable c /= 0
+    then return c
+    else do
+      let c2 = c { chReliable = window }
+      putChan c2
+      chan_seq_init c2
+      chan_miss_init c2
+      return c2
+
+{-
+chan_t chan_reliable(chan_t c, int window)
+{
+  if(!c || !window || c->state != CHAN_STARTING || c->reliable) return c;
+  c->reliable = window;
+  chan_seq_init(c);
+  chan_miss_init(c);
+  return c;
+}
+-}
 
 -- ---------------------------------------------------------------------
 
@@ -890,7 +910,7 @@ chan_packet chan = do
   if chState chan == ChanEnded
     then return Nothing
     else do
-      mp <- if chReliable chan
+      mp <- if chReliable chan /= 0
               then chan_seq_packet chan
               else return $ Just (packet_new (chTo chan))
       case mp of
@@ -941,7 +961,7 @@ packet_t chan_pop(chan_t c);
 chan_pop :: Uid -> TeleHash (Maybe RxTelex)
 chan_pop chanUid = do
   chan <- getChan chanUid
-  if (chReliable chan)
+  if (chReliable chan /= 0)
     then chan_seq_pop chan
     else do
       if null (chIn chan)
@@ -1124,7 +1144,7 @@ chan_receive c p = do
                Nothing -> c3
                Just _  -> c3 {chState = ChanEnding }
       putChan c4
-      if (chReliable c4)
+      if (chReliable c4 /= 0)
         then do
           chan_miss_check c4 p
           r <- chan_seq_receive c4 p
@@ -1175,7 +1195,7 @@ void chan_receive(chan_t c, packet_t p)
 chan_send :: TChan -> TxTelex -> TeleHash ()
 chan_send c p = do
   logT $ "channel out " ++ show (chId c,p)
-  p2 <- if chReliable c
+  p2 <- if chReliable c /= 0
           then do
             p' <- packet_copy p
             return p'
@@ -1199,7 +1219,7 @@ void chan_send(chan_t c, packet_t p)
 -- |optionally sends reliable channel ack-only if needed
 chan_ack :: TChan -> TeleHash ()
 chan_ack c = do
-  if not (chReliable c)
+  if not (chReliable c /= 0)
     then return ()
     else do
       mp <- chan_seq_ack c Nothing
@@ -1335,8 +1355,30 @@ chan_seq_pop :: TChan -> TeleHash (Maybe RxTelex)
 chan_seq_pop = assert False undefined
 
 -- ---------------------------------------------------------------------
+
+chan_seq_init :: TChan -> TeleHash ()
+chan_seq_init c = do
+  let seqVal = Seq
+             { seId     = 0
+             , seNextIn = 0
+             , seSeen   = 0
+             , seAcked  = 0
+             , seIn     = []
+             }
+      c2 = c { cSeq = Just seqVal }
+  putChan c2
+
 {-
-void chan_seq_init(chan_t c);
+void chan_seq_init(chan_t c)
+{
+  seq_t s = malloc(sizeof (struct seq_struct));
+  memset(s,0,sizeof (struct seq_struct));
+  s->in = malloc(sizeof (packet_t) * c->reliable);
+  memset(s->in,0,sizeof (packet_t) * c->reliable);
+  c->seq = (void*)s;
+}
+
+
 -}
 
 -- ---------------------------------------------------------------------
@@ -1364,9 +1406,23 @@ chan_miss_check :: TChan -> RxTelex -> TeleHash ()
 chan_miss_check = assert False undefined
 
 -- ---------------------------------------------------------------------
+
+chan_miss_init :: TChan -> TeleHash ()
+chan_miss_init c = do
+  assert False undefined
+
 {-
 void chan_miss_init(chan_t c);
+void chan_miss_init(chan_t c)
+{
+  miss_t m = (miss_t)malloc(sizeof (struct miss_struct));
+  memset(m,0,sizeof (struct miss_struct));
+  m->out = (packet_t*)malloc(sizeof (packet_t) * c->reliable);
+  memset(m->out,0,sizeof (packet_t) * c->reliable);
+  c->miss = (void*)m;
+}
 -}
+
 
 -- ---------------------------------------------------------------------
 {-
