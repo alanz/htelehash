@@ -18,7 +18,7 @@ module Network.TeleHash.Packet
   , fromLinePacket
 
   -- debug
-  , p1, p2
+  -- , p1, p2
   , myencode
   ) where
 
@@ -197,7 +197,6 @@ fromNetworkPacket (LP bs) = Just $ decode (cbsTolbs bs)
 -- ---------------------------------------------------------------------
 
 toLinePacket :: Packet -> LinePacket
--- toLinePacket p = LP $ encode p
 toLinePacket (Packet h (Body b)) = LP $ BC.append (myencode h) b
 
 myencode :: Head -> BC.ByteString

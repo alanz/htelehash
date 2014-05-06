@@ -35,6 +35,7 @@ module Network.TeleHash.Types
   , ChannelHandler
   , ChannelState(..)
   , Seq(..)
+  , Miss(..)
   , Crypto(..)
   , Crypt1a(..)
   , PublicKey(..)
@@ -399,8 +400,9 @@ data TChan = TChan
   , chIn       :: ![RxTelex] -- queue of incoming messages
   , chNotes    :: ![RxTelex]
   , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
-  , cArg       :: !CArg
-  , cSeq       :: !(Maybe Seq)
+  , chArg       :: !CArg
+  , chSeq       :: !(Maybe Seq)
+  , chMiss     :: !(Maybe Miss)
   } deriving (Show)
 
 {-
@@ -437,6 +439,18 @@ typedef struct seq_struct
   uint32_t id, nextin, seen, acked;
   packet_t *in;
 } *seq_t;
+-}
+
+data Miss = Miss
+  { mNextAck :: !Int
+  , mOut     :: ![TxTelex]
+  } deriving Show
+{-
+typedef struct miss_struct
+{
+  uint32_t nextack;
+  packet_t *out;
+} *miss_t;
 -}
 
 -- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)

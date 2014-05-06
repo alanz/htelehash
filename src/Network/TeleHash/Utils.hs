@@ -13,6 +13,9 @@ module Network.TeleHash.Utils
   , packet_chain
   , packet_cmp
   , packet_linked
+  , packet_raw
+  , telexToPacket
+  , packet_space
 
   -- * Channels
   , putChan
@@ -261,6 +264,47 @@ packet_t packet_linked(packet_t parent)
   return parent->chain;
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+packet_raw :: TxTelex -> TeleHash LinePacket
+packet_raw tx = do
+  p <- telexToPacket tx
+  return $ toLinePacket (tPacket p)
+
+-- ---------------------------------------------------------------------
+
+telexToPacket :: TxTelex -> TeleHash TxTelex
+telexToPacket telex = do
+  case (HM.toList $ tJs telex) of
+    [] -> return $ telex
+    _js -> do
+      logT $ "telexToPacket: encoded js=" ++ (BC.unpack $ lbsTocbs $ encode (tJs telex))
+      let packet = (tPacket telex) { paHead = HeadJson (lbsTocbs $ encode (tJs telex)) }
+      return $ telex { tPacket = packet}
+
+-- ---------------------------------------------------------------------
+
+packet_space :: TxTelex -> TeleHash Int
+packet_space p = do
+  raw <- packet_raw p
+  let len = BC.length $ unLP raw
+  if len > 1440
+    then return 0
+    else return (1440 - len)
+
+{-
+unsigned short packet_space(packet_t p)
+{
+  unsigned short len;
+  if(!p) return 0;
+  len = 2+p->json_len+p->body_len;
+  if(len > 1440) return 0;
+  return 1440-len;
+}
+
+-}
+
 -- ---------------------------------------------------------------------
 -- Channels
 

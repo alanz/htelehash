@@ -405,17 +405,6 @@ void switch_send(switch_t s, packet_t p)
 
 -- ---------------------------------------------------------------------
 
-telexToPacket :: TxTelex -> TeleHash TxTelex
-telexToPacket telex = do
-  case (HM.toList $ tJs telex) of
-    [] -> return $ telex
-    _js -> do
-      logT $ "telexToPacket: encoded js=" ++ (BC.unpack $ lbsTocbs $ encode (tJs telex))
-      let packet = (tPacket telex) { paHead = HeadJson (lbsTocbs $ encode (tJs telex)) }
-      return $ telex { tPacket = packet}
-
--- ---------------------------------------------------------------------
-
 switch_open :: HashName -> Maybe Path -> TeleHash ()
 switch_open hn direct = do
   hc <- getHN hn
@@ -684,8 +673,9 @@ chan_new toHn typ mcid = do
               , chIn       = []
               , chNotes    = []
               , chHandler  = Nothing
-              , cArg       = CArgNone
-              , cSeq       = Nothing
+              , chArg       = CArgNone
+              , chSeq       = Nothing
+              , chMiss     = Nothing
               }
   withHN toHn (\hc -> hc { hChans = Map.insert cid chan (hChans hc) })
 
@@ -1365,7 +1355,7 @@ chan_seq_init c = do
              , seAcked  = 0
              , seIn     = []
              }
-      c2 = c { cSeq = Just seqVal }
+      c2 = c { chSeq = Just seqVal }
   putChan c2
 
 {-
@@ -1409,7 +1399,11 @@ chan_miss_check = assert False undefined
 
 chan_miss_init :: TChan -> TeleHash ()
 chan_miss_init c = do
-  assert False undefined
+  let miss = Miss { mNextAck = 0
+                  , mOut = []
+                  }
+      c2 = c {chMiss = Just miss }
+  putChan c2
 
 {-
 void chan_miss_init(chan_t c);

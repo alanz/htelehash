@@ -199,7 +199,36 @@ packet_t _thtp_glob(thtp_t t, char *p1)
 -- chunk the packet out
 thtp_send :: TChan -> TxTelex -> TeleHash ()
 thtp_send c req = do
-  assert False undefined
+  logT $ "thtp_send:sending " ++ showJson (tJs req)
+  lpraw <- packet_raw req
+  let LP raw = lpraw
+
+  -- send until everything is done
+
+  let
+    sendChunks toSend = do
+      mchunk <- chan_packet c
+      case mchunk of
+        Nothing -> return () -- TODO: back pressure
+        Just chunk -> do
+          space <- packet_space chunk
+          let len = BC.length toSend
+          let space2 = if space > len
+                         then len
+                         else space
+          let chunk2 = packet_body chunk (BC.take space2 toSend)
+              rest = BC.drop space2 toSend
+              restLen = BC.length rest
+              chunk3 = if restLen > 0
+                         then chunk2
+                         else packet_set chunk2 "end" True
+          chan_send c chunk3
+          if restLen > 0
+            then sendChunks rest
+            else return ()
+  sendChunks raw
+
+
 {-
 // chunk the packet out
 void thtp_send(chan_t c, packet_t req)
@@ -251,7 +280,7 @@ thtp_req note = do
 
   -- open channel and send req
   c <- chan_new to "thtp" Nothing
-  let c2 = c {cArg = CArgTx (packet_link Nothing note) }
+  let c2 = c {chArg = CArgTx (packet_link Nothing note) }
       c3 = c2 { chHandler = Just ext_thtp } -- shortcut
   putChan c3
   chan_reliable c3 10

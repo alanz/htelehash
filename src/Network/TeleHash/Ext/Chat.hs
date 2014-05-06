@@ -293,7 +293,7 @@ chat_get mid = do
                 }
           -- an admin channel for distribution and thtp requests
           let chatr = chatr_new chat
-          let hub = hubc { cArg = CArgChatR chatr }
+          let hub = hubc { chArg = CArgChatR chatr }
           note <- chan_note hub Nothing
           let note2 = packet_set_str note "glob" ("/chat/" ++ (show $ ecIdHash chat) ++ "/")
           logT $ "chat,glob:" ++ show (ecId chat,packet_get_str note2 "glob")
@@ -504,7 +504,7 @@ chat_restate cid hn = do
           state4 <- case Map.lookup hn (ecConn chat) of
             Just uid -> do
               c <- getChan uid
-              case cArg c of
+              case chArg c of
                 CArgChatR r -> do
                   if ecrOnline r
                     then do
@@ -594,7 +594,7 @@ chat_sync cid = do
         case Map.lookup part (ecConn chat) of
           Just uid -> do
             c <- getChan uid
-            let mr = cArg c
+            let mr = chArg c
             case mr of
               CArgChatR r -> do
                 if ecrJoined r == joined
@@ -761,7 +761,7 @@ chat_send chatIn msg = do
       Nothing -> return ()
       Just cuid -> do
         c <- getChan cuid
-        case (cArg c) of
+        case (chArg c) of
           CArgChatR r -> do
             if (not (ecrJoined r) || not (ecrOnline r))
               then return ()
