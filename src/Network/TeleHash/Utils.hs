@@ -127,6 +127,7 @@ import qualified System.Random as R
 class PacketApi a where
   packet_set_str :: a -> String -> String -> a
   packet_get_str :: a -> String -> Maybe String
+  packet_get_str_always :: a -> String -> String
   packet_set :: (Aeson.ToJSON b) => a -> String -> b -> a
   packet_get :: a -> String -> Maybe Aeson.Value
   packet_has_key :: a -> String -> Bool
@@ -140,6 +141,8 @@ instance PacketApi TxTelex where
         Nothing -> Nothing
         Just (Aeson.String s) -> Just (Text.unpack s)
         Just v -> Just (show v)
+
+  packet_get_str_always p key = fromMaybe "" $ packet_get_str p key
 
   packet_set p key val
     = p { tJs = HM.insert (Text.pack key) (toJSON val) (tJs p) }
@@ -157,6 +160,8 @@ instance PacketApi RxTelex where
         Nothing -> Nothing
         Just (Aeson.String s) -> Just (Text.unpack s)
         Just v -> Just (show v)
+
+  packet_get_str_always p key = fromMaybe "" $ packet_get_str p key
 
   packet_set p key val
     = p { rtJs = HM.insert (Text.pack key) (toJSON val) (rtJs p) }

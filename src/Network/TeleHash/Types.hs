@@ -632,7 +632,7 @@ data Chat = Chat
      , ecRoster :: !(Map.Map String String) -- name (possibly hashname) to id
      , ecConn   :: !(Map.Map String Uid) -- For channels
      , ecLog    :: !(Map.Map String TxTelex)
-     , ecMsgs   :: !(Maybe TxTelex)
+     , ecMsgs   :: ![TxTelex]
      , ecJoin   :: !(Maybe String)
      , ecSent   :: !(Maybe String)
      , ecAfter  :: !(Maybe String)

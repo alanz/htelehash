@@ -177,9 +177,9 @@ switch_receive rxPacket path timeNow = do
 
     LinePacket pbody -> do
       -- its a line
-      logT $ "receive:got line msg"
+      -- logT $ "receive:got line msg"
       let lineID = BC.unpack $ B16.encode $ BC.take 16 pbody
-      logT $ "receive:lineID=" ++ lineID
+      -- logT $ "receive:lineID=" ++ lineID
       mfrom <- getHexLineMaybe lineID
       case mfrom of
         Nothing -> do
@@ -1119,7 +1119,7 @@ int chan_reply(chan_t c, packet_t note)
 -- |internal, receives/processes incoming packet
 chan_receive :: TChan -> RxTelex -> TeleHash ()
 chan_receive c p = do
-  logT $ "channel in " ++ show (chId c,p)
+  -- logT $ "channel in " ++ show (chId c,p)
   if chState c == ChanEnded
     then return ()
     else do

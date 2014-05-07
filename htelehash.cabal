@@ -75,6 +75,7 @@ Library
                        Network.TeleHash.Ext.Connect
                        Network.TeleHash.Ext.Link
                        Network.TeleHash.Ext.Path
+                       Network.TeleHash.Ext.Peer
                        Network.TeleHash.Ext.Seek
                        Network.TeleHash.Ext.Thtp
                        Network.TeleHash.Hn

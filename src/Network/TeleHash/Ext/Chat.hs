@@ -1,11 +1,15 @@
 module Network.TeleHash.Ext.Chat
   (
-    chat_get
+    ext_chat
+  , chat_get
   , chat_add
   , chat_message
   , chat_join
   , chat_free
   , chat_send
+  , chat_pop
+  , chat_pop_all
+  , chat_participant
 
   -- * persisting
   , getChat
@@ -283,7 +287,7 @@ chat_get mid = do
                 , ecRoster = Map.empty
                 , ecConn   = Map.empty
                 , ecLog    = Map.empty
-                , ecMsgs   = Nothing
+                , ecMsgs   = []
                 , ecJoin   = Nothing
                 , ecSent   = Nothing
                 , ecAfter  = Nothing
@@ -460,7 +464,30 @@ void chat_push(chat_t chat, packet_t msg)
   while(prev->next) prev = prev->next;
   prev->next = msg;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+chat_pop_all :: Chat -> TeleHash [TxTelex]
+chat_pop_all chatIn = do
+  chat <- getChat (ecId chatIn)
+  let msgs = ecMsgs chat
+  putChat $ chat { ecMsgs = [] }
+  return msgs
+
+-- ---------------------------------------------------------------------
+
+chat_pop :: Chat -> TeleHash (Maybe TxTelex)
+chat_pop chatIn = do
+  chat <- getChat (ecId chatIn)
+  if null (ecMsgs chat)
+    then return Nothing
+    else do
+      let p = head (ecMsgs chat)
+      putChat $ chat { ecMsgs = tail (ecMsgs chat) }
+      return (Just p)
+
+{-
 packet_t chat_pop(chat_t chat)
 {
   packet_t msg;
@@ -910,7 +937,13 @@ chat_t chat_hub(chat_t chat)
 
   return chat->msgs ? chat : NULL;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+ext_chat = assert False undefined
+
+{-
 chat_t ext_chat(chan_t c)
 {
   packet_t p, msg;
@@ -978,16 +1011,16 @@ chat_t ext_chat(chan_t c)
       if(msg)
       {
         packet_set_str(msg,"from",c->to->hexname);
-        chat_push(r->chat,msg);        
+        chat_push(r->chat,msg);
       }
       packet_body(r->in,NULL,0);
     }
     packet_free(p);
   }
-  
+
   // optionally sends ack if needed
   chan_ack(c);
-  
+
   if(c->state == CHAN_ENDING || c->state == CHAN_ENDED)
   {
     // if it's this channel in the index, zap it
@@ -998,13 +1031,24 @@ chat_t ext_chat(chan_t c)
 
   return r->chat->msgs ? r->chat : NULL;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+chat_participant :: Chat -> String -> TeleHash (Maybe RxTelex)
+chat_participant chat hn = do
+  assert False undefined
+{-
 packet_t chat_participant(chat_t chat, char *hn)
 {
   if(!chat) return NULL;
   return xht_get(chat->log,hn);
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+{-
 packet_t chat_iparticipant(chat_t chat, int index)
 {
   if(!chat) return NULL;

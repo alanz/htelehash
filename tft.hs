@@ -15,6 +15,7 @@ import Network.TeleHash.Bucket
 import Network.TeleHash.Ext.Chat
 import Network.TeleHash.Ext.Connect
 import Network.TeleHash.Ext.Link
+import Network.TeleHash.Ext.Peer
 import Network.TeleHash.Ext.Seek
 import Network.TeleHash.Ext.Thtp
 import Network.TeleHash.Ext.Path
@@ -154,16 +155,40 @@ app = do
             logT $ "TODO: put in internal testing stuff"
 
             logT $ "channel active " ++ show (chState c,chUid c,chTo c)
-            case chType c of
-              "link" -> ext_link c
-              "path" -> ext_path c
-              "connect" -> ext_connect c
-              typ -> do
-                logT $ "not processing channel type:" ++ typ
-                util_chan_popall c Nothing
-            if chState c == ChanEnded
-              then chan_free c
-              else return ()
+            case chHandler c of
+              Just h -> h (chId c)
+              Nothing -> do
+                case chType c of
+                  "connect" -> ext_connect c
+                  "thtp"    -> ext_thtp (chId c)
+                  "link"    -> ext_link c
+                  "seek"    -> ext_link c -- is this correct?
+                  "path"    -> ext_path c
+                  "peer"    -> ext_peer c
+                  "chat"    -> do
+                    ext_chat c
+                    msgs <-chat_pop_all chat
+                    forM_ msgs $ \p -> do
+                      logT $ "processing chat msg:" ++ show p
+
+                      if (packet_get_str_always p "type") == "state"
+                        then io $ logg nick (packet_get_str_always p "text" ++ " joined")
+                        else return ()
+
+                      if (packet_get_str_always p "type") == "chat"
+                        then do
+                          mparticipant <- chat_participant chat (packet_get_str_always p "from")
+                          let participant = gfromJust "tft" mparticipant
+                          io $ logg nick ((packet_get_str_always participant "text")
+                                          ++ "> " ++ (packet_get_str_always p "text"))
+                        else return ()
+
+                  typ -> do
+                    logT $ "not processing channel type:" ++ typ
+                    util_chan_popall c Nothing
+                if chState c == ChanEnded
+                  then chan_free c
+                  else return ()
             rx_loop
 
   let inPath = PNone
