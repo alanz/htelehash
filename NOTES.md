@@ -144,3 +144,25 @@ LINEIN {"end":true,"priority":2,"path":{"type":"ipv4","ip":"105.236.67.202","por
 
 
 -- -----------------------------------------------------------------------------------------
+
+tftp stuff
+----------
+
+Initial packet from telehash-c
+
+```
+chan_in:p=RxTelex
+{rtId = 0
+, rtSender = PIPv4 (PathIPv4 {v4Ip = 10.0.0.33, v4Port = 57158})
+, rtAt = Wed May  7 15:01:31 SAST 2014
+, rtJs = fromList
+  [("end", Bool True),
+   ("seq", Number 0.0),
+   ("c",   Number 1.0),
+   ("type",String "thtp")]
+, rtPacket = Packet
+  {paHead = HeadJson "{\"seq\":0,\"type\":\"thtp\",\"c\":1,\"end\":true}"
+ , paBody = Body "\NUL/{\"path\":\"/chat/56419861/roster\",\"method\":\"get\"}"}
+, rtChanId = Nothing}
+```
+

@@ -430,7 +430,7 @@ data Seq = Seq
   , seNextIn :: !Int
   , seSeen   :: !Int
   , seAcked  :: !Int
-  , seIn     :: ![RxTelex] -- Fifo type later
+  , seIn     :: !(Map.Map Int RxTelex) -- indexed by seq
   } deriving Show
 
 {-

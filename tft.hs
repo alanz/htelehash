@@ -148,6 +148,7 @@ app = do
 
   let rx_loop = do
         mc <- switch_pop
+        logT $ "rx_loop entered:mc=" ++ show mc
         case mc of
           Nothing -> return ()
           Just c -> do
@@ -156,8 +157,11 @@ app = do
 
             logT $ "channel active " ++ show (chState c,chUid c,chTo c)
             case chHandler c of
-              Just h -> h (chId c)
+              Just h -> do
+                logT $ "rx_loop:calling handler"
+                h (chId c)
               Nothing -> do
+                logT $ "rx_loop:chType=" ++ (chType c)
                 case chType c of
                   "connect" -> ext_connect c
                   "thtp"    -> ext_thtp (chId c)
@@ -189,6 +193,8 @@ app = do
                 if chState c == ChanEnded
                   then chan_free c
                   else return ()
+
+            util_chan_popall c Nothing
             rx_loop
 
   let inPath = PNone
@@ -196,6 +202,11 @@ app = do
   forever $ do
     logT $ "top of forever loop"
     inp <- io $ readChan chInput
+
+    switch_loop
+    rx_loop
+    util_sendall sock
+
     case inp of
       IUdp msg rinfo -> do
         recvTelex msg rinfo

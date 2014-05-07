@@ -4,7 +4,6 @@ module Network.TeleHash.Utils
   -- * telehash-c api
     PacketApi(..)
 
-  , packet_set_int
   , packet_copy
   , packet_get_packet
   , packet_from_val
@@ -128,8 +127,13 @@ class PacketApi a where
   packet_set_str :: a -> String -> String -> a
   packet_get_str :: a -> String -> Maybe String
   packet_get_str_always :: a -> String -> String
+
+  packet_set_int :: a -> String -> Int -> a
+  packet_get_int :: a -> String -> Maybe Int
+
   packet_set :: (Aeson.ToJSON b) => a -> String -> b -> a
   packet_get :: a -> String -> Maybe Aeson.Value
+
   packet_has_key :: a -> String -> Bool
 
 instance PacketApi TxTelex where
@@ -143,6 +147,17 @@ instance PacketApi TxTelex where
         Just v -> Just (show v)
 
   packet_get_str_always p key = fromMaybe "" $ packet_get_str p key
+
+
+  packet_set_int p key val
+   = p { tJs = HM.insert (Text.pack key) (toJSON val) (tJs p) }
+
+  packet_get_int p key =
+    case HM.lookup (Text.pack key) (tJs p) of
+      Nothing -> Nothing
+      Just (Aeson.Number v) -> Just (round v)
+
+
 
   packet_set p key val
     = p { tJs = HM.insert (Text.pack key) (toJSON val) (tJs p) }
@@ -163,17 +178,23 @@ instance PacketApi RxTelex where
 
   packet_get_str_always p key = fromMaybe "" $ packet_get_str p key
 
+
+  packet_set_int p key val
+   = p { rtJs = HM.insert (Text.pack key) (toJSON val) (rtJs p) }
+
+  packet_get_int p key =
+    case HM.lookup (Text.pack key) (rtJs p) of
+      Nothing -> Nothing
+      Just (Aeson.Number v) -> Just (round v)
+
+
+
   packet_set p key val
     = p { rtJs = HM.insert (Text.pack key) (toJSON val) (rtJs p) }
 
   packet_get p key = HM.lookup (Text.pack key) (rtJs p)
 
   packet_has_key p key = HM.member (Text.pack key) (rtJs p)
-
-packet_set_int :: TxTelex -> String -> Int -> TxTelex
-packet_set_int p key val
- = p { tJs = HM.insert (Text.pack key) (toJSON val) (tJs p) }
-
 
 packet_copy :: TxTelex -> TeleHash TxTelex
 packet_copy = assert False undefined
@@ -316,12 +337,14 @@ unsigned short packet_space(packet_t p)
 -- ---------------------------------------------------------------------
 
 queueChan :: TChan -> TeleHash ()
-queueChan chan = do
+queueChan chanIn = do
+  chan <- getChan (chUid chanIn)
   sw <- get
   put $ sw { swChans = Map.insert (chUid chan) chan (swChans sw)}
 
 -- ---------------------------------------------------------------------
 
+-- |remove from switch processing queue
 dequeueChan :: TChan -> TeleHash ()
 dequeueChan chan = do
   sw <- get

@@ -201,6 +201,8 @@ switch_receive rxPacket path timeNow = do
                 Just chan -> do
                   sw <- get
                   -- if new channel w/ seq, configure as reliable
+                  logT $ "switch_receive (chan,rx) :" ++ show (chan,rx)
+                  logT $ "switch_receive (chState,seq) :" ++ show (chState chan,packet_has_key rx "seq")
                   chan2 <- if (chState chan == ChanStarting && packet_has_key rx "seq")
                              then chan_reliable chan (swWindow sw)
                              else return chan
@@ -786,6 +788,7 @@ chan_t chan_reliable(chan_t c, int window);
 -}
 chan_reliable :: TChan -> Int -> TeleHash TChan
 chan_reliable c window = do
+  logT $ "chan_reliable (c,window):" ++ show (c,window)
   if window == 0 || chState c /= ChanStarting || chReliable c /= 0
     then return c
     else do
@@ -793,7 +796,8 @@ chan_reliable c window = do
       putChan c2
       chan_seq_init c2
       chan_miss_init c2
-      return c2
+      c3 <- getChan (chUid c2)
+      return c3
 
 {-
 chan_t chan_reliable(chan_t c, int window)
@@ -947,10 +951,10 @@ packet_t chan_packet(chan_t c)
 // pop a packet from this channel to be processed, caller must free
 packet_t chan_pop(chan_t c);
 -}
--- TODO: use channel uid, rather than direct
 chan_pop :: Uid -> TeleHash (Maybe RxTelex)
 chan_pop chanUid = do
   chan <- getChan chanUid
+  logT $ "chan_pop:(uid,id,chReliable)=" ++ show (chanUid,chId chan,chReliable chan)
   if (chReliable chan /= 0)
     then chan_seq_pop chan
     else do
@@ -1138,10 +1142,10 @@ chan_receive c p = do
         then do
           chan_miss_check c4 p
           r <- chan_seq_receive c4 p
-          if r
+          logT $ "chan_receive:chan_seq_receive returned " ++ show r
+          if not r
             then return () -- queued, nothing more to do
             else chan_queue c4
-          assert False undefined
         else do
           -- add to the end of the raw packet queue
           let c5 = c4 { chIn = (chIn c4) ++ [p]}
@@ -1305,7 +1309,7 @@ packet_t chan_seq_ack(chan_t c, packet_t p)
 
   // check if miss is not needed
   if(s->seen < s->nextin || s->in[0]) return p;
-  
+
   // create miss array, c sux
   max = (c->reliable < 10) ? c->reliable : 10;
   miss = malloc(3+(max*11)); // up to X uint32,'s
@@ -1328,13 +1332,64 @@ chan_seq_packet :: TChan -> TeleHash (Maybe TxTelex)
 chan_seq_packet = assert False undefined
 
 -- ---------------------------------------------------------------------
-{-
-// buffers packets until they're in order, 1 if some are ready to pop
-int chan_seq_receive(chan_t c, packet_t p);
--}
--- |buffers packets until they're in order, 1 if some are ready to pop
+
+-- |buffers packets until they're in order, returns True if some are ready to pop
 chan_seq_receive :: TChan -> RxTelex -> TeleHash Bool
-chan_seq_receive = assert False undefined
+chan_seq_receive cIn p = do
+  c <- getChan (chUid cIn)
+  logT $ "chan_seq_receive:" ++ show (c,p)
+  case chSeq c of
+    Nothing -> do
+      logT $ "chan_seq_receive: no chSeq struct for " ++ show (c,p)
+      return False
+    Just s -> do
+      -- drop or cache incoming packet
+      let mseq = packet_get_int p "seq"
+      let idVal = case mseq of
+                    Nothing -> 0
+                    Just v -> v
+          offset = idVal - (seNextIn s)
+      if mseq == Nothing || offset < 0 || offset >= chReliable c
+         || (Map.member offset (seIn s))
+        then do
+          logT $ "chan_seq_receive:nothing to do:" ++ show (mseq,offset,chReliable c,seIn s)
+          return False
+        else do
+          let -- track highest seen
+              seen = if idVal > seSeen s then idVal else seSeen s
+              s2 = s { seIn = Map.insert offset p (seIn s)
+                     , seSeen = seen
+                     }
+              c2 = c { chSeq = Just s2 }
+          putChan c2
+          return $ Map.member 0 (seIn s2)
+
+{-
+// buffers packets until they're in order
+int chan_seq_receive(chan_t c, packet_t p)
+{
+  int offset;
+  uint32_t id;
+  char *seq;
+  seq_t s = (seq_t)c->seq;
+
+  // drop or cache incoming packet
+  seq = packet_get_str(p,"seq");
+  id = seq?(uint32_t)strtol(seq,NULL,10):0;
+  offset = id - s->nextin;
+  if(!seq || offset < 0 || offset >= c->reliable || s->in[offset])
+  {
+    packet_free(p);
+  }else{
+    s->in[offset] = p;
+  }
+
+  // track highest seen
+  if(id > s->seen) s->seen = id;
+
+  return s->in[0] ? 1 : 0;
+}
+-}
 
 -- ---------------------------------------------------------------------
 {-
@@ -1347,13 +1402,14 @@ chan_seq_pop = assert False undefined
 -- ---------------------------------------------------------------------
 
 chan_seq_init :: TChan -> TeleHash ()
-chan_seq_init c = do
+chan_seq_init cIn = do
+  c <- getChan (chUid cIn)
   let seqVal = Seq
              { seId     = 0
              , seNextIn = 0
              , seSeen   = 0
              , seAcked  = 0
-             , seIn     = []
+             , seIn     = Map.empty
              }
       c2 = c { chSeq = Just seqVal }
   putChan c2
@@ -1387,18 +1443,74 @@ void chan_miss_send(chan_t c, packet_t p);
 -}
 
 -- ---------------------------------------------------------------------
-{-
-// looks at incoming miss/ack and resends or frees
-void chan_miss_check(chan_t c, packet_t p);
--}
+
 -- |looks at incoming miss/ack and resends or frees
 chan_miss_check :: TChan -> RxTelex -> TeleHash ()
-chan_miss_check = assert False undefined
+chan_miss_check cIn p = do
+  logT $ "chan_miss_check for " ++ show (cIn,p)
+  c <- getChan (chUid cIn)
+  let miss = packet_get_packet p "miss"
+  case chMiss c of
+    Nothing -> do
+      logT $ "chan_miss_check: no chMiss structure for " ++ show c
+    Just m -> do
+      case packet_get_int p "ack" of
+        Nothing -> do
+          logT $ "chan_miss_check: no ack field"
+          return () -- grow some
+        Just ack -> do
+          let offset = ack - (mNextAck m)
+          if offset < 0 || offset >= (chReliable c)
+            then do
+              logT $ "chan_miss_check:offset check:" ++ show (offset,chReliable c)
+              return ()
+            else do
+              -- free and shift up to the ack
+              assert False undefined
 
+{-
+// looks at incoming miss/ack and resends or frees
+void chan_miss_check(chan_t c, packet_t p)
+{
+  uint32_t ack;
+  int offset, i;
+  char *id, *sack;
+  packet_t miss = packet_get_packet(p,"miss");
+  miss_t m = (miss_t)c->miss;
+
+  sack = packet_get_str(p,"ack");
+  if(!sack) return; // grow some
+  ack = (uint32_t)strtol(sack, NULL, 10);
+  // bad data
+  offset = ack - m->nextack;
+  if(offset < 0 || offset >= c->reliable) return;
+
+  // free and shift up to the ack
+  while(m->nextack <= ack)
+  {
+    // TODO FIX, refactor check into two stages
+//    packet_free(m->out[0]);
+    memmove(m->out,m->out+1,(sizeof (packet_t)) * (c->reliable - 1));
+    m->out[c->reliable-1] = 0;
+    m->nextack++;
+  }
+
+  // track any miss packets if we have them and resend
+  if(!miss) return;
+  for(i=0;(id = packet_get_istr(miss,i));i++)
+  {
+    ack = (uint32_t)strtol(id,NULL,10);
+    offset = ack - m->nextack;
+    if(offset >= 0 && offset < c->reliable && m->out[offset]) switch_send(c->s,m->out[offset]);
+  }
+}
+
+-}
 -- ---------------------------------------------------------------------
 
 chan_miss_init :: TChan -> TeleHash ()
-chan_miss_init c = do
+chan_miss_init cIn = do
+  c <- getChan (chUid cIn)
   let miss = Miss { mNextAck = 0
                   , mOut = []
                   }
