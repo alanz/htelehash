@@ -18,6 +18,7 @@ module Network.TeleHash.SwitchApi
   , chan_in
   , chan_packet
   , chan_pop
+  , chan_pop_all
   , chan_end
   , chan_fail
   , chan_notes
@@ -978,8 +979,21 @@ packet_t chan_pop(chan_t c)
   if(!c->in) c->inend = NULL;
   return p;
 }
-
 -}
+
+-- ---------------------------------------------------------------------
+
+chan_pop_all :: Uid -> TeleHash [RxTelex]
+chan_pop_all uid = do
+  let
+    go acc = do
+      mrx <- chan_pop uid
+      case mrx of
+        Nothing -> return acc
+        Just rx -> go (acc ++ [rx])
+  msgs <- go []
+  return msgs
+
 -- ---------------------------------------------------------------------
 
 -- flags channel as gracefully ended, optionally adds end to packet
@@ -1392,13 +1406,44 @@ int chan_seq_receive(chan_t c, packet_t p)
 -}
 
 -- ---------------------------------------------------------------------
+
+-- |returns ordered packets for this channel, updates ack
+
+chan_seq_pop :: TChan -> TeleHash (Maybe RxTelex)
+chan_seq_pop cIn = do
+  c <- getChan (chUid cIn)
+  case chSeq c of
+    Nothing -> do
+      logT $ "chan_seq_pop:missing chSeq structure" ++ show c
+      return Nothing
+    Just s -> do
+      case Map.lookup 0 (seIn s) of
+        Nothing -> return Nothing
+        Just p -> do
+          -- pop off the first, slide any others back, and return
+          let inNew = Map.fromList $ map (\(k,v) -> (k - 1,v)) (Map.toList $ seIn s)
+              sNew = s { seNextIn = (seNextIn s) + 1
+                       , seIn = inNew
+                       }
+          putChan $ c { chSeq = Just sNew }
+          return (Just p)
+
 {-
 // returns ordered packets for this channel, updates ack
-packet_t chan_seq_pop(chan_t c);
--}
-chan_seq_pop :: TChan -> TeleHash (Maybe RxTelex)
-chan_seq_pop = assert False undefined
+packet_t chan_seq_pop(chan_t c)
+{
+  packet_t p;
+  seq_t s = (seq_t)c->seq;
+  if(!s->in[0]) return NULL;
+  // pop off the first, slide any others back, and return
+  p = s->in[0];
+  memmove(s->in, s->in+1, (sizeof (packet_t)) * (c->reliable - 1));
+  s->in[c->reliable-1] = 0;
+  s->nextin++;
+  return p;
+}
 
+-}
 -- ---------------------------------------------------------------------
 
 chan_seq_init :: TChan -> TeleHash ()

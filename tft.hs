@@ -159,12 +159,12 @@ app = do
             case chHandler c of
               Just h -> do
                 logT $ "rx_loop:calling handler"
-                h (chId c)
+                h (chUid c)
               Nothing -> do
                 logT $ "rx_loop:chType=" ++ (chType c)
                 case chType c of
                   "connect" -> ext_connect c
-                  "thtp"    -> ext_thtp (chId c)
+                  "thtp"    -> ext_thtp (chUid c)
                   "link"    -> ext_link c
                   "seek"    -> ext_link c -- is this correct?
                   "path"    -> ext_path c

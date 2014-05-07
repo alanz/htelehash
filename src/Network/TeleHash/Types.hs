@@ -380,9 +380,9 @@ typedef struct chan_struct
 data ChannelState = ChanStarting | ChanOpen | ChanEnding | ChanEnded
          deriving (Eq,Show)
 
-type ChannelHandler = (ChannelId -> TeleHash ())
+type ChannelHandler = (Uid -> TeleHash ())
 
-data CArg = CArgNone | CArgTx TxTelex | CArgChatR ChatR
+data CArg = CArgNone | CArgTx TxTelex | CArgRx RxTelex | CArgChatR ChatR
           deriving (Show)
 
 instance Show ChannelHandler where

@@ -9,12 +9,16 @@ module Network.TeleHash.Utils
   , packet_from_val
   , packet_body
   , packet_link
+  , packet_unlink
   , packet_chain
   , packet_cmp
   , packet_linked
   , packet_raw
   , telexToPacket
   , packet_space
+  , packet_append
+
+  , get_str_from_value
 
   -- * Channels
   , putChan
@@ -230,6 +234,21 @@ packet_t packet_link(packet_t parent, packet_t child)
 
 -- ---------------------------------------------------------------------
 
+packet_unlink :: RxTelex -> Maybe RxTelex
+packet_unlink parent = error $ "packet_unlink:parent=" ++ show parent
+
+{-
+packet_t packet_unlink(packet_t parent)
+{
+  packet_t child;
+  if(!parent) return NULL;
+  child = parent->chain;
+  parent->chain = NULL;
+  return child;
+}
+-}
+-- ---------------------------------------------------------------------
+
 packet_chain :: TxTelex -> TxTelex
 packet_chain p = r
   where
@@ -330,6 +349,39 @@ unsigned short packet_space(packet_t p)
 }
 
 -}
+
+-- ---------------------------------------------------------------------
+
+packet_append :: RxTelex -> BC.ByteString -> RxTelex
+packet_append p chunk = r
+  where
+    body = unBody $ paBody (rtPacket p)
+    packetNew = (rtPacket p) { paBody = Body (BC.append body chunk) }
+    r = p { rtPacket = packetNew }
+
+{-
+void packet_append(packet_t p, unsigned char *chunk, unsigned short len)
+{
+  void *ptr;
+  if(!p || !chunk || !len) return;
+  if(!(ptr = realloc(p->raw,2+len+p->body_len+p->json_len))) return;
+  p->raw = (unsigned char *)ptr;
+  p->json = p->raw+2;
+  p->body = p->raw+(2+p->json_len);
+  memcpy(p->body+p->body_len,chunk,len);
+  p->body_len += len;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+get_str_from_value :: String -> Aeson.Value -> Maybe String
+get_str_from_value k (Aeson.Object hm) =
+  case HM.lookup (Text.pack k) hm of
+    Nothing -> Nothing
+    Just (Aeson.String str) -> Just (Text.unpack str)
+    _ -> Nothing
+get_str_from_value _ _ = Nothing
 
 -- ---------------------------------------------------------------------
 -- Channels

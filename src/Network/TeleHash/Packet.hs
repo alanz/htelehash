@@ -10,6 +10,7 @@ module Network.TeleHash.Packet
   , bodyLen
   , packetLen
   , networkPacketLen
+  , packetJson
   , LinePacket(..)
   , unLP
   , toNetworkPacket
@@ -35,6 +36,7 @@ import Data.Binary.Get
 import Data.Binary.Put
 import Network.TeleHash.Convert
 
+import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
@@ -136,8 +138,15 @@ packetLen :: Packet -> Int
 packetLen p = headLen p + bodyLen p
 
 networkPacketLen :: NetworkPacket -> Int
-networkPacketLen (OpenPacket _ pb) = 3 + (BC.length pb)
-networkPacketLen (LinePacket   pb) = (BC.length pb)
+networkPacketLen (OpenPacket _ pb)  = 3 + (BC.length pb)
+networkPacketLen (LinePacket   pb)  = (BC.length pb)
+networkPacketLen (PingPongPacket p) = packetLen p
+
+packetJson :: Packet -> Maybe Aeson.Value
+packetJson p =
+  case paHead p of
+    HeadEmpty -> Nothing
+    HeadJson bs -> Aeson.decode (cbsTolbs bs)
 
 -- ---------------------------------------------------------------------
 
