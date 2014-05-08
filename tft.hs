@@ -6,6 +6,7 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad.State
 import Data.List
+import Data.Maybe
 import Network.Socket
 import System.IO
 import System.Log.Handler.Simple
@@ -147,6 +148,7 @@ app = do
 
 
   let rx_loop = do
+        logT $ "rx_loop entered"
         mc <- switch_pop
         logT $ "rx_loop entered:mc=" ++ show mc
         case mc of
@@ -156,10 +158,12 @@ app = do
             logT $ "TODO: put in internal testing stuff"
 
             logT $ "channel active " ++ show (chState c,chUid c,chTo c)
-            case chHandler c of
+            chanDone <- case chHandler c of
               Just h -> do
                 logT $ "rx_loop:calling handler"
                 h (chUid c)
+                c2 <- getChanMaybe (chUid c)
+                return (isNothing c2)
               Nothing -> do
                 logT $ "rx_loop:chType=" ++ (chType c)
                 case chType c of
@@ -191,10 +195,15 @@ app = do
                     logT $ "not processing channel type:" ++ typ
                     util_chan_popall c Nothing
                 if chState c == ChanEnded
-                  then chan_free c
-                  else return ()
+                  then do
+                    chan_free c
+                    return True
+                  else return False
 
-            util_chan_popall c Nothing
+            logT $ "rx_loop:chanDone=" ++ show chanDone
+            if not chanDone
+              then util_chan_popall c Nothing
+              else return ()
             rx_loop
 
   let inPath = PNone

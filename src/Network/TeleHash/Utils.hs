@@ -23,6 +23,7 @@ module Network.TeleHash.Utils
   -- * Channels
   , putChan
   , getChan
+  , getChanMaybe
   , queueChan
   , dequeueChan
   , rmChan
@@ -200,8 +201,19 @@ instance PacketApi RxTelex where
 
   packet_has_key p key = HM.member (Text.pack key) (rtJs p)
 
-packet_copy :: TxTelex -> TeleHash TxTelex
-packet_copy = assert False undefined
+packet_copy :: TxTelex -> TxTelex
+packet_copy p = p
+{-
+packet_t packet_copy(packet_t p)
+{
+  packet_t np;
+  np = packet_parse(packet_raw(p), packet_len(p));
+  np->to = p->to;
+  np->from = p->from;
+  np->out = p->out;
+  return np;
+}
+-}
 
 packet_get_packet :: RxTelex -> String -> Maybe Aeson.Value
 packet_get_packet p key = HM.lookup (Text.pack key) (rtJs p)
@@ -416,6 +428,11 @@ getChan :: Uid -> TeleHash TChan
 getChan chanUid = do
   sw <- get
   return $ gfromJust ("getChan:" ++ show chanUid) $ Map.lookup chanUid (swIndexChans sw)
+
+getChanMaybe :: Uid -> TeleHash (Maybe TChan)
+getChanMaybe chanUid = do
+  sw <- get
+  return $ Map.lookup chanUid (swIndexChans sw)
 
 -- ---------------------------------------------------------------------
 

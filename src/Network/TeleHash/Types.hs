@@ -443,7 +443,7 @@ typedef struct seq_struct
 
 data Miss = Miss
   { mNextAck :: !Int
-  , mOut     :: ![TxTelex]
+  , mOut     :: !(Map.Map Int TxTelex)
   } deriving Show
 {-
 typedef struct miss_struct
@@ -604,7 +604,7 @@ typedef struct crypt_1a_struct
 -- Extension related types
 
 data Thtp = Thtp { thIndex :: Map.Map String TxTelex
-                 , thGlob :: [RxTelex]
+                 , thGlob  :: Map.Map String TxTelex
                  } deriving (Show)
 
 -- ---------------------------------------------------------------------

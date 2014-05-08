@@ -101,7 +101,7 @@ thtp_get = do
   case (swThtp sw) of
     Just t -> return t
     Nothing -> do
-      let t = Thtp Map.empty []
+      let t = Thtp Map.empty Map.empty
       put $ sw { swThtp = Just t }
       return t
 
@@ -139,11 +139,15 @@ thtp_glob :: Maybe String -> RxTelex -> TeleHash ()
 thtp_glob mglob note = do
   logT $ "thtp_glob:(mglob,mnote)" ++ show (mglob,note)
   t <- thtp_get
+  sw <- get
   let note2 =
        case mglob of
          Nothing -> note
          Just v -> packet_set_str note "glob" v
-  thtp_put $ t { thGlob = note2:(thGlob t)}
+      note3 = rxTelexToTxTelex note2 (swId sw)
+      key = fromMaybe "glob" mglob
+  -- thtp_put $ t { thGlob = note2:(thGlob t)}
+  thtp_put $ t { thGlob = Map.insert key note3 (thGlob t)}
 
 {-
 // TODO support NULL note to delete
@@ -179,7 +183,7 @@ void thtp_path(switch_t s, char *path, packet_t note)
 -- ---------------------------------------------------------------------
 
 _thtp_glob :: Thtp -> String -> Maybe TxTelex
-_thtp_glob t p1 = assert False undefined
+_thtp_glob t p1 = Map.lookup p1 (thGlob t)
 {-
 packet_t _thtp_glob(thtp_t t, char *p1)
 {
@@ -359,6 +363,7 @@ ext_thtp cid = do
           arg -> do
             logT $ "ext_thtp:unexpected cArg:" ++ show arg
             assert False undefined
+
         -- for now we're processing whole-requests-at-once, to do streaming
         --  we can try parsing note->body for the headers anytime
         c3 <- getChan cid
@@ -385,6 +390,7 @@ ext_thtp cid = do
                 return ()
               Just (PingPongPacket lp) -> do
                 logT $ "ext_thtp:PingPongPacket received:" ++ show (lp)
+
                 -- this is a response, send it
                 logT $ "ext_thtp: TODO: reinstate response process"
                 -- case packet_unlink buf of
@@ -394,7 +400,7 @@ ext_thtp cid = do
                     assert False undefined
                   Nothing -> do
                     -- this is an incoming request
-                    let req = p
+                    let req = lp
                     logT $ "ext_thtp:got req:" ++ show (paHead lp)
                     let mjs = packetJson lp
                     case mjs of
@@ -405,37 +411,36 @@ ext_thtp cid = do
                       Just v -> do
                         logT $ "ext_thtp:req json=" ++ showJson v
                         let mpath  = get_str_from_value "path" v
-                            mmatch = get_str_from_value "match" v
-                            mmatch2 = _thtp_glob t (gfromJust "ext_thtp" mpath)
-                        done <- case mmatch2 of
+                            mmatch = if isJust mpath then Map.lookup (fromJust mpath) (thIndex t)
+                                                     else Nothing
+                            mmatch2 = if isJust mmatch then mmatch
+                                                       else _thtp_glob t (gfromJust "ext_thtp" mpath)
+
+                        case mmatch2 of
+                          Nothing -> do
+                            logT $ "ext_thtp:no match value in request"
+                            void $ chan_fail c (Just "404")
+                            return ()
                           Just mm -> do
                             -- built in response
                             case packet_linked mm of
                               Just linked -> do
                                 thtp_send c linked
-                                return True
-                              Nothing -> return False
-                        if done
-                          then return ()
-                          else do
-                            case mmatch of
-                              Just match -> do
+                                return ()
+                              Nothing -> do
                                 -- attach and route request to a new note
-                                let note = match
+                                let note = mm
                                 sw <- get
-                                f <- packet_link (Just note) (rxTelexToTxTelex req (swId sw))
-                                case chan_reply c note of
+                                let f = packet_link (Just note) ((packet_new (swId sw)){ tPacket = req } )
+                                r <- chan_reply c note
+                                case r of
                                   0 -> return ()
                                   _ -> do
                                     chan_fail c (Just "500")
                                     return ()
-                              Nothing -> do
-                                logT $ "ext_thtp:no match value in request"
-                                void $ chan_fail c (Just "404")
-                                return ()
 
-      -- optionally sends ack if needed
-      chan_ack c
+  -- optionally sends ack if needed
+  chan_ack c
 
 {-
 void ext_thtp(chan_t c)
