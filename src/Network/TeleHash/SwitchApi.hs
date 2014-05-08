@@ -411,7 +411,7 @@ switch_open hn direct = do
       logT $ "switch_open: can't open, no key for " ++ (unHN (hHashName hc))
       sw <- get
       case (swHandler sw) of
-        Just handle -> handle hn
+        Just handler -> handler hn
         Nothing -> return ()
     Just crypto -> do
       -- actually send the open
@@ -677,7 +677,7 @@ chan_new toHn typ mcid = do
               , chSeq       = Nothing
               , chMiss     = Nothing
               }
-  withHN toHn (\hc -> hc { hChans = Map.insert cid chan (hChans hc) })
+  withHN toHn (\hc -> hc { hChans = Map.insert cid (chUid chan) (hChans hc) })
 
   putChan chan
   return chan
@@ -825,7 +825,8 @@ chan_reset toHn = do
                         else hc
   -- fail any existing chans from them
   withHNM toHn $ \hc -> do
-    forM_ (Map.elems $ hChans hc) $ \ch -> do
+    forM_ (Map.elems $ hChans hc) $ \chUid -> do
+      ch <- getChan chUid
       if channelSlot (chId ch) == channelSlot (CID base)
         then return ()
         else void $ chan_fail ch Nothing
@@ -900,30 +901,31 @@ chan_t chan_in(switch_t s, hn_t from, packet_t p)
 
 -- |create a packet ready to be sent for this channel, returns Nothing for backpressure
 chan_packet :: TChan -> TeleHash (Maybe TxTelex)
-chan_packet chan = do
+chan_packet chIn = do
+  chan <- getChan (chUid chIn)
   if chState chan == ChanEnded
     then return Nothing
     else do
       mp <- if chReliable chan /= 0
               then chan_seq_packet chan
               else return $ Just (packet_new (chTo chan))
+      chan2 <- getChan (chUid chIn)
       case mp of
         Nothing -> return Nothing
         Just p -> do
-          let p1 = p { tTo = chTo chan }
-          hc <- getHN (chTo chan)
-          alive <- case chLast chan of
+          let p1 = p { tTo = chTo chan2 }
+          alive <- case chLast chan2 of
                        Nothing -> return False
                        Just lpj -> do
-                         lp <- getPath (chTo chan) lpj
+                         lp <- getPath (chTo chan2) lpj
                          path_alive lp
           let p2 = if alive
                      then p1 { tOut = gfromJust "chan_packet" $ chLast chan }
                      else p1
-              p3 = if chState chan == ChanStarting
-                     then packet_set_str p2 "type" (chType chan)
+              p3 = if chState chan2 == ChanStarting
+                     then packet_set_str p2 "type" (chType chan2)
                      else p2
-              p4 = packet_set_int p3 "c" (unChannelId $ chId chan)
+              p4 = packet_set_int p3 "c" (unChannelId $ chId chan2)
           return (Just p4)
 
 {-

@@ -126,11 +126,11 @@ app = do
   -- new chat, must be after-init
   mchat <- chat_get (Just "tft")
   let chat = (gfromJust "app" mchat)
-  chat_add chat "*" "invited"
+  void $ chat_add chat "*" "invited"
   mp <- chat_message chat
   let p1 = gfromJust "app" mp
       p2 = packet_set_str p1 "text" nick
-  chat_join chat p2
+  void $ chat_join chat p2
 
   chat2 <- getChat (ecId chat)
   logT $ "created chat:" ++ show (chatIdToString $ ecId chat2,packet_get_str p2 "id",word32AsHexString $ ecRHash chat2)
@@ -203,9 +203,9 @@ app = do
                   else return False
 
 
-            if not chanDone
-              then util_chan_popall c Nothing
-              else return ()
+            -- if not chanDone
+            --   then util_chan_popall c Nothing
+            --   else return ()
             rx_loop
 
   let inPath = PNone
@@ -214,13 +214,12 @@ app = do
     logT $ "top of forever loop"
     inp <- io $ readChan chInput
 
-    switch_loop
-    rx_loop
-    util_sendall sock
-
     case inp of
       IUdp msg rinfo -> do
         recvTelex msg rinfo
+        switch_loop
+        rx_loop
+
       IConsole l -> do
         logT $ "console gave:" ++ l
         if | isPrefixOf "/quit" l -> do
@@ -277,9 +276,9 @@ app = do
                   io $ logg nick ""
 
 
-    switch_loop
     rx_loop
     util_sendall sock
+
 
   assert False undefined
 

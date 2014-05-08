@@ -255,7 +255,8 @@ data HashContainer = H
   , hCrypto   :: !(Maybe Crypto)
   , hPaths    :: !(Map.Map PathJson Path)
   , hLast     :: !(Maybe PathJson)
-  , hChans    :: !(Map.Map ChannelId TChan)
+  -- , hChans    :: !(Map.Map ChannelId TChan)
+  , hChans    :: !(Map.Map ChannelId Uid)
   , hOnopen   :: !(Maybe TxTelex)
   , hParts    :: !(Maybe Parts)
                                                -- communicating with this remote
@@ -385,6 +386,7 @@ data ChannelState = ChanStarting | ChanOpen | ChanEnding | ChanEnded
 type ChannelHandler = (Uid -> TeleHash ())
 
 data CArg = CArgNone | CArgTx TxTelex | CArgRx RxTelex | CArgChatR ChatR
+          | CArgSeek Seek
           deriving (Show)
 
 instance Show ChannelHandler where
@@ -705,7 +707,7 @@ typedef struct link_struct
 
 data Seek = Seek
   { seekId     :: !HashName
-  , seekActive :: !Bool
+  , seekActive :: !Int
   , seekNote   :: !(Maybe RxTelex)
   } deriving Show
 

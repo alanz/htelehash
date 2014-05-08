@@ -107,7 +107,7 @@ seek_get hn = do
     Just sk -> return sk
     Nothing -> do
       let sk = Seek { seekId = hn
-                    , seekActive = True
+                    , seekActive = 0
                     , seekNote = Nothing
                     }
           sks2 = Map.insert hn sk sks
@@ -189,7 +189,13 @@ void peer_send(switch_t s, hn_t to, char *address)
 
   chan_send(c, p);
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+seek_handler = assert False undefined
+
+{-
 void seek_handler(chan_t c)
 {
   int i = 0;
@@ -215,8 +221,24 @@ void seek_handler(chan_t c)
 
 -- ---------------------------------------------------------------------
 
-seek_send = assert False undefined
-
+seek_send :: Seek -> HashName -> TeleHash ()
+seek_send sk to = do
+  logT $ "seek_send entered"
+  c <- chan_new to "seek" Nothing
+  let sk2 = sk { seekActive = (seekActive sk) + 1 }
+      c2 = c { chHandler = Just seek_handler
+             , chArg = CArgSeek sk2
+             }
+  putChan c2
+  mp <- chan_packet c2
+  case mp of
+    Nothing -> do
+      logT $ "seek_send:failed to make channel packet"
+      return ()
+    Just p -> do
+      let p2 = packet_set_str p "seek" (unHN $ seekId sk2) -- TODO make a prefix
+      logT $ "seek_send about to send on " ++ show c2
+      chan_send c2 p2
 {-
 void seek_send(switch_t s, seek_t sk, hn_t to)
 {
@@ -238,7 +260,7 @@ void seek_send(switch_t s, seek_t sk, hn_t to)
 _seek_auto :: HashName -> TeleHash ()
 _seek_auto hn = do
   sk <- seek_get hn
-  logT $ "seek_auto:seek connecting " ++ show sk
+  logT $ "_seek_auto:seek connecting " ++ show sk
   -- TODO get near from somewhere
   sw <- get
   let seed = ghead "seek_auto" $ Set.toList (swSeeds sw)

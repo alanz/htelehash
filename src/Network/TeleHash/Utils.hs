@@ -417,7 +417,7 @@ dequeueChan chanUid = do
 
 putChan :: TChan -> TeleHash ()
 putChan chan = do
-  -- logT $ "putChan:" ++ show (chId chan, chUid chan)
+  logT $ "putChan:" ++ show (chId chan, chUid chan)
   sw <- get
   put $ sw { swIndexChans = Map.insert (chUid chan) chan (swIndexChans sw)}
 
@@ -438,7 +438,11 @@ getChanMaybe chanUid = do
 getChanFromHn :: HashName -> ChannelId -> TeleHash (Maybe TChan)
 getChanFromHn hn cid = do
   hc <- getHN hn
-  return $ Map.lookup cid (hChans hc)
+  case Map.lookup cid (hChans hc) of
+    Nothing -> return Nothing
+    Just uid -> do
+      chan <- getChan uid
+      return $ Just chan
 
 -- ---------------------------------------------------------------------
 
@@ -514,6 +518,7 @@ getPath :: HashName -> PathJson -> TeleHash Path
 getPath hn pj = do
   hc <- getHN hn
   return $ gfromJust "getPath" $ Map.lookup pj (hPaths hc)
+
 
 -- ---------------------------------------------------------------------
 
