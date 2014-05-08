@@ -3,6 +3,7 @@ module Network.TeleHash.Hn
     hn_fromjson
   , hn_getparts
   , hn_path
+  , hn_get
   ) where
 
 import Control.Applicative
@@ -303,3 +304,41 @@ path_t hn_path(hn_t hn, path_t p)
 }
 
 -}
+
+-- ---------------------------------------------------------------------
+
+-- |get a HashContainer from the index, creating it if not already present
+hn_get :: HashName -> TeleHash HashContainer
+hn_get hn = do
+  sw <- get
+  case Map.lookup hn (swIndex sw) of
+    Just hc -> return hc
+    Nothing -> do
+      let hc = newHashContainer hn
+      putHN hc
+      return hc
+
+{-
+hn_t hn_get(xht_t index, unsigned char *bin)
+{
+  hn_t hn;
+  unsigned char hex[65];
+  
+  if(!bin) return NULL;
+  util_hex(bin,32,hex);
+  hn = xht_get(index, (const char*)hex);
+  if(hn) return hn;
+
+  // init new hashname container
+  if(!(hn = malloc(sizeof (struct hn_struct)))) return NULL;
+  memset(hn,0,sizeof (struct hn_struct));
+  memcpy(hn->hashname, bin, 32);
+  memcpy(hn->hexname, hex, 65);
+  xht_set(index, (const char*)hn->hexname, (void*)hn);
+  if(!(hn->paths = malloc(sizeof (path_t)))) return hn_free(hn);
+  hn->paths[0] = NULL;
+  return hn;
+}
+-}
+
+-- ---------------------------------------------------------------------

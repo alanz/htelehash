@@ -190,7 +190,7 @@ data Switch = Switch
        , swLast        :: !(Maybe TxTelex)
        -- , swParts       :: !TxTelex
        , swParts       :: !Parts
-       , swChans       :: !(Map.Map Uid TChan) -- channels waiting to be processed
+       , swChans       :: !(Set.Set Uid) -- channels waiting to be processed
        , swUid         :: !Uid
        , swCap         :: !Int
        , swWindow      :: !Int
@@ -400,8 +400,8 @@ data TChan = TChan
   , chIn       :: ![RxTelex] -- queue of incoming messages
   , chNotes    :: ![RxTelex]
   , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
-  , chArg       :: !CArg
-  , chSeq       :: !(Maybe Seq)
+  , chArg      :: !CArg
+  , chSeq      :: !(Maybe Seq)
   , chMiss     :: !(Maybe Miss)
   } deriving (Show)
 
@@ -603,8 +603,8 @@ typedef struct crypt_1a_struct
 -- =====================================================================
 -- Extension related types
 
-data Thtp = Thtp { thIndex :: Map.Map String TxTelex
-                 , thGlob  :: Map.Map String TxTelex
+data Thtp = Thtp { thIndex :: !(Map.Map String TxTelex)
+                 , thGlob  :: !(Map.Map String TxTelex)
                  } deriving (Show)
 
 -- ---------------------------------------------------------------------
@@ -818,7 +818,7 @@ data Reply = ReplyGetSwitch Switch
 -- ---------------------------------------------------------------------
 
 data SocketHandle =
-    SocketHandle {slSocket :: Socket
+    SocketHandle {slSocket :: !Socket
                  --, slAddress :: SockAddr
                  } deriving (Eq,Show)
 

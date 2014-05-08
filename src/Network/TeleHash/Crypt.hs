@@ -271,12 +271,17 @@ int crypt_line_3a(crypt_t c, packet_t inner);
 
 -- ---------------------------------------------------------------------
 
-crypt_lineize :: Crypto -> TxTelex -> TeleHash (Crypto,Maybe LinePacket)
-crypt_lineize c p = do
+crypt_lineize :: Maybe Crypto -> TxTelex -> TeleHash (Maybe Crypto,Maybe LinePacket)
+crypt_lineize mc p = do
   logT $ "crypt_lineize:" ++ showJson (tJs p)
-  if cLined c /= LineNone
-    then crypt_lineize_1a c p
-    else return (c,Nothing)
+  case mc of
+    Nothing -> return (Nothing,Nothing)
+    Just c -> do
+      if cLined c /= LineNone
+        then do
+          (c2,mlp) <- crypt_lineize_1a c p
+          return (Just c2,mlp)
+        else return (Just c,Nothing)
 
 {-
 packet_t crypt_lineize(crypt_t c, packet_t p)

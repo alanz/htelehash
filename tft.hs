@@ -153,7 +153,9 @@ app = do
         logT $ "rx_loop entered:mc=" ++ show mc
         case mc of
           Nothing -> return ()
-          Just c -> do
+          Just cid -> do
+            c <- getChan cid
+
             -- our internal testing stuff
             logT $ "TODO: put in internal testing stuff"
 
@@ -200,7 +202,7 @@ app = do
                     return True
                   else return False
 
-            logT $ "rx_loop:chanDone=" ++ show chanDone
+
             if not chanDone
               then util_chan_popall c Nothing
               else return ()
@@ -245,15 +247,20 @@ app = do
               void $ thtp_req p3
 
            | isPrefixOf "/chat " l -> do
+              logT $ "processing chat:" ++ show (drop 6 l)
               chat_free chat
               mchat <- chat_get (Just (drop 6 l))
               case mchat of
-                Nothing -> return ()
+                Nothing -> do
+                  logT $ "/chat: chat_get returned Nothing"
+                  return ()
                 Just chat2 -> do
                   putChat chat2
                   mp <- chat_message chat2
                   case mp of
-                    Nothing -> return ()
+                    Nothing -> do
+                      logT $ "/chat: chat_message returned Nothing"
+                      return ()
                     Just p -> do
                       let p2 = packet_set_str p "text" nick
                       chat_join chat2 p2

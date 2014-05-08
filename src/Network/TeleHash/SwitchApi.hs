@@ -362,26 +362,21 @@ switch_send p = do
     else do
       -- encrypt the packet to the line, chains together
       hc <- getHN (tTo p)
-      case (hCrypto hc) of
+      -- logT $ "switch_send:p=" ++ show p
+      -- insert the JS into the packet head
+      p2 <- telexToPacket p
+      (mcrypto1,mlined) <- crypt_lineize (hCrypto hc) p2
+      putHN $ hc { hCrypto = mcrypto1 }
+      case mlined of
+        Just lined -> do
+          switch_sendingQ $ p2 { tLp = Just lined}
         Nothing -> do
-          logT $ "switch_send:crypto not set up"
-          return ()
-        Just crypto -> do
-          -- logT $ "switch_send:p=" ++ show p
-          -- insert the JS into the packet head
-          p2 <- telexToPacket p
-          (crypto1,mlined) <- crypt_lineize crypto p2
-          putHN $ hc { hCrypto = Just crypto1 }
-          case mlined of
-            Just lined -> do
-              switch_sendingQ $ p2 { tLp = Just lined}
-            Nothing -> do
-              -- queue most recent packet to be sent after opened
-              hc2 <- getHN (tTo p2)
-              putHN $ hc2 { hOnopen = Just p2 }
+          -- queue most recent packet to be sent after opened
+          hc2 <- getHN (tTo p2)
+          putHN $ hc2 { hOnopen = Just p2 }
 
-              -- no line, so generate open instead
-              switch_open (tTo p2) Nothing
+          -- no line, so generate open instead
+          switch_open (tTo p2) Nothing
 
 {-
 void switch_send(switch_t s, packet_t p)
@@ -566,12 +561,14 @@ void switch_sendingQ(switch_t s, packet_t p)
 
 -- ---------------------------------------------------------------------
 
-switch_pop :: TeleHash (Maybe TChan)
+-- |Returns Uid of channels requiring processing
+switch_pop :: TeleHash (Maybe Uid)
 switch_pop = do
   sw <- get
-  case Map.elems (swChans sw) of
-    [] -> return Nothing
-    (c:cs) -> do
+  case Set.elems (swChans sw) of
+    [] -> do
+      return Nothing
+    (c:_) -> do
       chan_dequeue c
       return $ Just c
 
@@ -726,10 +723,9 @@ chan_free :: TChan -> TeleHash ()
 chan_free chan = do
   logT $ "chan_free " ++ show (chId chan,chUid chan)
   -- remove references
-  chan_dequeue chan
+  chan_dequeue (chUid chan)
 
   rmChanFromHn (chTo chan) (chId chan)
-  rmChan (chUid chan)
 
   if (chReliable chan /= 0)
     then do
@@ -746,6 +742,9 @@ chan_free chan = do
     then return ()
     else do
       logT $ "unused notes on channel " ++ show (chId chan)
+
+  -- must be last, remove from the index
+  rmChan (chUid chan)
 
 
 {-
@@ -1285,8 +1284,8 @@ void chan_queue(chan_t c)
 void chan_dequeue(chan_t c);
 -}
 
--- |remove from switch processing queue
-chan_dequeue :: TChan -> TeleHash ()
+-- |remove channel id from switch processing queue
+chan_dequeue :: Uid -> TeleHash ()
 chan_dequeue c = do
   dequeueChan c
 

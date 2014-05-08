@@ -402,17 +402,16 @@ get_str_from_value _ _ = Nothing
 
 queueChan :: TChan -> TeleHash ()
 queueChan chanIn = do
-  chan <- getChan (chUid chanIn)
   sw <- get
-  put $ sw { swChans = Map.insert (chUid chan) chan (swChans sw)}
+  put $ sw { swChans = Set.insert (chUid chanIn) (swChans sw)}
 
 -- ---------------------------------------------------------------------
 
--- |remove from switch processing queue
-dequeueChan :: TChan -> TeleHash ()
-dequeueChan chan = do
+-- |remove channel id from switch processing queue
+dequeueChan :: Uid -> TeleHash ()
+dequeueChan chanUid = do
   sw <- get
-  put $ sw { swChans = Map.delete (chUid chan) (swChans sw)}
+  put $ sw { swChans = Set.delete chanUid (swChans sw)}
 
 -- ---------------------------------------------------------------------
 

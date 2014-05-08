@@ -254,24 +254,25 @@ chat_get mid = do
           logT $ "invalid chatid:" ++ sid
           return Nothing
         Just cid -> do
+          logT $ "chat_get:got cid" ++ show cid
           case ciOriginator cid of
             Just hn -> do
-              mo <- getHNMaybe hn
-              case mo of
-                Nothing -> return Nothing
-                Just _  -> return $ Just (cid { ciOriginator = Just hn })
+              hc <- hn_get hn -- make sure we know about the hn
+              return $ Just (cid { ciOriginator = Just hn })
             Nothing -> return $ Just (cid { ciOriginator = Just  (swId sw)})
 
     Nothing -> do
       epVal <- randomHEX 8
       return $ Just (ChatId epVal (Just (swId sw)))
 
+  logT $ "chat_get:mcid=" ++ show mcid
   case mcid of
     Nothing -> return Nothing
     Just cid -> do
       case Map.lookup cid (swIndexChat sw) of
         Just chat -> return (Just chat)
         Nothing -> do
+          logT $ "chat_get:making new chat"
           hubc <- chan_new (swId sw) "chat" Nothing
 
           randWord32 <- randomWord32
