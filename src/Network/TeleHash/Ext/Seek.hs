@@ -74,8 +74,16 @@ typedef struct seeks_struct
 {
   xht_t active;
 } *seeks_t;
+-}
 
+-- ---------------------------------------------------------------------
 
+seeks_get :: TeleHash (Map.Map HashName Seek)
+seeks_get = do
+  sw <- get
+  return $ swIndexSeeks sw
+
+{-
 seeks_t seeks_get(switch_t s)
 {
   seeks_t sks;
@@ -88,7 +96,26 @@ seeks_t seeks_get(switch_t s)
   xht_set(s->index,"seeks",sks);
   return sks;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+seek_get :: HashName -> TeleHash Seek
+seek_get hn = do
+  sks <- seeks_get
+  case Map.lookup hn sks of
+    Just sk -> return sk
+    Nothing -> do
+      let sk = Seek { seekId = hn
+                    , seekActive = True
+                    , seekNote = Nothing
+                    }
+          sks2 = Map.insert hn sk sks
+      sw <- get
+      put $ sw { swIndexSeeks = sks2 }
+      return sk
+
+{-
 seek_t seek_get(switch_t s, hn_t id)
 {
   seek_t sk;
@@ -102,7 +129,11 @@ seek_t seek_get(switch_t s, hn_t id)
   xht_set(sks->active,id->hexname,sk);
   return sk;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+{-
 void peer_handler(chan_t c)
 {
   // remove the nat punch path if any
@@ -180,7 +211,13 @@ void seek_handler(chan_t c)
   packet_free(p);
   // TODO sk->active-- and check to return note
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+seek_send = assert False undefined
+
+{-
 void seek_send(switch_t s, seek_t sk, hn_t to)
 {
   chan_t c;
@@ -199,8 +236,15 @@ void seek_send(switch_t s, seek_t sk, hn_t to)
 
 -- create a seek to this hn and initiate connect
 _seek_auto :: HashName -> TeleHash ()
-_seek_auto hn =
-  assert False undefined
+_seek_auto hn = do
+  sk <- seek_get hn
+  logT $ "seek_auto:seek connecting " ++ show sk
+  -- TODO get near from somewhere
+  sw <- get
+  let seed = ghead "seek_auto" $ Set.toList (swSeeds sw)
+
+  seek_send sk seed
+
 
 {-
 // create a seek to this hn and initiate connect

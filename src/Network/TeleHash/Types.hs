@@ -61,6 +61,7 @@ module Network.TeleHash.Types
   , ChatR(..)
 
   , Link(..)
+  , Seek(..)
   ) where
 
 import Control.Applicative
@@ -199,6 +200,7 @@ data Switch = Switch
        , swIndexChans  :: !(Map.Map Uid TChan) -- all channels
        , swIndexCrypto :: !(Map.Map String Crypto)
        , swIndexLines  :: !(Map.Map String HashName)
+       , swIndexSeeks  :: !(Map.Map HashName Seek)
        , swHandler     :: !(Maybe (HashName -> TeleHash ())) -- called w/ a hn that has no key info
 
        , swH      :: !(Maybe SocketHandle)
@@ -696,6 +698,24 @@ typedef struct link_struct
   bucket_t *buckets;
   xht_t links;
 } *link_t;
+-}
+
+-- ---------------------------------------------------------------------
+-- Seek
+
+data Seek = Seek
+  { seekId     :: !HashName
+  , seekActive :: !Bool
+  , seekNote   :: !(Maybe RxTelex)
+  } deriving Show
+
+{-
+typedef struct seek_struct
+{
+  hn_t id;
+  int active;
+  packet_t note;
+} *seek_t;
 -}
 
 -- =====================================================================

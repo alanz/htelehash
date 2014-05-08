@@ -631,6 +631,7 @@ switch_new = do
        , swIndexChans  = Map.empty
        , swIndexCrypto = Map.empty
        , swIndexLines  = Map.empty
+       , swIndexSeeks  = Map.empty
        , swHandler     = Nothing
 
        , swH           = Nothing
