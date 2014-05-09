@@ -157,7 +157,12 @@ app = do
             c <- getChan cid
 
             -- our internal testing stuff
-            logT $ "TODO: put in internal testing stuff"
+            if cid == chUid admin
+              then do
+                notes <- chan_notes_all c
+                forM_ notes $ \note -> do
+                  logT $ "admin note " ++ showJson (rtJs note)
+              else return ()
 
             logT $ "channel active " ++ show (chState c,chUid c,chTo c)
             chanDone <- case chHandler c of
@@ -264,6 +269,11 @@ app = do
                       let p2 = packet_set_str p "text" nick
                       chat_join chat2 p2
                       io $ logg nick ("joining chat " ++ show (ecId chat2,packet_get_str p2 "id", ecRHash chat2))
+
+           | isPrefixOf "/chans" l -> do
+              logT $ "Chans"
+              chStr <- showAllChans
+              logT chStr
 
            | otherwise -> do
               -- default send as message

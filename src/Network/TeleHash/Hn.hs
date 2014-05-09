@@ -1,6 +1,7 @@
 module Network.TeleHash.Hn
   (
     hn_fromjson
+  , hn_frompacket
   , hn_getparts
   , hn_path
   , hn_get
@@ -165,6 +166,49 @@ hn_t hn_fromjson(xht_t index, packet_t p)
   return (hn->c) ? hn : NULL;
 }
 
+-}
+
+-- ---------------------------------------------------------------------
+
+hn_frompacket :: OpenizeInner -> DeOpenizeResult -> TeleHash (Maybe HashContainer)
+hn_frompacket _ DeOpenizeVerifyFail = return Nothing
+hn_frompacket inner deopen = do
+  -- get/gen the hashname
+  mhn <- hn_getparts (oiFrom inner)
+  case mhn of
+    Nothing -> do
+      logT $ "hn_frompacket:cannot get hashname " ++ show inner
+      return Nothing
+    Just hn -> do
+      hc <- getHN hn
+      -- load key from packet body
+      hc2 <- if isNothing (hCrypto hc)
+              then do
+                mcrypt <- crypt_new (doCsid deopen) Nothing (Just $ doKey deopen)
+                let hc1 = hc { hCrypto = mcrypt }
+                putHN hc1
+                return hc1
+              else return hc
+      return (Just hc2)
+
+{-
+hn_t hn_frompacket(xht_t index, packet_t p)
+{
+  hn_t hn = NULL;
+  if(!p) return NULL;
+  
+  // get/gen the hashname
+  hn = hn_getparts(index, packet_get_packet(p, "from"));
+  if(!hn) return NULL;
+
+  // load key from packet body
+  if(!hn->c && p->body)
+  {
+    hn->c = crypt_new(hn->csid, p->body, p->body_len);
+    if(!hn->c) return NULL;
+  }
+  return hn;
+}
 -}
 
 -- ---------------------------------------------------------------------

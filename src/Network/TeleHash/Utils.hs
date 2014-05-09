@@ -47,6 +47,10 @@ module Network.TeleHash.Utils
   -- * Other
   , getCrypto
 
+  -- * Info about the switch
+  , showAllChans
+  , showChan
+
   -- * Original
   , logT
   , io
@@ -551,6 +555,20 @@ getCrypto :: String -> TeleHash (Maybe Crypto)
 getCrypto csid = do
   sw <- get
   return $ Map.lookup csid (swIndexCrypto sw)
+
+-- ---------------------------------------------------------------------
+
+showAllChans :: TeleHash String
+showAllChans = do
+  sw <- get
+  r <- forM (Map.elems $ swIndexChans sw) $ \c -> do
+    return $ showChan c
+  return $ unlines r
+
+-- ---------------------------------------------------------------------
+
+showChan :: TChan -> String
+showChan c = "(chan:" ++ show (chUid c,chId c,chTo c,chReliable c,chState c) ++ ")"
 
 -- ---------------------------------------------------------------------
 -- Logging

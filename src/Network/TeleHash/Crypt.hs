@@ -296,6 +296,7 @@ packet_t crypt_lineize(crypt_t c, packet_t p)
 #ifdef CS_3a
   if(c->csid == 0x3a) return crypt_lineize_3a(c,p);
 #endif
+
   return NULL;
 }
 -}

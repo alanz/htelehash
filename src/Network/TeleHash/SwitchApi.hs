@@ -22,6 +22,7 @@ module Network.TeleHash.SwitchApi
   , chan_end
   , chan_fail
   , chan_notes
+  , chan_notes_all
   , chan_note
   , chan_reply
   , chan_receive
@@ -129,7 +130,7 @@ switch_receive rxPacket path timeNow = do
       case open of
         DeOpenizeVerifyFail -> do
           return ()
-        _ -> do
+        deOpenizeResult -> do
           logT $ "receive.deopenize verified ok " -- ++ show open
           let minner = parseJsVal (doJs open) :: Maybe OpenizeInner
           case minner of
@@ -138,13 +139,14 @@ switch_receive rxPacket path timeNow = do
               return ()
             Just inner -> do
               -- logT $ "switch_receive:openize:inner=" ++ show inner
-              mfrom <- hn_getparts (oiFrom inner)
+              mfrom <- hn_frompacket inner deOpenizeResult
+              -- mfrom <- hn_getparts (oiFrom inner)
               case mfrom of
                 Nothing -> do
                   logT $ "switch_receive:openize:invalid from" ++ show (oiFrom inner)
                   return ()
-                Just hfrom -> do
-                  from <- getHN hfrom
+                Just from -> do
+                  logT $ "switch_receive:openize:from=" ++ show (hHashName from)
                   mlineCrypto <- case hCrypto from of
                                    Nothing -> return Nothing
                                    Just c  -> crypt_line open c inner
@@ -155,7 +157,7 @@ switch_receive rxPacket path timeNow = do
                       return ()
                     Just lineCrypto -> do
                       -- line is open
-                      logT $ "line in " ++ show (cLined lineCrypto,hfrom,cLineHex lineCrypto)
+                      logT $ "line in " ++ show (cLined lineCrypto,(hHashName from),cLineHex lineCrypto)
                       -- DEBUG_PRINTF("line in %d %s %d %s",from->c->lined,from->hexname,from,from->c->lineHex);
                       let from2 = from { hCrypto = Just lineCrypto }
                       putHN from2
@@ -164,15 +166,18 @@ switch_receive rxPacket path timeNow = do
                         else return ()
                       -- xht_set(s->index, (const char*)from->c->lineHex, (void*)from);
                       putHexLine (cLineHex lineCrypto) (hHashName from)
+                      -- logT $ "switch_receive:openize:calling hn_path for path" ++ showJson (pJson path)
                       inVal <- hn_path (hHashName from) (pJson path)
+                      from3 <- getHN (hHashName from2)
+                      -- logT $ "switch_receive:openize:hn_path returned" ++ showJson inVal
                       switch_open (hHashName from) inVal -- in case
-                      case hOnopen from2 of
+                      case hOnopen from3 of
                         Nothing ->  do
                           logT $ "switch_receive:openize:no onopen"
                           return ()
                         Just onopen -> do
                           -- logT $ "switch_receive:openize:processing onopen"
-                          putHN $ from2 { hOnopen = Nothing }
+                          putHN $ from3 { hOnopen = Nothing }
                           switch_send (onopen { tOut = pJson (gfromJust "onopen" inVal) })
                           return ()
 
@@ -436,7 +441,11 @@ switch_open hn direct = do
               logT $ "switch_open: could not openize, discarding"
               return ()
             Just open -> do
-              switch_sendingQ $ inner3 { tLp = Just open }
+              let inner4 = case direct of
+                             Just path -> inner3 {tOut = pJson path}
+                             Nothing   -> inner3
+              logT $ "switch_open:sending " ++ show inner4
+              switch_sendingQ $ inner4 { tLp = Just open }
 
 {-
 // tries to send an open if we haven't
@@ -1072,7 +1081,8 @@ chan_t chan_fail(chan_t c, char *err)
 
 -- |get the next incoming note waiting to be handled
 chan_notes :: TChan -> TeleHash (Maybe RxTelex)
-chan_notes c = do
+chan_notes cIn = do
+  c <- getChan (chUid cIn)
   if null (chNotes c)
     then return Nothing
     else do
@@ -1093,6 +1103,16 @@ packet_t chan_notes(chan_t c)
 }
 
 -}
+
+-- ---------------------------------------------------------------------
+
+-- |get all the incoming notes waiting to be handled
+chan_notes_all :: TChan -> TeleHash [RxTelex]
+chan_notes_all cIn = do
+  c <- getChan (chUid cIn)
+  let r = chNotes c
+  putChan $ c {chNotes = []}
+  return r
 
 -- ---------------------------------------------------------------------
 
