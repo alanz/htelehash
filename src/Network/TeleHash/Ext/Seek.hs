@@ -17,6 +17,7 @@ import Data.Bits
 import Data.Char
 import Data.IP
 import Data.List
+import Data.List.Split
 import Data.Maybe
 import Data.String.Utils
 import Data.Text.Lazy.Builder
@@ -32,14 +33,15 @@ import System.Time
 
 import Network.TeleHash.Convert
 import Network.TeleHash.Crypt
+import Network.TeleHash.Ext.Path
 import Network.TeleHash.Hn
 import Network.TeleHash.Packet
 import Network.TeleHash.Path
 import Network.TeleHash.Paths
-import Network.TeleHash.Types
-import Network.TeleHash.Utils
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.SwitchUtils
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Crypto.PubKey.DH as DH
@@ -133,6 +135,20 @@ seek_t seek_get(switch_t s, hn_t id)
 
 -- ---------------------------------------------------------------------
 
+peer_handler :: Uid -> TeleHash ()
+peer_handler cid = do
+  c <- getChan cid
+  -- remove the NAT punch path if any
+  case chArg c of
+    CArgPath path -> do
+      path_free path
+      putChan $ c { chArg = CArgNone }
+      return ()
+    _ -> return ()
+
+  logT $ "peer_handler:" ++ show (chTo c)
+  -- TODO: process relayed packets
+
 {-
 void peer_handler(chan_t c)
 {
@@ -146,7 +162,49 @@ void peer_handler(chan_t c)
   DEBUG_PRINTF("peer handler %s",c->to->hexname);
   // TODO process relay'd packets
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+-- csid may be address format
+peer_send :: HashName -> [String] -> TeleHash ()
+peer_send to address = do
+  if length address /= 2 && length address /= 4
+    then do
+      logT $ "peer_send: malformed address " ++ show address
+      return ()
+    else do
+      let (hn,csid,mipp) = case address of
+            [hn,csid]         -> (hn,csid,Nothing)
+            [hn,csid,ip,port] -> (hn,csid,Just (ip,port))
+      mcrypto <- getCrypto csid
+      case mcrypto of
+        Nothing -> do
+          logT $ "peer_send:no cipher set for " ++ csid
+          return ()
+        Just cs -> do
+          -- new peer channel
+          c <- chan_new to "peer" Nothing
+          let c2 = c {chHandler = Just peer_handler }
+          putChan c2
+          mp <- chan_packet c2
+          case mp of
+            Nothing -> do
+              logT $ "peer_send:cannot create packet for " ++ show c2
+              return ()
+            Just p -> do
+              let p2 = packet_set_str p "peer" hn
+                  p3 = packet_body p2 (cKey cs)
+
+              -- Send the NAT punch if ip,port given
+              case mipp of
+                Nothing -> return ()
+                Just (ipStr,portStr) -> do
+                  logT $ "peer_send:must still send NAT punch to" ++ show mipp
+                  assert False undefined
+              chan_send c2 p3
+
+{-
 // csid may be address format
 void peer_send(switch_t s, hn_t to, char *address)
 {
@@ -193,8 +251,50 @@ void peer_send(switch_t s, hn_t to, char *address)
 
 -- ---------------------------------------------------------------------
 
-seek_handler = assert False undefined
+seek_handler :: Uid -> TeleHash ()
+seek_handler cid = do
+  c <- getChan cid
+  case chArg c of
+    CArgSeek sk -> do
+      mp <- chan_pop (chUid c)
+      case mp of
+        Nothing -> do
+          logT $ "seek_handler:no message popped for :" ++ show (chId c,chUid c)
+          return ()
+        Just p -> do
+          logT $ "seek_handler:seek response for " ++ show (seekId sk) ++ "," ++ showJson (rtJs p)
+          -- process see array and end channel
+          let msee = packet_get p "see"
+          logT $ "seek_handler:msee=" ++ show msee
+          case msee of
+            Nothing -> do
+              logT $ "seek_handler:no see field for :" ++ show (chId c,chUid c)
+              return ()
+            Just seeValue -> do
+              logT $ "seek_handler:seeValue=" ++ show seeValue
+              let msee2 = parseJsVal seeValue :: Maybe [String]
+              case msee2 of
+                Nothing -> do
+                  logT $ "seek_handler:invalid see field for :" ++ show (chId c,chUid c)
+                  return ()
+                Just see2 -> do
+                  sw <- get
+                  forM_ see2 $ \see -> do
+                    let address = splitOn "," see
+                    case address of
+                      (hn:_) -> do
+                        if (HN hn /= swId sw)
+                          then peer_send (chTo c) address
+                          else return ()
+                      _ -> do
+                        logT $ "seek_handler:cannot process see " ++ see
+                        return ()
+                  -- TODO sk->active-- and check to return note
+                  return ()
 
+    arg -> do
+      logT $ "seek_handler:unexpected arg:" ++ show arg
+      return ()
 {-
 void seek_handler(chan_t c)
 {

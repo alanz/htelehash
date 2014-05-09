@@ -44,6 +44,9 @@ module Network.TeleHash.Utils
   , getHexLine
   , getHexLineMaybe
 
+  -- * Other
+  , getCrypto
+
   -- * Original
   , logT
   , io
@@ -541,6 +544,13 @@ getHexLineMaybe :: String -> TeleHash (Maybe HashName)
 getHexLineMaybe lineHex = do
   sw <- get
   return $ Map.lookup lineHex (swIndexLines sw)
+
+-- ---------------------------------------------------------------------
+
+getCrypto :: String -> TeleHash (Maybe Crypto)
+getCrypto csid = do
+  sw <- get
+  return $ Map.lookup csid (swIndexCrypto sw)
 
 -- ---------------------------------------------------------------------
 -- Logging

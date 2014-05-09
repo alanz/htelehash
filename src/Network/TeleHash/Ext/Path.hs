@@ -1,6 +1,7 @@
 module Network.TeleHash.Ext.Path
   (
-  ext_path
+    ext_path
+  , path_free
   ) where
 
 import Control.Applicative
@@ -74,5 +75,19 @@ void ext_path(chan_t c)
     DEBUG_PRINTF("TODO path packet %.*s\n", p->json_len, p->json);
     packet_free(p);
   }
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+path_free :: PathJson -> TeleHash ()
+path_free _path = return ()
+
+{-
+void path_free(path_t p)
+{
+  if(p->id) free(p->id);
+  if(p->json) free(p->json);
+  free(p);
 }
 -}

@@ -386,7 +386,8 @@ data ChannelState = ChanStarting | ChanOpen | ChanEnding | ChanEnded
 type ChannelHandler = (Uid -> TeleHash ())
 
 data CArg = CArgNone | CArgTx TxTelex | CArgRx RxTelex | CArgChatR ChatR
-          | CArgSeek Seek
+          | CArgSeek Seek | CArgPath PathJson
+
           deriving (Show)
 
 instance Show ChannelHandler where
