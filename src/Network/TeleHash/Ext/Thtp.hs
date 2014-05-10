@@ -367,7 +367,8 @@ ext_thtp cid = do
             return r2
           arg -> do
             logT $ "ext_thtp:unexpected cArg:" ++ show arg
-            assert False undefined
+            putChan $ c2 { chArg = CArgRx p }
+            return p
 
         -- for now we're processing whole-requests-at-once, to do streaming
         --  we can try parsing note->body for the headers anytime

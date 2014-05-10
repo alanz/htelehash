@@ -201,7 +201,10 @@ toNetworkPacket (OpenPacket cs bs) = LP $ BC.append (lbsTocbs $ BL.pack [0,1,cs]
 toNetworkPacket (LinePacket    bs) = LP $ BC.append (lbsTocbs $ BL.pack [0,0])    bs
 
 fromNetworkPacket :: LinePacket -> Maybe NetworkPacket
-fromNetworkPacket (LP bs) = Just $ decode (cbsTolbs bs)
+fromNetworkPacket (LP bs) =
+  if bs == BC.pack ""
+    then Nothing
+    else Just $ decode (cbsTolbs bs)
 
 -- ---------------------------------------------------------------------
 

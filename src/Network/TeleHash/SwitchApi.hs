@@ -1639,7 +1639,6 @@ chan_miss_check :: TChan -> RxTelex -> TeleHash ()
 chan_miss_check cIn p = do
   logT $ "chan_miss_check for " ++ show (cIn,p)
   c <- getChan (chUid cIn)
-  let miss = packet_get_packet p "miss"
   case chMiss c of
     Nothing -> do
       logT $ "chan_miss_check: no chMiss structure for " ++ show c
@@ -1656,7 +1655,24 @@ chan_miss_check cIn p = do
               return ()
             else do
               -- free and shift up to the ack
-              assert False undefined
+              logT $ "chan_miss_check:(ack,nNextAck m,mOut m,chReliable c)=" ++ show (ack,mNextAck m,mOut m,chReliable c)
+              let ackCount = (ack - (mNextAck m))
+                  acked = [mNextAck m .. ack]
+              if ackCount > 0
+                then do
+                  let
+                    m2 = m { mNextAck = (mNextAck m) + ackCount
+                           , mOut = assert False undefined
+                           }
+                  assert False undefined
+                else return ()
+
+              -- track any miss packets if we have them and resend
+              let mmiss = packet_get_packet p "miss"
+              case mmiss of
+                Just miss -> do
+                  assert False undefined
+                Nothing -> return ()
 
 {-
 // looks at incoming miss/ack and resends or frees
