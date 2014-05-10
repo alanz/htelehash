@@ -209,6 +209,7 @@ thtp_send c req = do
   logT $ "thtp_send:sending " ++ showJson (tJs req)
   lpraw <- packet_raw req
   let LP raw = lpraw
+  logT $ "thtp_send:raw " ++ show raw
 
   -- send until everything is done
 
@@ -216,7 +217,9 @@ thtp_send c req = do
     sendChunks toSend = do
       mchunk <- chan_packet c
       case mchunk of
-        Nothing -> return () -- TODO: back pressure
+        Nothing -> do
+          logT $ "thtp_send:could not make chan_packet"
+          return () -- TODO: back pressure
         Just chunk -> do
           space <- packet_space chunk
           let len = BC.length toSend
@@ -229,10 +232,12 @@ thtp_send c req = do
               chunk3 = if restLen > 0
                          then chunk2
                          else packet_set chunk2 "end" True
+          logT $ "thtp_send:sending " ++ show chunk3
           chan_send c chunk3
           if restLen > 0
             then sendChunks rest
             else return ()
+
   sendChunks raw
 
 
@@ -283,11 +288,11 @@ thtp_req note = do
           r3 = packet_set_str r2 "method" (fromMaybe "get" method)
       return r3
 
-  logT $ "thtp req " ++ show req
+  logT $ "thtp_req:req " ++ show req
 
   -- open channel and send req
   c <- chan_new to "thtp" Nothing
-  let c2 = c {chArg = CArgTx (packet_link Nothing note) }
+  let c2 = c  { chArg = CArgTx (packet_link Nothing note) }
       c3 = c2 { chHandler = Just ext_thtp } -- shortcut
   putChan c3
   chan_reliable c3 10

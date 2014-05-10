@@ -370,6 +370,7 @@ switch_send p = do
       -- logT $ "switch_send:p=" ++ show p
       -- insert the JS into the packet head
       p2 <- telexToPacket p
+      logT $ "switch_send:p2=" ++ show p2
       (mcrypto1,mlined) <- crypt_lineize (hCrypto hc) p2
       putHN $ hc { hCrypto = mcrypto1 }
       case mlined of
@@ -377,6 +378,7 @@ switch_send p = do
           switch_sendingQ $ p2 { tLp = Just lined}
         Nothing -> do
           -- queue most recent packet to be sent after opened
+          logT $ "switch_send:queueing packet until line:" ++ show (tTo p2) ++ "," ++ showJson (tJs p2)
           hc2 <- getHN (tTo p2)
           putHN $ hc2 { hOnopen = Just p2 }
 
@@ -1223,7 +1225,7 @@ void chan_receive(chan_t c, packet_t p)
 -- |smartly send based on what type of channel we are
 chan_send :: TChan -> TxTelex -> TeleHash ()
 chan_send c p = do
-  logT $ "channel out " ++ show (chId c,p)
+  logT $ "chan_send:channel out " ++ show (chId c,p)
   p2 <- if chReliable c /= 0
           then do
             let p' = packet_copy p
@@ -1424,8 +1426,8 @@ chan_seq_packet cIn = do
         then return Nothing
         else do
           -- set seq and add any acks
-          let s2 = s { seId = (seId s) + 1 }
-              p2 = packet_set_int p "seq" (seId s2)
+          let p2 = packet_set_int p "seq" (seId s)
+              s2 = s { seId = (seId s) + 1 }
           putChan $ c { chSeq = Just s2 }
           logT $ "chan_seq_packet about to call chan_seq_ack"
           r <- chan_seq_ack c (Just p2)

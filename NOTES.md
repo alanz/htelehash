@@ -166,3 +166,6 @@ chan_in:p=RxTelex
 , rtChanId = Nothing}
 ```
 
+
+ext_thtp:got req:HeadJson "{\"path\":\"/chat/56419861/roster\",\"method\":\"get\"}"
+ext_thtp:req json={"method":"get","path":"/chat/56419861/roster"}

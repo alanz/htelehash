@@ -175,8 +175,9 @@ peer_send to address = do
       return ()
     else do
       let (hn,csid,mipp) = case address of
-            [hn,csid]         -> (hn,csid,Nothing)
-            [hn,csid,ip,port] -> (hn,csid,Just (ip,port))
+            [hn1,csid1]         -> (hn1,csid1,Nothing)
+            [hn1,csid1,ip,port] -> (hn1,csid1,Just (ip,port))
+            xs                -> error $ "peer_send:invalid address:" ++ show xs
       mcrypto <- getCrypto csid
       case mcrypto of
         Nothing -> do
