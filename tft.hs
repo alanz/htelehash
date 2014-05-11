@@ -133,7 +133,7 @@ app = do
   void $ chat_join chat p2
 
   chat2 <- getChat (ecId chat)
-  logT $ "created chat:" ++ show (chatIdToString $ ecId chat2,packet_get_str p2 "id",word32AsHexString $ ecRHash chat2)
+  logT $ "created chat:" ++ show (chatIdToString $ ecId chat2,packet_get_str p2 "id",unCH $ ecRHash chat2)
   logT $ nick ++ ">"
 
   sw <- get

@@ -16,6 +16,7 @@ module Network.TeleHash.Types
   , packet_new_rx
   , packet_new
   , rxTelexToTxTelex
+  , txTelexToRxTelex
   , TeleHash
   , Switch(..)
   , Bucket(..)
@@ -56,6 +57,8 @@ module Network.TeleHash.Types
   , Thtp(..)
 
   , ChatId(..)
+  , ChatHash(..)
+  , unCH
   , chatIdToString
   , Chat(..)
   , ChatR(..)
@@ -111,7 +114,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Lazy as TL
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
-import qualified Data.Digest.Murmur as Murmur
+-- import qualified Data.Digest.Murmur as Murmur
 
 -- ---------------------------------------------------------------------
 
@@ -171,6 +174,17 @@ rxTelexToTxTelex rx hn
     , tOut = rtSender rx
     , tJs = rtJs rx
     , tPacket = rtPacket rx
+    }
+
+txTelexToRxTelex :: TxTelex -> RxTelex
+txTelexToRxTelex tx
+ = (packet_new_rx)
+    { rtId = tId tx
+    , rtSender = tOut tx
+    , rtAt = TOD 0 0
+    , rtJs = tJs tx
+    , rtPacket = tPacket tx
+    , rtChanId = Nothing
     }
 
 
@@ -623,16 +637,20 @@ chatIdToString :: ChatId -> String
 chatIdToString (ChatId ep Nothing) = ep
 chatIdToString (ChatId ep (Just (HN o))) = ep ++ "@" ++ o
 
+data ChatHash = CH String deriving (Eq,Show,Ord)
+
+unCH :: ChatHash -> String
+unCH (CH s) = s
 
 data Chat = Chat
      { ecEp     :: !String
      , ecId     :: !ChatId
-     , ecIdHash :: !Murmur.Hash
+     , ecIdHash :: !ChatHash
      , ecOrigin :: !HashName
      , ecHub    :: !Uid -- hub channel
-     , ecRHash  :: !Murmur.Hash
+     , ecRHash  :: !ChatHash
      , ecLocal  :: !Bool
-     , ecSeed   :: !Word32
+     , ecSeed   :: !ChatHash
      , ecSeq    :: !Word16
      , ecRoster :: !(Map.Map String String) -- name (possibly hashname) to id
      , ecConn   :: !(Map.Map String Uid) -- For channels

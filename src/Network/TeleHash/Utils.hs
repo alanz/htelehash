@@ -16,7 +16,6 @@ module Network.TeleHash.Utils
   , packet_raw
   , telexToPacket
   , packet_space
-  , packet_append
 
   , get_str_from_value
 
@@ -148,6 +147,8 @@ class PacketApi a where
 
   packet_has_key :: a -> String -> Bool
 
+  packet_append :: a -> BC.ByteString -> a
+
 instance PacketApi TxTelex where
   packet_set_str packet key val
     = packet { tJs = HM.insert (Text.pack key) (toJSON val) (tJs packet) }
@@ -178,6 +179,14 @@ instance PacketApi TxTelex where
 
   packet_has_key p key = HM.member (Text.pack key) (tJs p)
 
+
+  packet_append p chunk = r
+    where
+      body = unBody $ paBody (tPacket p)
+      packetNew = (tPacket p) { paBody = Body (BC.append body chunk) }
+      r = p { tPacket = packetNew }
+
+
 instance PacketApi RxTelex where
   packet_set_str packet key val
     = packet { rtJs = HM.insert (Text.pack key) (toJSON val) (rtJs packet) }
@@ -207,6 +216,12 @@ instance PacketApi RxTelex where
   packet_get p key = HM.lookup (Text.pack key) (rtJs p)
 
   packet_has_key p key = HM.member (Text.pack key) (rtJs p)
+
+  packet_append p chunk = r
+    where
+      body = unBody $ paBody (rtPacket p)
+      packetNew = (rtPacket p) { paBody = Body (BC.append body chunk) }
+      r = p { rtPacket = packetNew }
 
 packet_copy :: TxTelex -> TxTelex
 packet_copy p = p
@@ -253,8 +268,12 @@ packet_t packet_link(packet_t parent, packet_t child)
 
 -- ---------------------------------------------------------------------
 
-packet_unlink :: RxTelex -> Maybe RxTelex
-packet_unlink parent = error $ "packet_unlink:parent=" ++ show parent
+packet_unlink :: TxTelex -> Maybe TxTelex
+packet_unlink parent = r
+  where
+    child = tChain parent
+    r = child
+    -- r = error "packet_unlink"
 
 {-
 packet_t packet_unlink(packet_t parent)
@@ -371,12 +390,6 @@ unsigned short packet_space(packet_t p)
 
 -- ---------------------------------------------------------------------
 
-packet_append :: RxTelex -> BC.ByteString -> RxTelex
-packet_append p chunk = r
-  where
-    body = unBody $ paBody (rtPacket p)
-    packetNew = (rtPacket p) { paBody = Body (BC.append body chunk) }
-    r = p { rtPacket = packetNew }
 
 {-
 void packet_append(packet_t p, unsigned char *chunk, unsigned short len)

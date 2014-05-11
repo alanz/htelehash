@@ -63,7 +63,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Digest.Murmur as Murmur
+-- import qualified Data.Digest.Murmur as Murmur
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
@@ -151,11 +151,11 @@ parseChatId str = r
 
 -- ---------------------------------------------------------------------
 
-chat_rhash :: Chat -> TeleHash Murmur.Hash
+chat_rhash :: Chat -> TeleHash ChatHash
 chat_rhash chat = do
   let r = intercalate "," $ concatMap (\(k,v) -> [k,v]) $ Map.toAscList (ecRoster chat)
   logT $ "chat_rhash:r=" ++ show r
-  let rhash = Murmur.hash $ r
+  let rhash = thash r
       chat2 = chat { ecRHash = rhash }
   putChat chat2
   return rhash
@@ -180,16 +180,18 @@ char *chat_rhash(chat_t chat)
 -}
 
 -- chat_rhash 49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000|���h҆�ɱ to d49cf6fc
-thash = r
+thash :: String -> ChatHash
+thash v = CH (word32AsHexString $ thash_raw v)
+
+thash_raw :: String -> Word32
+thash_raw v = r
   where
     c1 = 0xcc9e2d51
     c2 = 0x1b873593
-    r1 = 15
-    r2 = 13
-    m1 = 5
     m2 = 0xe6546b64
 
-    v = "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000"
+    -- v = "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000"
+    -- v = "foobar"
     go acc vv = case take 4 vv of
                   [] -> acc
                   x -> go (acc ++ [x]) (drop 4 vv)
@@ -260,7 +262,7 @@ thash = r
 
 -}
     strTow32 :: String -> Word32
-    strTow32 str = foldl (\acc v -> 16 * acc + (fromIntegral v)) (0::Word32) $ BL.unpack $ cbsTolbs $ BC.pack str
+    strTow32 str = foldl (\acc v -> 256 * acc + (fromIntegral v)) (0::Word32) $ BL.unpack $ cbsTolbs $ BC.pack $ reverse str
 
     vsw32 = map strTow32 vs
     t = last vsw32
@@ -268,12 +270,73 @@ thash = r
     -- r = word32AsHexString $ Murmur.hash $ map vsw32 vs
     -- r = (t,vsm,length v `mod` 4)
     mainHash = foldl' mkHash 0 vsm
-    tailHash = if (t `mod` 4) == 0
+    mainHashP = scanl mkHash 0 vsm
+    tailHash = if ((length (last vs)) `mod` 4) == 0
                   then mkHash mainHash t
                   else mkTail mainHash t
     finalHash = mkFinalize (fromIntegral $ length v) tailHash
-    r = (word32AsHexString finalHash,vsm,t)
+    -- r = (word32AsHexString finalHash,word32AsHexString mainHash,word32AsHexString tailHash,map word32AsHexString vsw32,vs,map word32AsHexString mainHashP)
+    r = finalHash
 
+tt = thash "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000"
+{-
+
+
+about to call util_murmur for 49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000
+
+util_mmh32 entered,len=77
+util_mmh32 nblocks=19
+util_mmh32 in body, k1=0x62653934
+util_mmh32 in body, h1=0x00000000
+util_mmh32 in body, k1=0x33383538
+util_mmh32 in body, h1=0xa64a1766
+util_mmh32 in body, k1=0x32336138
+util_mmh32 in body, h1=0x0de2c89f
+util_mmh32 in body, k1=0x30366630
+util_mmh32 in body, h1=0x42769105
+util_mmh32 in body, k1=0x38316563
+util_mmh32 in body, h1=0x3cf2f6fc
+util_mmh32 in body, k1=0x33323439
+util_mmh32 in body, h1=0xf2e54095
+util_mmh32 in body, k1=0x64376634
+util_mmh32 in body, h1=0x67dbd725
+util_mmh32 in body, k1=0x30636531
+util_mmh32 in body, h1=0x18f5216a
+util_mmh32 in body, k1=0x35636534
+util_mmh32 in body, h1=0xe938bf67
+util_mmh32 in body, k1=0x63373539
+util_mmh32 in body, h1=0x6a9055ec
+util_mmh32 in body, k1=0x34363462
+util_mmh32 in body, h1=0xdfe7f00f
+util_mmh32 in body, k1=0x31616634
+util_mmh32 in body, h1=0xdfa38d5c
+util_mmh32 in body, k1=0x30353731
+util_mmh32 in body, h1=0x3b1c397f
+util_mmh32 in body, k1=0x61313065
+util_mmh32 in body, h1=0x9770bba3
+util_mmh32 in body, k1=0x38386336
+util_mmh32 in body, h1=0x2ae4260e
+util_mmh32 in body, k1=0x61383562
+util_mmh32 in body, h1=0x6578861b
+util_mmh32 in body, k1=0x34616336
+util_mmh32 in body, h1=0x2be3e250
+util_mmh32 in body, k1=0x64366165
+util_mmh32 in body, h1=0x4771a2c9
+util_mmh32 in body, k1=0x3030312c
+util_mmh32 in body, h1=0x286df121
+util_mmh32 after body 0xe5b8da39
+util_mmh32 after tail 0xf6581d85
+util_mmh32 final 0xd49cf6fc
+
+-------------------------------
+
+created chat tft@49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a ec87f1ff,1000 510200ed
+about to call util_murmur for [foobar]util_mmh32 entered
+util_mmh32 in body, k1=0x626f6f66
+util_mmh32 after body 0x07f455ca
+util_mmh32 after tail 0x8fddf7c0
+util_mmh32 final 0xa4c4d4bd
+-}
 -- ---------------------------------------------------------------------
 
 -- |if mid is Nothing it requests the roster, otherwise requests message id
@@ -299,8 +362,8 @@ chat_cache chat hn mid = do
               let note2 = packet_set_str note  "to" (unHN via)
                   note3 = packet_set_str note2 "for" (unHN hn)
                   note4 = if isNothing mid
-                            then packet_set_str note3 "path" ("/chat/" ++ (word32AsHexString $ ecIdHash chat) ++ "/roster")
-                            else packet_set_str note3 "path" ("/chat/" ++ (word32AsHexString $ ecIdHash chat) ++ "/id/" ++ fromJust mid)
+                            then packet_set_str note3 "path" ("/chat/" ++ (unCH $ ecIdHash chat) ++ "/roster")
+                            else packet_set_str note3 "path" ("/chat/" ++ (unCH $ ecIdHash chat) ++ "/id/" ++ fromJust mid)
               void $ thtp_req (rxTelexToTxTelex note4 via)
 {-
 // if id is NULL it requests the roster, otherwise requests message id
@@ -374,11 +437,11 @@ chat_get mid = do
           let chat = Chat
                 { ecEp     = ciEndpoint cid
                 , ecId     = cid
-                , ecIdHash = Murmur.hash (chatIdToString cid)
+                , ecIdHash = thash (chatIdToString cid)
                 , ecOrigin = gfromJust "chat_get" (ciOriginator cid)
-                , ecRHash  = 0
+                , ecRHash  = CH ""
                 , ecLocal  = ciOriginator cid == Just (swId sw)
-                , ecSeed   = randWord32
+                , ecSeed   = CH $ word32AsHexString randWord32
                 , ecSeq    = 1000
                 , ecRoster = Map.empty
                 , ecConn   = Map.empty
@@ -504,11 +567,11 @@ chat_message chat = do
     else do
       sw <- get
       let p1 = packet_new (swId sw)
-      let idVal = word32AsHexString (ecSeed chat)
-      logT $ "chat_message:idVal=" ++ idVal
+      let idVal = (ecSeed chat)
+      logT $ "chat_message:idVal=" ++ unCH idVal
       -- do repeated murmur hash
-      let idW32 = last $ take (fromIntegral $ ecSeq chat) $ iterate Murmur.hash (ecSeed chat)
-          idHex = word32AsHexString idW32
+      let idW32 = last $ take (fromIntegral $ ecSeq chat) $ iterate (\h -> thash $ unCH h) (ecSeed chat)
+          idHex = unCH idW32
           idFull = idHex ++ "," ++ show (ecSeq chat)
       logT $ "chat_message:idFull=" ++ idFull
       let chat2 = chat { ecSeq = (ecSeq chat) - 1 }

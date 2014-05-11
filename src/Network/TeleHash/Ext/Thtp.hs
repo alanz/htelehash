@@ -361,18 +361,27 @@ ext_thtp cid = do
           Just v -> do
             logT $ "ext_thtp:got err: " ++ show v
           Nothing -> return ()
+        logT $ "ext_thtp:chArg:" ++ show (chArg c2)
         buf <- case chArg c2 of
           CArgNone -> do
-            putChan $ c2 { chArg = CArgRx p }
-            return p
+            let pt = rxTelexToTxTelex p (HN "thtp")
+            putChan $ c2 { chArg = CArgTx pt }
+            return $ pt
           CArgRx r -> do
-            let r2 = packet_append r (unBody $ paBody (rtPacket p))
-            putChan $ c2 { chArg = CArgRx r2 }
+            let pt = rxTelexToTxTelex p (HN "thtp")
+                rt = rxTelexToTxTelex r (HN "thtp")
+            let r2 = packet_append rt (unBody $ paBody (tPacket pt))
+            putChan $ c2 { chArg = CArgTx r2 }
             return r2
+          CArgTx r -> do
+            let r2 = packet_append r (unBody $ paBody (rtPacket p))
+            putChan $ c2 { chArg = CArgTx r2 }
+            return r2
+            -- putChan $ c2 { chArg = CArgRx p }
+            -- return p
           arg -> do
             logT $ "ext_thtp:unexpected cArg:" ++ show arg
-            putChan $ c2 { chArg = CArgRx p }
-            return p
+            assert False undefined
 
         -- for now we're processing whole-requests-at-once, to do streaming
         --  we can try parsing note->body for the headers anytime
@@ -380,9 +389,11 @@ ext_thtp cid = do
         if not (chState c3 == ChanEnding)
           then return ()
           else do
+            -- When the last chunk is sent, the "end" flag is set, should all be here in the body
+
             -- parse the payload
-            logT $ "ext_thtp:(rtPacket buf)=" ++ show (rtPacket buf)
-            let bufBody = unBody $ paBody (rtPacket buf)
+            logT $ "ext_thtp:(rtPacket buf)=" ++ show (tPacket buf)
+            let bufBody = unBody $ paBody (tPacket buf)
             let mnp = fromNetworkPacket (LP bufBody)
             logT $ "ext_thtp:mnp=" ++ show mnp
             case mnp of
@@ -403,10 +414,16 @@ ext_thtp cid = do
 
                 -- this is a response, send it
                 logT $ "ext_thtp: TODO: reinstate response process"
-                -- case packet_unlink buf of
-                case Nothing of
+{-
+ext_thtp:chArg:CArgTx (TxTelex {tId = 0, tTo = HN "packet_link", tOut = PNone, tJs = fromList [], tPacket = Packet {paHead = HeadEmpty, paBody = Body ""}, tChain = Nothing, tLp = Nothing})
+
+ext_thtp:PingPongPacket received:Packet {paHead = HeadJson "{\"status\":200}", paBody = Body "{\"*\":\"invited\",\"49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a\":\"177b603c,1000\"}"}
+-}
+
+                case packet_unlink buf of
+                -- case Nothing of
                   Just note -> do
-                    logT $ "ext_thtp:got response " ++ (show $ paHead lp) ++ " for " ++ showJson (rtJs note)
+                    logT $ "ext_thtp:got response " ++ (show $ paHead lp) ++ " for " ++ showJson (tJs note)
                     assert False undefined
                   Nothing -> do
                     -- this is an incoming request
