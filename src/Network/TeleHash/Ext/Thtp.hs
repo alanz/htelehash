@@ -357,6 +357,10 @@ ext_thtp cid = do
       rxs <- chan_pop_all cid
       forM_ rxs $ \p -> do
         c2 <- getChan cid -- may have changed in earlier loop iteration
+        case packet_get_str p "err" of
+          Just v -> do
+            logT $ "ext_thtp:got err: " ++ show v
+          Nothing -> return ()
         buf <- case chArg c2 of
           CArgNone -> do
             putChan $ c2 { chArg = CArgRx p }

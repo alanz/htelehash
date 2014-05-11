@@ -179,6 +179,101 @@ char *chat_rhash(chat_t chat)
 }
 -}
 
+-- chat_rhash 49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000|���h҆�ɱ to d49cf6fc
+thash = r
+  where
+    c1 = 0xcc9e2d51
+    c2 = 0x1b873593
+    r1 = 15
+    r2 = 13
+    m1 = 5
+    m2 = 0xe6546b64
+
+    v = "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000"
+    go acc vv = case take 4 vv of
+                  [] -> acc
+                  x -> go (acc ++ [x]) (drop 4 vv)
+    vs = go [] v
+
+    -- See https://en.wikipedia.org/wiki/MurmurHash
+    mkTail :: Word32 -> Word32 -> Word32
+    mkTail h1 ts = r
+      where
+        k1 = ts
+        k1_2 = k1 * c1
+        k1_3 = rotateL k1_2 15
+        k1_4 = k1_3 * c2
+        r = h1 `xor` k1_4
+     -- c code
+     --  k1 *= c1; k1 = rotl32(k1,15); k1 *= c2; h1 ^= k1;
+
+
+    mkHash :: Word32 -> Word32 -> Word32
+    mkHash h1 inVal = h1_4
+      where
+        k1_1 = inVal * c1
+        k1_2 = rotateL k1_1 15
+        k1_3 = k1_2 * c2
+
+        h1_2 = h1 `xor` k1_3
+        h1_3 = rotateL h1_2 13
+        h1_4 = h1_3 * 5 + m2
+
+{-
+    int i;
+    for(i = -nblocks; i; i++)
+    {
+        uint32_t k1 = blocks[i];
+
+        k1 *= c1;
+        k1 = rotl32(k1, 15);
+        k1 *= c2;
+
+        h1 ^= k1;
+        h1 = rotl32(h1, 13);
+        h1 = h1*5+0xe6546b64;
+    }
+
+-}
+
+    mkFinalize :: Word32 -> Word32 -> Word32
+    mkFinalize len h1 = h1_6
+      where
+        h1_1 = h1   `xor` len
+        h1_2 = h1_1 `xor` (shiftR h1_1 16)
+        h1_3 = h1_2 * 0x85ebca6b;
+        h1_4 = h1_3 `xor` (shiftR h1_3 13)
+        h1_5 = h1_4 * 0xc2b2ae35
+        h1_6 = h1_5 `xor` (shiftR h1_5 16)
+
+{-
+    //----------
+    // finalization
+
+    h1 ^= len;
+
+    h1 ^= h1 >> 16;
+    h1 *= 0x85ebca6b;
+    h1 ^= h1 >> 13;
+    h1 *= 0xc2b2ae35;
+    h1 ^= h1 >> 16;
+
+-}
+    strTow32 :: String -> Word32
+    strTow32 str = foldl (\acc v -> 16 * acc + (fromIntegral v)) (0::Word32) $ BL.unpack $ cbsTolbs $ BC.pack str
+
+    vsw32 = map strTow32 vs
+    t = last vsw32
+    vsm = init vsw32
+    -- r = word32AsHexString $ Murmur.hash $ map vsw32 vs
+    -- r = (t,vsm,length v `mod` 4)
+    mainHash = foldl' mkHash 0 vsm
+    tailHash = if (t `mod` 4) == 0
+                  then mkHash mainHash t
+                  else mkTail mainHash t
+    finalHash = mkFinalize (fromIntegral $ length v) tailHash
+    r = (word32AsHexString finalHash,vsm,t)
+
 -- ---------------------------------------------------------------------
 
 -- |if mid is Nothing it requests the roster, otherwise requests message id
