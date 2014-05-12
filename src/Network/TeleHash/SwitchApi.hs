@@ -177,7 +177,7 @@ switch_receive rxPacket path timeNow = do
                           logT $ "switch_receive:openize:no onopen"
                           return ()
                         Just onopen -> do
-                          -- logT $ "switch_receive:openize:processing onopen"
+                          logT $ "switch_receive:openize:processing onopen:" ++ show onopen
                           putHN $ from3 { hOnopen = Nothing }
                           switch_send (onopen { tOut = pJson (gfromJust "onopen" inVal) })
                           return ()
@@ -627,6 +627,8 @@ void switch_loop(switch_t s)
 switch_note :: TxTelex -> TeleHash OkFail
 switch_note note = do
   logT $ "switch_note:note=" ++ show note
+  cstr <- showAllChans
+  logT $ "switch_note:all chans=\n" ++ cstr
   case packet_get_int note ".to" of
     Nothing -> return Fail
     Just toVal -> do
@@ -711,8 +713,8 @@ chan_new toHn typ mcid = do
              logT $ "chan_new:using cid:" ++ show c
              return c
 
-  logT $ "chan_new:channel new " ++ show (cid,typ)
   uid <- getNextUid
+  logT $ "chan_new:channel new (cid,uid,typ)=" ++ show (cid,uid,typ)
   let chan = TChan
               { chId       = cid
               , chUid      = uid
@@ -839,7 +841,8 @@ void chan_free(chan_t c)
 chan_t chan_reliable(chan_t c, int window);
 -}
 chan_reliable :: TChan -> Int -> TeleHash TChan
-chan_reliable c window = do
+chan_reliable cIn window = do
+  c <- getChan (chUid cIn)
   logT $ "chan_reliable (c,window):" ++ show (c,window)
   if window == 0 || chState c /= ChanStarting || chReliable c /= 0
     then return c

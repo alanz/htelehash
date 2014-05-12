@@ -198,6 +198,7 @@ _thtp_glob t p1 = do
             [] -> Nothing
             (x:_) -> Just x
   logT $ "_thtp_glob:mcur=" ++ show mcur
+  logT $ "_thtp_glob:r=" ++ show r
   return r
 
 
@@ -222,7 +223,8 @@ packet_t _thtp_glob(thtp_t t, char *p1)
 
 -- chunk the packet out
 thtp_send :: TChan -> TxTelex -> TeleHash ()
-thtp_send c req = do
+thtp_send cIn req = do
+  c <- getChan (chUid cIn)
   logT $ "thtp_send:sending " ++ showJson (tJs req)
   lpraw <- packet_raw req
   let LP raw = lpraw
@@ -286,7 +288,7 @@ void thtp_send(chan_t c, packet_t req)
 
 -- ---------------------------------------------------------------------
 
--- generate an outgoing request, send the response attached to the note
+-- |generate an outgoing request, send the response attached to the note
 thtp_req :: TxTelex -> TeleHash (Maybe TChan)
 thtp_req note = do
   let method = packet_get_str note "method"
@@ -309,10 +311,12 @@ thtp_req note = do
 
   -- open channel and send req
   c <- chan_new to "thtp" Nothing
-  let c2 = c  { chArg = CArgTx (packet_link Nothing note) }
+  let linked = packet_link Nothing note
+      c2 = c  { chArg = CArgTx linked }
       c3 = c2 { chHandler = Just ext_thtp } -- shortcut
+  logT $ "thtp_req:setting CArgTx to " ++ show linked
   putChan c3
-  chan_reliable c3 10
+  void $ chan_reliable c3 10
   thtp_send c3 req
   c4 <- getChan (chUid c3)
   return (Just c4)
@@ -372,6 +376,7 @@ ext_thtp cid = do
       assert False undefined
     else do
       rxs <- chan_pop_all cid
+      logT $ "ext_thtp:rxs=" ++ show rxs
       forM_ rxs $ \p -> do
         c2 <- getChan cid -- may have changed in earlier loop iteration
         case packet_get_str p "err" of
@@ -392,6 +397,7 @@ ext_thtp cid = do
             return r2
           CArgTx r -> do
             let r2 = packet_append r (unBody $ paBody (rtPacket p))
+            logT $ "ext_thtp:CArgTx: (r,r2)=" ++ show (r,r2)
             putChan $ c2 { chArg = CArgTx r2 }
             return r2
             -- putChan $ c2 { chArg = CArgRx p }
@@ -436,12 +442,20 @@ ext_thtp:chArg:CArgTx (TxTelex {tId = 0, tTo = HN "packet_link", tOut = PNone, t
 
 ext_thtp:PingPongPacket received:Packet {paHead = HeadJson "{\"status\":200}", paBody = Body "{\"*\":\"invited\",\"49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a\":\"177b603c,1000\"}"}
 -}
+                logT $ "ext_thtp: buf=" ++ show buf
 
                 case packet_unlink buf of
                 -- case Nothing of
                   Just note -> do
-                    logT $ "ext_thtp:got response " ++ (show $ paHead lp) ++ " for " ++ showJson (tJs note)
-                    assert False undefined
+                    -- note is the orignal request sent.
+                    logT $ "ext_thtp:got response " ++ (show $ packetJson lp) ++ " for " ++ showJson (tJs note)
+                    logT $ "ext_thtp:got response2 " ++ (show note)
+                    let note2 = note { tPacket = lp }
+                        note3 = packet_set_str note2 "thtp" "resp"
+                    chan_reply c note3
+                    chan_end c Nothing
+                    return ()
+
                   Nothing -> do
                     -- this is an incoming request
                     let req = lp
@@ -475,8 +489,10 @@ ext_thtp:PingPongPacket received:Packet {paHead = HeadJson "{\"status\":200}", p
                                 -- attach and route request to a new note
                                 let note = mm
                                 sw <- get
-                                let f = packet_link (Just note) ((packet_new (swId sw)){ tPacket = req } )
-                                r <- chan_reply c note
+                                let f = packet_link (Just note) ((packet_new (chTo c)){ tPacket = req } )
+                                    f2 = packet_set_str f "thtp" "req"
+                                r <- chan_reply c f2
+                                logT $ "ext_thtp:chan_reply (r,f2):" ++ show (r,f2)
                                 case r of
                                   Ok   -> return ()
                                   Fail -> do

@@ -203,3 +203,67 @@ chan_in:p=RxTelex
 , rtChanId = Nothing}
 ```
 
+tftp
+
+thtp_req:setting CArgTx to TxTelex 
+{tId = 0
+, tTo = HN "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a"
+, tOut = PNone
+, tJs = fromList []
+, tPacket = Packet {paHead = HeadEmpty, paBody = Body ""}
+, tChain = Just (TxTelex 
+ {tId = 0
+ , tTo = HN "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a"
+ , tOut = PNone
+ , tJs = fromList
+    [("to",String "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a")
+    ,("for",String "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a")
+    ,(".from",Number 5.0)
+    ,("path",String "/chat/0df5f84f/roster")]
+ , tPacket = Packet {paHead = HeadEmpty, paBody = Body ""}
+ , tChain = Nothing, tLp = Nothing}), tLp = Nothing}
+
+-------------------------------
+
+ext_thtp:CArgTx: (r,r2)=
+(TxTelex
+{tId = 0
+, tTo = HN "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a"
+, tOut = PNone
+, tJs = fromList []
+, tPacket = Packet {paHead = HeadEmpty, paBody = Body ""}
+, tChain = Just (TxTelex
+ {tId = 0
+ , tTo = HN "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a"
+ , tOut = PNone
+ , tJs = fromList
+    [("to",String "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a")
+    ,("for",String "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a")
+    ,(".from",Number 5.0)
+    ,("path",String "/chat/0df5f84f/roster")]
+ , tPacket = Packet {paHead = HeadEmpty, paBody = Body ""}
+ , tChain = Nothing, tLp = Nothing}), tLp = Nothing}
+,
+
+TxTelex
+{tId = 0
+, tTo = HN "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a"
+, tOut = PNone
+, tJs = fromList []
+, tPacket = Packet
+  { paHead = HeadEmpty
+  , paBody = Body "\NUL\SO{\"status\":200}{\"*\":\"invited\",\"49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a\":\"d21d7472,1000\"}"
+  }
+ , tChain = Just (TxTelex {tId = 0
+ , tTo = HN "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a"
+ , tOut = PNone
+ , tJs = fromList
+    [("to",String "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a")
+    ,("for",String "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a")
+    ,(".from",Number 5.0)
+    ,("path",String "/chat/0df5f84f/roster")]
+  , tPacket = Packet {paHead = HeadEmpty, paBody = Body ""}
+, tChain = Nothing, tLp = Nothing}), tLp = Nothing})
+
+decoded line packet from above
+ext_thtp:PingPongPacket received:Packet {paHead = HeadJson "{\"status\":200}", paBody = Body "{\"*\":\"invited\",\"49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a\":\"d21d7472,1000\"}"}

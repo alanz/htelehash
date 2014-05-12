@@ -444,7 +444,7 @@ dequeueChan chanUid = do
 
 putChan :: TChan -> TeleHash ()
 putChan chan = do
-  logT $ "putChan:" ++ show (chId chan, chUid chan)
+  -- logT $ "putChan:" ++ show (chId chan, chUid chan)
   sw <- get
   put $ sw { swIndexChans = Map.insert (chUid chan) chan (swIndexChans sw)}
 
