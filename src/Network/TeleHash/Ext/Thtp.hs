@@ -101,7 +101,7 @@ thtp_get = do
   case (swThtp sw) of
     Just t -> return t
     Nothing -> do
-      let t = Thtp Map.empty Map.empty
+      let t = Thtp Map.empty []
       put $ sw { swThtp = Just t }
       return t
 
@@ -135,6 +135,7 @@ void thtp_free(switch_t s)
 -}
 -- ---------------------------------------------------------------------
 
+-- |Store a value in the global store
 thtp_glob :: Maybe String -> RxTelex -> TeleHash ()
 thtp_glob mglob note = do
   logT $ "thtp_glob:(mglob,mnote)" ++ show (mglob,note)
@@ -147,7 +148,9 @@ thtp_glob mglob note = do
       note3 = rxTelexToTxTelex note2 (swId sw)
       key = fromMaybe "glob" mglob
   -- thtp_put $ t { thGlob = note2:(thGlob t)}
-  thtp_put $ t { thGlob = Map.insert key note3 (thGlob t)}
+  let t2 = t { thGlob = note3:(thGlob t)}
+  thtp_put t2
+  logT $ "thtp_glob:thGlob=" ++ show (thGlob t2)
 
 {-
 // TODO support NULL note to delete
@@ -182,8 +185,22 @@ void thtp_path(switch_t s, char *path, packet_t note)
 
 -- ---------------------------------------------------------------------
 
-_thtp_glob :: Thtp -> String -> Maybe TxTelex
-_thtp_glob t p1 = Map.lookup p1 (thGlob t)
+-- |Retrieve a value from the global store
+_thtp_glob :: Thtp -> String -> TeleHash (Maybe TxTelex)
+_thtp_glob t p1 = do
+  logT $ "_thtp_glob:(t,p1)=" ++ show (t,p1)
+  let myMatch str1 p =
+        case packet_get_str p "glob" of
+          Nothing -> False
+          Just str2 -> (take (length str2) str1) == str2
+      mcur = filter (myMatch p1) (thGlob t)
+      r = case mcur of
+            [] -> Nothing
+            (x:_) -> Just x
+  logT $ "_thtp_glob:mcur=" ++ show mcur
+  return r
+
+
 {-
 packet_t _thtp_glob(thtp_t t, char *p1)
 {
@@ -351,7 +368,7 @@ ext_thtp cid = do
   mnote <- chan_notes c
   if chState c == ChanEnding && isJust mnote
     then do
-      logT $ "ext_thtp:got note resp " ++ showJson (rtJs $ fromJust mnote)
+      logT $ "ext_thtp:got note resp " ++ showJson (tJs $ fromJust mnote)
       assert False undefined
     else do
       rxs <- chan_pop_all cid
@@ -440,8 +457,8 @@ ext_thtp:PingPongPacket received:Packet {paHead = HeadJson "{\"status\":200}", p
                         let mpath  = get_str_from_value "path" v
                             mmatch = if isJust mpath then Map.lookup (fromJust mpath) (thIndex t)
                                                      else Nothing
-                            mmatch2 = if isJust mmatch then mmatch
-                                                       else _thtp_glob t (gfromJust "ext_thtp" mpath)
+                        mmatch2 <- if isJust mmatch then return mmatch
+                                                    else _thtp_glob t (gfromJust "ext_thtp" mpath)
 
                         case mmatch2 of
                           Nothing -> do
@@ -461,8 +478,8 @@ ext_thtp:PingPongPacket received:Packet {paHead = HeadJson "{\"status\":200}", p
                                 let f = packet_link (Just note) ((packet_new (swId sw)){ tPacket = req } )
                                 r <- chan_reply c note
                                 case r of
-                                  0 -> return ()
-                                  _ -> do
+                                  Ok   -> return ()
+                                  Fail -> do
                                     chan_fail c (Just "500")
                                     return ()
 

@@ -126,11 +126,11 @@ app = do
   -- new chat, must be after-init
   mchat <- chat_get (Just "tft")
   let chat = (gfromJust "app" mchat)
-  void $ chat_add chat "*" "invited"
-  mp <- chat_message chat
+  void $ chat_add (ecId chat) "*" "invited"
+  mp <- chat_message (ecId chat)
   let p1 = gfromJust "app" mp
       p2 = packet_set_str p1 "text" nick
-  void $ chat_join chat p2
+  void $ chat_join (ecId chat) p2
 
   chat2 <- getChat (ecId chat)
   logT $ "created chat:" ++ show (chatIdToString $ ecId chat2,packet_get_str p2 "id",unCH $ ecRHash chat2)
@@ -161,7 +161,7 @@ app = do
               then do
                 notes <- chan_notes_all c
                 forM_ notes $ \note -> do
-                  logT $ "admin note " ++ showJson (rtJs note)
+                  logT $ "admin note " ++ showJson (tJs note)
               else return ()
 
             logT $ "channel active " ++ show (chState c,chUid c,chTo c)
@@ -181,8 +181,8 @@ app = do
                   "path"    -> ext_path c
                   "peer"    -> ext_peer c
                   "chat"    -> do
-                    ext_chat c
-                    msgs <-chat_pop_all chat
+                    ext_chat (chUid c)
+                    msgs <-chat_pop_all (ecId chat)
                     forM_ msgs $ \p -> do
                       logT $ "processing chat msg:" ++ show p
 
@@ -192,7 +192,7 @@ app = do
 
                       if (packet_get_str_always p "type") == "chat"
                         then do
-                          mparticipant <- chat_participant chat (packet_get_str_always p "from")
+                          mparticipant <- chat_participant (ecId chat) (packet_get_str_always p "from")
                           let participant = gfromJust "tft" mparticipant
                           io $ logg nick ((packet_get_str_always participant "text")
                                           ++ "> " ++ (packet_get_str_always p "text"))
@@ -234,12 +234,12 @@ app = do
               io $ killThread me
 
            | isPrefixOf "/nick " l -> do
-              mp <- chat_message chat
+              mp <- chat_message (ecId chat)
               case mp of
                 Just p -> do
                   let nick = (drop (length ("/nick ")) l)
                   let p2 = packet_set_str p "text" nick
-                  void $ chat_join chat p2
+                  void $ chat_join (ecId chat) p2
                   io $ logg nick ""
                 Nothing -> return ()
 
@@ -252,7 +252,7 @@ app = do
 
            | isPrefixOf "/chat " l -> do
               logT $ "processing chat:" ++ show (drop 6 l)
-              chat_free chat
+              chat_free (ecId chat)
               mchat <- chat_get (Just (drop 6 l))
               case mchat of
                 Nothing -> do
@@ -260,14 +260,14 @@ app = do
                   return ()
                 Just chat2 -> do
                   putChat chat2
-                  mp <- chat_message chat2
+                  mp <- chat_message (ecId chat2)
                   case mp of
                     Nothing -> do
                       logT $ "/chat: chat_message returned Nothing"
                       return ()
                     Just p -> do
                       let p2 = packet_set_str p "text" nick
-                      chat_join chat2 p2
+                      chat_join (ecId chat2) p2
                       io $ logg nick ("joining chat " ++ show (ecId chat2,packet_get_str p2 "id", ecRHash chat2))
 
            | isPrefixOf "/chans" l -> do
@@ -277,12 +277,12 @@ app = do
 
            | otherwise -> do
               -- default send as message
-              mp <- chat_message chat
+              mp <- chat_message (ecId chat)
               case mp of
                 Nothing -> return ()
                 Just p -> do
                   let p2 = packet_set_str p "text" l
-                  chat_send chat p2
+                  chat_send (ecId chat) p2
                   io $ logg nick ""
 
 

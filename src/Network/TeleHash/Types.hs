@@ -55,6 +55,7 @@ module Network.TeleHash.Types
 
   -- * Extensions types
   , Thtp(..)
+  , OkFail(..)
 
   , ChatId(..)
   , ChatHash(..)
@@ -142,7 +143,7 @@ data TxTelex = TxTelex
       , tPacket :: !Packet
       , tChain  :: !(Maybe TxTelex)
       , tLp     :: !(Maybe LinePacket)
-      } deriving Show
+      } deriving (Show,Eq)
 
 packet_new_rx :: RxTelex
 packet_new_rx =
@@ -417,7 +418,7 @@ data TChan = TChan
   , chLast     :: !(Maybe PathJson)
   , chNext     :: !(Maybe ChannelId)
   , chIn       :: ![RxTelex] -- queue of incoming messages
-  , chNotes    :: ![RxTelex]
+  , chNotes    :: ![TxTelex]
   , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
   , chArg      :: !CArg
   , chSeq      :: !(Maybe Seq)
@@ -623,8 +624,11 @@ typedef struct crypt_1a_struct
 -- Extension related types
 
 data Thtp = Thtp { thIndex :: !(Map.Map String TxTelex)
-                 , thGlob  :: !(Map.Map String TxTelex)
+                 -- , thGlob  :: !(Map.Map String TxTelex)
+                 , thGlob  :: ![TxTelex]
                  } deriving (Show)
+
+data OkFail = Ok | Fail deriving (Show,Eq,Ord)
 
 -- ---------------------------------------------------------------------
 -- Chat

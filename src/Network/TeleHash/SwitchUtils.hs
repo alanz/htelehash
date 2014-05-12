@@ -113,7 +113,8 @@ util_sendall sock = do
               logT $ "sendall:sending " ++ show (tOut p)
               ipv4Send (tOut p) lp Nothing
             _ -> do
-              logT $ "sendall:not sending " ++ show (tOut p)
+              -- logT $ "sendall:not sending " ++ show (tOut p)
+              return ()
       util_sendall sock
 
 

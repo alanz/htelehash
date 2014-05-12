@@ -190,7 +190,7 @@ instance Binary Body where
 -- ---------------------------------------------------------------------
 
 data LinePacket = LP BC.ByteString
-                deriving Show
+                deriving (Show,Eq)
 unLP :: LinePacket -> BC.ByteString
 unLP (LP x) = x
 

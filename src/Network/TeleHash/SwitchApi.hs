@@ -8,6 +8,7 @@ module Network.TeleHash.SwitchApi
   , switch_pop
   , switch_seed
   , switch_loop
+  , switch_note
 
   -- * chan api
   , chan_start
@@ -622,6 +623,46 @@ void switch_loop(switch_t s)
 
 -- ---------------------------------------------------------------------
 
+-- |sends a note packet to it's channel if it can, !0 for error
+switch_note :: TxTelex -> TeleHash OkFail
+switch_note note = do
+  logT $ "switch_note:note=" ++ show note
+  case packet_get_int note ".to" of
+    Nothing -> return Fail
+    Just toVal -> do
+      logT $ "switch_note:toVal=" ++ show toVal
+      mc <- getChanMaybe toVal
+      case mc of
+        Nothing -> do
+          logT $ "switch_note:cannot retrieve channel uid " ++ show toVal
+          return Fail
+        Just c -> do
+          let c2 = c { chNotes = (chNotes c) ++ [note] }
+          putChan c2
+          chan_queue c2
+          return Ok
+
+{-
+// sends a note packet to it's channel if it can, !0 for error
+int switch_note(switch_t s, packet_t note)
+{
+  chan_t c;
+  packet_t notes;
+  if(!s || !note) return -1;
+  c = xht_get(s->index,packet_get_str(note,".to"));
+  if(!c) return -1;
+  notes = c->notes;
+  while(notes) notes = notes->next;
+  if(!notes) c->notes = note;
+  else notes->next = note;
+  chan_queue(c);
+  return 0;
+
+}
+-}
+
+-- ---------------------------------------------------------------------
+
 -- =====================================================================
 -- chan api
 
@@ -1082,7 +1123,7 @@ chan_t chan_fail(chan_t c, char *err)
 -- ---------------------------------------------------------------------
 
 -- |get the next incoming note waiting to be handled
-chan_notes :: TChan -> TeleHash (Maybe RxTelex)
+chan_notes :: TChan -> TeleHash (Maybe TxTelex)
 chan_notes cIn = do
   c <- getChan (chUid cIn)
   if null (chNotes c)
@@ -1109,7 +1150,7 @@ packet_t chan_notes(chan_t c)
 -- ---------------------------------------------------------------------
 
 -- |get all the incoming notes waiting to be handled
-chan_notes_all :: TChan -> TeleHash [RxTelex]
+chan_notes_all :: TChan -> TeleHash [TxTelex]
 chan_notes_all cIn = do
   c <- getChan (chUid cIn)
   let r = chNotes c
@@ -1124,7 +1165,7 @@ chan_note c mnote = do
   let r = case mnote of
            Just n -> n
            Nothing -> packet_new_rx
-  let r2 = packet_set_str r ".from" (show $ chUid c)
+  let r2 = packet_set_int r ".from" (chUid c)
   return r2
 
 {-
@@ -1139,9 +1180,17 @@ packet_t chan_note(chan_t c, packet_t note)
 -- ---------------------------------------------------------------------
 
 -- |send the note back to the creating channel, frees note
-chan_reply :: TChan -> TxTelex -> TeleHash Int
+chan_reply :: TChan -> TxTelex -> TeleHash OkFail
 chan_reply c note = do
-  assert False undefined
+  logT $ "chan_reply:c,note=" ++ showChan c ++ "," ++ show note
+  case packet_get_int note ".from" of
+    Nothing -> do
+      logT $ "chan_reply:missing .from in note"
+      return Fail
+    Just from -> do
+      let note2 = packet_set_int note  ".to"   from
+          note3 = packet_set_int note2 ".from" (chUid c)
+      switch_note note3
 
 {-
 // send this note back to the sender

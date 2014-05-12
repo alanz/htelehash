@@ -250,10 +250,17 @@ packet_body p bs = p { tPacket = (tPacket p) { paBody = Body bs }}
 -- ---------------------------------------------------------------------
 
 packet_link :: Maybe TxTelex -> TxTelex -> TxTelex
-packet_link mparent child =
-  case mparent of
-    Nothing -> packet_new (HN "packet_link")
-    Just parent -> assert False undefined
+packet_link mparent child = r
+  where
+    parent = case mparent of
+      Nothing -> packet_new (tTo child)
+      Just p -> p
+    child2 = if tChain child == Just parent
+               then child { tChain = Nothing }
+               else child
+    parent2 = parent { tChain = Just child2 }
+    r = parent2
+
 {-
 packet_t packet_link(packet_t parent, packet_t child)
 {

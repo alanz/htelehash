@@ -169,3 +169,37 @@ chan_in:p=RxTelex
 
 ext_thtp:got req:HeadJson "{\"path\":\"/chat/56419861/roster\",\"method\":\"get\"}"
 ext_thtp:req json={"method":"get","path":"/chat/56419861/roster"}
+
+
+chat stuff
+----------
+
+create chat
+
+created chat:("tft@0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348",Just "186919c2,1000","a23a9c7c")
+
+## on tft side
+
+joining chat tft@0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348 3f3d248b,1000 0b99e271
+
+
+## hence request received
+
+receive roster req from telehash-c tft for "tft@ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348"
+
+```
+chan_in:p=RxTelex
+{rtId = 0
+, rtSender = PIPv4 (PathIPv4 {v4Ip = 172.17.42.1, v4Port = 46940})
+, rtAt = Mon May 12 10:24:30 SAST 2014
+, rtJs = fromList
+  [("end",Bool True),
+   ("seq",Number 0.0),
+   ("c",Number 1.0),
+   ("type",String "thtp")]
+, rtPacket = Packet
+  { paHead = HeadJson "{\"seq\":0,\"type\":\"thtp\",\"c\":1,\"end\":true}"
+  , paBody = Body "\NUL/{\"path\":\"/chat/56419861/roster\",\"method\":\"get\"}"}
+, rtChanId = Nothing}
+```
+

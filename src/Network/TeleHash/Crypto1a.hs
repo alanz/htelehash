@@ -161,10 +161,10 @@ crypt_new_1a mPubStr mPubBin = do
                       , cCs        = cs
                       }
 
-          logT $ "crypt_loadkey_1a:randomHexVal=" ++ show (randomHexVal)
-          logT $ "crypt_loadkey_1a:hexName=" ++ show (hexName)
-          logT $ "crypt_loadkey_1a:pubkey=" ++ show (B16.encode bs)
-          logT $ "crypt_loadkey_1a:parts=" ++ show (cPart c)
+          -- logT $ "crypt_loadkey_1a:randomHexVal=" ++ show (randomHexVal)
+          -- logT $ "crypt_loadkey_1a:hexName=" ++ show (hexName)
+          -- logT $ "crypt_loadkey_1a:pubkey=" ++ show (B16.encode bs)
+          -- logT $ "crypt_loadkey_1a:parts=" ++ show (cPart c)
           return (Just c)
 
 

@@ -63,7 +63,6 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
--- import qualified Data.Digest.Murmur as Murmur
 import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
@@ -151,8 +150,9 @@ parseChatId str = r
 
 -- ---------------------------------------------------------------------
 
-chat_rhash :: Chat -> TeleHash ChatHash
-chat_rhash chat = do
+chat_rhash :: ChatId -> TeleHash ChatHash
+chat_rhash cid = do
+  chat <- getChat cid
   let r = intercalate "," $ concatMap (\(k,v) -> [k,v]) $ Map.toAscList (ecRoster chat)
   logT $ "chat_rhash:r=" ++ show r
   let rhash = thash r
@@ -279,6 +279,8 @@ thash_raw v = r
     r = finalHash
 
 tt = thash "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000"
+tt1 = thash "tft@0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348"
+
 {-
 
 
@@ -340,8 +342,9 @@ util_mmh32 final 0xa4c4d4bd
 -- ---------------------------------------------------------------------
 
 -- |if mid is Nothing it requests the roster, otherwise requests message id
-chat_cache :: Chat -> HashName -> Maybe String -> TeleHash ()
-chat_cache chat hn mid = do
+chat_cache :: ChatId -> HashName -> Maybe String -> TeleHash ()
+chat_cache cid hn mid = do
+  chat <- getChat cid
   if isJust mid
      && not (',' `elem` (fromJust mid))
     then return ()
@@ -400,7 +403,7 @@ getChat cid = do
 
 -- ---------------------------------------------------------------------
 
-
+-- |return the chat if we aready know about it, else create a new one
 chat_get :: Maybe String -> TeleHash (Maybe Chat)
 chat_get mid = do
   sw <- get
@@ -458,7 +461,7 @@ chat_get mid = do
           let chatr = chatr_new chat
           let hub = hubc { chArg = CArgChatR chatr }
           note <- chan_note hub Nothing
-          let note2 = packet_set_str note "glob" ("/chat/" ++ (show $ ecIdHash chat) ++ "/")
+          let note2 = packet_set_str note "glob" ("/chat/" ++ (unCH $ ecIdHash chat) ++ "/")
           logT $ "chat,glob:" ++ show (ecId chat,packet_get_str note2 "glob")
           thtp_glob Nothing note2
           putChat chat
@@ -466,7 +469,7 @@ chat_get mid = do
           -- any other hashname and we try to initialize
           if not (ecLocal chat)
             then do
-              chat_cache chat (ecOrigin chat) Nothing
+              chat_cache (ecId chat) (ecOrigin chat) Nothing
             else return ()
           return (Just chat)
 
@@ -534,11 +537,11 @@ chat_t chat_get(switch_t s, char *id)
 
 -- ---------------------------------------------------------------------
 
-chat_free :: Chat -> TeleHash ()
-chat_free chat = do
+chat_free :: ChatId -> TeleHash ()
+chat_free cid = do
   sw <- get
   -- TODO: individually release the connections etc
-  put $ sw {swIndexChat = Map.delete (ecId chat) (swIndexChat sw) }
+  put $ sw {swIndexChat = Map.delete cid (swIndexChat sw) }
 
 {-
 chat_t chat_free(chat_t chat)
@@ -559,8 +562,9 @@ chat_t chat_free(chat_t chat)
 
 -- ---------------------------------------------------------------------
 
-chat_message :: Chat -> TeleHash (Maybe TxTelex)
-chat_message chat = do
+chat_message :: ChatId -> TeleHash (Maybe TxTelex)
+chat_message cid = do
+  chat <- getChat cid
   (TOD at _)  <- io getClockTime
   if ecSeq chat == 0
     then return Nothing
@@ -627,18 +631,18 @@ void chat_push(chat_t chat, packet_t msg)
 
 -- ---------------------------------------------------------------------
 
-chat_pop_all :: Chat -> TeleHash [TxTelex]
-chat_pop_all chatIn = do
-  chat <- getChat (ecId chatIn)
+chat_pop_all :: ChatId -> TeleHash [TxTelex]
+chat_pop_all cid = do
+  chat <- getChat cid
   let msgs = ecMsgs chat
   putChat $ chat { ecMsgs = [] }
   return msgs
 
 -- ---------------------------------------------------------------------
 
-chat_pop :: Chat -> TeleHash (Maybe TxTelex)
-chat_pop chatIn = do
-  chat <- getChat (ecId chatIn)
+chat_pop :: ChatId -> TeleHash (Maybe TxTelex)
+chat_pop cid = do
+  chat <- getChat cid
   if null (ecMsgs chat)
     then return Nothing
     else do
@@ -679,7 +683,7 @@ chat_restate cid hn = do
               if ',' `elem` idVal
                 then do
                   -- we should have the join id, try to get it again
-                  void $ chat_cache chat (HN hn) (Just idVal)
+                  void $ chat_cache cid (HN hn) (Just idVal)
                   return $ packet_set_str (packet_new (HN hn)) "text" "connecting"
                 else do
                   return $ packet_set_str (packet_new (HN hn)) "text" idVal
@@ -774,11 +778,15 @@ chat_sync cid = do
                  Just _  -> True
   let roster = Map.toAscList (ecRoster chat)
   forM_ roster $ \(part,v) -> do
+    logT $ "chat_sync:processing (part,v)" ++ show (part,v)
     if length part /= 64 || (swId sw) == HN part
-      then return ()
+      then do
+        logT $ "chat_sync:not processing part " ++ show part
+        return ()
       else do
         case Map.lookup part (ecConn chat) of
           Just uid -> do
+            logT $ "chat_sync:got channel uid:" ++ show uid
             c <- getChan uid
             let mr = chArg c
             case mr of
@@ -790,7 +798,9 @@ chat_sync cid = do
                     -- state change
                     chat_restate (ecId chat) part
                     assert False undefined
-              _ -> return ()
+              _ -> do
+                logT $ "chat_sync: unexpected cArg:" ++ show mr
+                return ()
           Nothing -> do
             assert False undefined
 {-
@@ -856,8 +866,10 @@ void chat_log(chat_t chat, packet_t msg)
 
 -- ---------------------------------------------------------------------
 
-chat_join :: Chat -> TxTelex -> TeleHash (Maybe Chat)
-chat_join chat join = do
+chat_join :: ChatId -> TxTelex -> TeleHash (Maybe Chat)
+chat_join cid join = do
+  chat <- getChat cid
+  logT $ "chat_join:(ecJoin,join)=" ++ show (ecJoin chat,join)
   -- paranoid, don't double-join
   if isJust (ecJoin chat)
      && ((ecJoin chat) == (packet_get_str join "id"))
@@ -874,12 +886,12 @@ chat_join chat join = do
                                                 (ecRoster chat3) }
       putChat chat4
       chat_restate (ecId chat4) (unHN $ swId sw)
-      chat5 <- getChat (ecId chat4)
-      chat_rhash chat5
+      chat5 <- getChat cid
+      chat_rhash cid
 
       -- create/activate all chat channels
-      chat_sync (ecId chat5)
-      chat6 <- getChat (ecId chat5)
+      chat_sync cid
+      chat6 <- getChat cid
       return $ Just chat6
 
 {-
@@ -936,9 +948,9 @@ void chat_chunk(chan_t c, packet_t msg)
 
 -- ---------------------------------------------------------------------
 
-chat_send :: Chat -> TxTelex -> TeleHash ()
-chat_send chatIn msg = do
-  chat <- getChat (ecId chatIn)
+chat_send :: ChatId -> TxTelex -> TeleHash ()
+chat_send cid msg = do
+  chat <- getChat cid
   chat_log (ecId chat) msg
 
   -- send as a note to all connected
@@ -981,21 +993,25 @@ chat_t chat_send(chat_t chat, packet_t msg)
 -}
 -- ---------------------------------------------------------------------
 
-chat_add :: Chat -> String -> String -> TeleHash (Maybe Chat)
-chat_add chat hn val = do
+chat_add :: ChatId -> String -> String -> TeleHash (Maybe Chat)
+chat_add cid hn val = do
+  chat <- getChat cid
+  logT $ "chat_add:(hn,val)=" ++ show (hn,val)
   if hn == "" || val == "" || (not $ ecLocal chat)
     then return Nothing
     else do
       let roster = Map.insert hn val (ecRoster chat)
           chat2 = chat { ecRoster = roster }
       putChat chat2
-      chat_rhash chat2
-      chat_sync (ecId chat2)
+      logT $ "chat_add:ecRoster=" ++ show (ecRoster chat2)
+      chat_rhash cid
+      chat_sync cid
       -- try to load if it's a message id
       if ',' `elem` val
-        then chat_cache chat2 (HN hn) (Just val)
+        then chat_cache cid (HN hn) (Just val)
         else return ()
-      return (Just chat2)
+      chat3 <- getChat cid
+      return (Just chat3)
 
 {-
 chat_t chat_add(chat_t chat, char *hn, char *val)
@@ -1031,7 +1047,7 @@ chat_t chat_hub(chat_t chat)
 {
   packet_t p, note, req, resp;
   char *path, *thtp, *id;
-  
+
   while((note = chan_notes(chat->hub)))
   {
     thtp = packet_get_str(note,"thtp");
@@ -1100,7 +1116,30 @@ chat_t chat_hub(chat_t chat)
 
 -- ---------------------------------------------------------------------
 
-ext_chat = assert False undefined
+ext_chat :: Uid -> TeleHash ()
+ext_chat cid = do
+  c <- getChan cid
+
+  logT $ "ext_chan:chArg c=" ++ show (chArg c)
+  -- this is the hub channel, process it there
+  case chArg c of
+    CArgChatR r -> do
+      assert False undefined
+    CArgNone -> do
+      -- channel start request
+      mp <- chan_pop cid
+      logT $ "ext_chat:chan start:mp=" ++ show mp
+      case mp of
+        Nothing -> do
+          logT $ "ext_chat:chan start got bad channel"
+          chansStr <- showAllChans
+          logT $ "ext_chat:current channels:\n" ++ chansStr
+          chan_fail c (Just "500")
+          return ()
+        Just p -> do
+          assert False undefined
+    _ -> do
+      assert False undefined
 
 {-
 chat_t ext_chat(chan_t c)
@@ -1142,13 +1181,13 @@ chat_t ext_chat(chan_t c)
     // add to roster if given
     if(id) chat_add(chat,c->to->hexname,id);
     packet_set_str(p,"roster",chat->rhash);
-    
+
     // re-fetch roster if hashes don't match
     if(util_cmp(packet_get_str(p,"roster"),chat->rhash) != 0) chat_cache(chat,chat->origin->hexname,NULL);
 
     chan_send(c,p);
   }
-  
+
   // response to a join
   if(!r->online && (p = chan_pop(c)))
   {
@@ -1194,8 +1233,9 @@ chat_t ext_chat(chan_t c)
 
 -- ---------------------------------------------------------------------
 
-chat_participant :: Chat -> String -> TeleHash (Maybe RxTelex)
-chat_participant chat hn = do
+chat_participant :: ChatId -> String -> TeleHash (Maybe RxTelex)
+chat_participant cid hn = do
+  chat <- getChat cid
   assert False undefined
 {-
 packet_t chat_participant(chat_t chat, char *hn)
