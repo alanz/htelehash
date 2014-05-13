@@ -267,3 +267,26 @@ TxTelex
 
 decoded line packet from above
 ext_thtp:PingPongPacket received:Packet {paHead = HeadJson "{\"status\":200}", paBody = Body "{\"*\":\"invited\",\"49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a\":\"d21d7472,1000\"}"}
+
+
+thtp get response for roster
+---------------------------
+
+```
+chat_hub:got note TxTelex
+{tId = 0
+, tTo = HN "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a"
+, tOut = PNone
+, tJs = fromList
+   [("to",String "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a")
+   ,("for",String "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a")
+   ,(".from",Number 6.0)
+   ,("thtp",String "resp")
+   ,(".to",Number 5.0)
+   ,("path",String "/chat/0df5f84f/roster")]
+, tPacket = Packet
+    { paHead = HeadJson "{\"status\":200}"
+    , paBody = Body "{\"*\":\"invited\",\"49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a\":\"a8232b15,1000\"}"}
+, tChain = Nothing
+, tLp = Nothing}
+```

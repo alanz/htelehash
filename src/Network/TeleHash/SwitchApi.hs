@@ -843,7 +843,7 @@ chan_t chan_reliable(chan_t c, int window);
 chan_reliable :: TChan -> Int -> TeleHash TChan
 chan_reliable cIn window = do
   c <- getChan (chUid cIn)
-  logT $ "chan_reliable (c,window):" ++ show (c,window)
+  -- logT $ "chan_reliable (c,window):" ++ show (c,window)
   if window == 0 || chState c /= ChanStarting || chReliable c /= 0
     then return c
     else do
@@ -1277,7 +1277,7 @@ void chan_receive(chan_t c, packet_t p)
 -- |smartly send based on what type of channel we are
 chan_send :: TChan -> TxTelex -> TeleHash ()
 chan_send c p = do
-  logT $ "chan_send:channel out " ++ show (chId c,p)
+  logT $ "chan_send:channel out " ++ show (chUid c,chId c,p)
   p2 <- if chReliable c /= 0
           then do
             let p' = packet_copy p
@@ -1506,7 +1506,7 @@ packet_t chan_seq_packet(chan_t c)
 chan_seq_receive :: TChan -> RxTelex -> TeleHash Bool
 chan_seq_receive cIn p = do
   c <- getChan (chUid cIn)
-  logT $ "chan_seq_receive:" ++ show (c,p)
+  -- logT $ "chan_seq_receive:" ++ show (c,p)
   case chSeq c of
     Nothing -> do
       logT $ "chan_seq_receive: no chSeq struct for " ++ show (c,p)
@@ -1689,7 +1689,7 @@ void chan_miss_send(chan_t c, packet_t p);
 -- |looks at incoming miss/ack and resends or frees
 chan_miss_check :: TChan -> RxTelex -> TeleHash ()
 chan_miss_check cIn p = do
-  logT $ "chan_miss_check for " ++ show (cIn,p)
+  -- logT $ "chan_miss_check for " ++ show (cIn,p)
   c <- getChan (chUid cIn)
   case chMiss c of
     Nothing -> do
@@ -1707,7 +1707,7 @@ chan_miss_check cIn p = do
               return ()
             else do
               -- free and shift up to the ack
-              logT $ "chan_miss_check:(ack,nNextAck m,mOut m,chReliable c)=" ++ show (ack,mNextAck m,mOut m,chReliable c)
+              -- logT $ "chan_miss_check:(ack,nNextAck m,mOut m,chReliable c)=" ++ show (ack,mNextAck m,mOut m,chReliable c)
               let ackCount = (ack - (mNextAck m))
                   acked = [mNextAck m .. ack]
               if ackCount > 0

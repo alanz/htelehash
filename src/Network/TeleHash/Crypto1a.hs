@@ -306,7 +306,7 @@ crypt_lineize_1a c p = do
 
     rc = c { cCs = cs { cs1aSeq = (cs1aSeq cs) + 1 } }
     r = (rc,Just $ toLinePacket (Packet HeadEmpty (Body final)))
-  logT $ "crypt_lineize_1a:(p,body)=" ++ show (p,body)
+  -- logT $ "crypt_lineize_1a:(p,body)=" ++ show (p,body)
   return r
 
   -- 16 bytes of lineIn

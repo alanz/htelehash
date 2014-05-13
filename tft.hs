@@ -145,7 +145,7 @@ app = do
 
   -- create an admin channel for notes
   admin <- chan_new (swId sw) ".admin" Nothing
-
+  logT $ "admin channel:" ++ showChan admin
 
   let rx_loop = do
         logT $ "rx_loop entered"

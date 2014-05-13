@@ -588,7 +588,7 @@ showAllChans = do
 -- ---------------------------------------------------------------------
 
 showChan :: TChan -> String
-showChan c = "(chan:" ++ show (chUid c,chId c,chTo c,chReliable c,chState c) ++ ")"
+showChan c = "(chan:" ++ show (chUid c,chId c,chTo c,chReliable c,chState c,chType c) ++ ")"
 
 -- ---------------------------------------------------------------------
 -- Logging
@@ -600,7 +600,7 @@ logT str = io (warningM "Controller" str)
 -- Convenience.
 --
 io :: IO a -> TeleHash a
-io = liftIO
+io = Control.Monad.State.liftIO
 
 -- ---------------------------------------------------------------------
 

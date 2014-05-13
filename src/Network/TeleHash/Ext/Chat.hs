@@ -436,6 +436,8 @@ chat_get mid = do
           logT $ "chat_get:making new chat"
           hubc <- chan_new (swId sw) "chat" Nothing
 
+          logT $ "chat_get:hub=" ++ showChan hubc
+
           randWord32 <- randomWord32
           let chat = Chat
                 { ecEp     = ciEndpoint cid
@@ -460,9 +462,11 @@ chat_get mid = do
           -- an admin channel for distribution and thtp requests
           let chatr = chatr_new chat
           let hub = hubc { chArg = CArgChatR chatr }
+          putChan hub
           note <- chan_note hub Nothing
           let note2 = packet_set_str note "glob" ("/chat/" ++ (unCH $ ecIdHash chat) ++ "/")
-          logT $ "chat,glob:" ++ show (ecId chat,packet_get_str note2 "glob")
+          logT $ "chat_get:chat,glob:" ++ show (ecId chat,packet_get_str note2 "glob")
+          logT $ "chat_get:glob full:" ++ show (note2)
           thtp_glob Nothing note2
           putChat chat
 
@@ -873,7 +877,9 @@ chat_join cid join = do
   -- paranoid, don't double-join
   if isJust (ecJoin chat)
      && ((ecJoin chat) == (packet_get_str join "id"))
-    then return Nothing
+    then do
+      logT $ "chat_join: avoiding double join"
+      return Nothing
     else do
       let j2 = packet_set_str join "type" "join"
           chat2 = chat {ecJoin = packet_get_str j2 "id"}
@@ -892,6 +898,7 @@ chat_join cid join = do
       -- create/activate all chat channels
       chat_sync cid
       chat6 <- getChat cid
+      logT $ "chat_join:ecRoster=" ++ show (ecRoster chat6)
       return $ Just chat6
 
 {-
@@ -1041,7 +1048,59 @@ int chat_perm(chat_t chat, char *hn)
   if(util_cmp(val,"blocked") == 0) return -1;
   return 1;
 }
+-}
 
+-- ---------------------------------------------------------------------
+
+-- |this is the hub channel, it just receives notes
+chat_hub :: Chat -> TeleHash Chat
+chat_hub chat = do
+  hub <- getChan (ecHub chat)
+  notes <- chan_notes_all hub
+  forM_ notes $ \note -> do
+    logT $ "chat_hub:got note " ++ show note
+    let mthtp = packet_get_str note "thtp"
+    case mthtp of
+      Nothing -> do
+        logT $ "chat_hub:got non-thtp response:" ++ show note
+        assert False undefined
+      Just "req" -> do
+        -- incoming requests
+        assert False undefined
+      Just "resp" -> do
+        -- answers to our requests
+        let resp = tPacket note
+            mpath = packet_get_str note "path"
+        logT $ "chat_hub:note resp packet " ++ show (mpath, resp)
+        case mpath of
+          Nothing -> do
+            assert False undefined
+          Just path -> do
+            if isInfixOf "/roster" path
+              then do
+                let mjhead = packetJson resp
+                    mjbody = Aeson.decode (cbsTolbs $ unBody $ paBody resp) :: Maybe Aeson.Value
+                logT $ "chat_hub:(mjhead,mjbody)=" ++ show (mjhead,mjbody)
+                case mjbody of
+                  Nothing -> return ()
+                  Just (Object hm) -> do
+                    let
+                      doOne (k,String v) = (Text.unpack k,Text.unpack v)
+                      doOne (k,v) = error $ "chat_hub:doOne got " ++ show (k,v)
+                      rval = map doOne $ HM.toList hm
+                    logT $ "chat_hub:rval=" ++ show rval
+                    let chat2 = chat { ecRoster = Map.fromList rval }
+                    putChat chat2
+                    chat_sync (ecId chat2)
+                  _ -> do
+                    logT $ "chat_hub:got unexpected JSON value:" ++ show mjbody
+                    assert False undefined
+                return ()
+              else return ()
+        assert False undefined
+  assert False undefined
+
+{-
 // this is the hub channel, it just receives notes
 chat_t chat_hub(chat_t chat)
 {
@@ -1116,15 +1175,22 @@ chat_t chat_hub(chat_t chat)
 
 -- ---------------------------------------------------------------------
 
-ext_chat :: Uid -> TeleHash ()
+ext_chat :: Uid -> TeleHash (Maybe Chat)
 ext_chat cid = do
   c <- getChan cid
+
 
   logT $ "ext_chan:chArg c=" ++ show (chArg c)
   -- this is the hub channel, process it there
   case chArg c of
     CArgChatR r -> do
-      assert False undefined
+      -- this is the hub channel, process it there
+      if ecHub (ecrChat r) == cid
+        then do
+          chat <- chat_hub (ecrChat r)
+          return $ Just chat
+        else do
+          assert False undefined
     CArgNone -> do
       -- channel start request
       mp <- chan_pop cid
@@ -1135,7 +1201,7 @@ ext_chat cid = do
           chansStr <- showAllChans
           logT $ "ext_chat:current channels:\n" ++ chansStr
           chan_fail c (Just "500")
-          return ()
+          return Nothing
         Just p -> do
           assert False undefined
     _ -> do
