@@ -403,6 +403,11 @@ getChat cid = do
   sw <- get
   return $ gfromJust ("getChat " ++ show cid) $ Map.lookup cid (swIndexChat sw)
 
+getChatMaybe :: ChatId -> TeleHash (Maybe Chat)
+getChatMaybe cid = do
+  sw <- get
+  return $ Map.lookup cid (swIndexChat sw)
+
 -- ---------------------------------------------------------------------
 
 -- |return the chat if we aready know about it, else create a new one
@@ -1274,7 +1279,14 @@ ext_chat cid = do
           chan_fail c (Just "500")
           return Nothing
         Just p -> do
-          assert False undefined
+          mchat <- chat_get (packet_get_str p "to")
+          case mchat of
+            Nothing -> do
+              chan_fail c (Just "500")
+              return Nothing
+            Just chat -> do
+              logT $ "ext_chat: got chat " ++ show chat
+              assert False undefined
     _ -> do
       assert False undefined
 
