@@ -1183,8 +1183,9 @@ packet_t chan_note(chan_t c, packet_t note)
 -- ---------------------------------------------------------------------
 
 -- |send the note back to the creating channel, frees note
-chan_reply :: TChan -> TxTelex -> TeleHash OkFail
-chan_reply c note = do
+chan_reply :: Uid -> TxTelex -> TeleHash OkFail
+chan_reply cid note = do
+  c <- getChan cid
   logT $ "chan_reply:c,note=" ++ showChan c ++ "," ++ show note
   case packet_get_int note ".from" of
     Nothing -> do

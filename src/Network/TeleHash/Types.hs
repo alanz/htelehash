@@ -683,7 +683,7 @@ typedef struct chat_struct
 -}
 
 data ChatR = ChatR
-      { ecrChat   :: !Chat
+      { ecrChat   :: !ChatId
       , ecrIn     :: !RxTelex
       , ecrJoined :: !Bool
       , ecrOnline :: !Bool

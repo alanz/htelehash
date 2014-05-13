@@ -205,13 +205,13 @@ chan_in:p=RxTelex
 
 tftp
 
-thtp_req:setting CArgTx to TxTelex 
+thtp_req:setting CArgTx to TxTelex
 {tId = 0
 , tTo = HN "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a"
 , tOut = PNone
 , tJs = fromList []
 , tPacket = Packet {paHead = HeadEmpty, paBody = Body ""}
-, tChain = Just (TxTelex 
+, tChain = Just (TxTelex
  {tId = 0
  , tTo = HN "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a"
  , tOut = PNone
@@ -290,3 +290,32 @@ chat_hub:got note TxTelex
 , tChain = Nothing
 , tLp = Nothing}
 ```
+
+thtp get request for roster
+---------------------------
+
+```
+chat_hub:got note TxTelex
+{tId = 0
+, tTo = HN "0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348"
+, tOut = PNone
+, tJs = fromList
+  [("glob",String "/chat/56419861/")
+  ,(".from",Number 6.0)
+  ,("thtp",String "req")
+  ,(".to",Number 1.0)]
+, tPacket = Packet { paHead = HeadEmpty, paBody = Body ""}
+, tChain = Just (TxTelex
+   {tId = 0
+   , tTo = HN "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a"
+   , tOut = PNone
+   , tJs = fromList []
+   , tPacket = Packet
+     { paHead = HeadJson "{\"path\":\"/chat/56419861/roster\",\"method\":\"get\"}"
+     , paBody = Body ""}
+   , tChain = Nothing
+   , tLp = Nothing})
+, tLp = Nothing}
+
+```
+

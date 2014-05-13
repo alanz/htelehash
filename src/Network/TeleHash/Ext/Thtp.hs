@@ -372,8 +372,16 @@ ext_thtp cid = do
   mnote <- chan_notes c
   if chState c == ChanEnding && isJust mnote
     then do
-      logT $ "ext_thtp:got note resp " ++ showJson (tJs $ fromJust mnote)
-      assert False undefined
+      -- logT $ "ext_thtp:got note resp " ++ showJson (tJs $ fromJust mnote)
+      logT $ "ext_thtp:got note resp " ++ show mnote
+      let note = fromJust mnote
+          mp = packet_unlink note
+      logT $ "ext_thtp:reply note p=" ++ show mp
+      case mp of
+        Just p -> thtp_send c p
+        Nothing -> do
+          assert False undefined
+          return ()
     else do
       rxs <- chan_pop_all cid
       logT $ "ext_thtp:rxs=" ++ show rxs
@@ -436,7 +444,6 @@ ext_thtp cid = do
                 logT $ "ext_thtp:PingPongPacket received:" ++ show (lp)
 
                 -- this is a response, send it
-                logT $ "ext_thtp: TODO: reinstate response process"
 {-
 ext_thtp:chArg:CArgTx (TxTelex {tId = 0, tTo = HN "packet_link", tOut = PNone, tJs = fromList [], tPacket = Packet {paHead = HeadEmpty, paBody = Body ""}, tChain = Nothing, tLp = Nothing})
 
@@ -452,8 +459,8 @@ ext_thtp:PingPongPacket received:Packet {paHead = HeadJson "{\"status\":200}", p
                     logT $ "ext_thtp:got response2 " ++ (show note)
                     let note2 = note { tPacket = lp }
                         note3 = packet_set_str note2 "thtp" "resp"
-                    chan_reply c note3
-                    chan_end c Nothing
+                    void $ chan_reply (chUid c) note3
+                    void $ chan_end c Nothing
                     return ()
 
                   Nothing -> do
@@ -491,7 +498,7 @@ ext_thtp:PingPongPacket received:Packet {paHead = HeadJson "{\"status\":200}", p
                                 sw <- get
                                 let f = packet_link (Just note) ((packet_new (chTo c)){ tPacket = req } )
                                     f2 = packet_set_str f "thtp" "req"
-                                r <- chan_reply c f2
+                                r <- chan_reply (chUid c) f2
                                 logT $ "ext_thtp:chan_reply (r,f2):" ++ show (r,f2)
                                 case r of
                                   Ok   -> return ()
