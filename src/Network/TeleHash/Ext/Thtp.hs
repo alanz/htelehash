@@ -385,129 +385,124 @@ ext_thtp cid = do
     else do
       rxs <- chan_pop_all cid
       logT $ "ext_thtp:rxs=" ++ show rxs
-      forM_ rxs $ \p -> do
-        c2 <- getChan cid -- may have changed in earlier loop iteration
-        case packet_get_str p "err" of
-          Just v -> do
-            logT $ "ext_thtp:got err: " ++ show v
-          Nothing -> return ()
-        logT $ "ext_thtp:chArg:" ++ show (chArg c2)
-        buf <- case chArg c2 of
-          CArgNone -> do
-            let pt = rxTelexToTxTelex p (HN "thtp")
-            putChan $ c2 { chArg = CArgTx pt }
-            return $ pt
-          CArgRx r -> do
-            let pt = rxTelexToTxTelex p (HN "thtp")
-                rt = rxTelexToTxTelex r (HN "thtp")
-            let r2 = packet_append rt (unBody $ paBody (tPacket pt))
-            putChan $ c2 { chArg = CArgTx r2 }
-            return r2
-          CArgTx r -> do
-            let r2 = packet_append r (unBody $ paBody (rtPacket p))
-            logT $ "ext_thtp:CArgTx: (r,r2)=" ++ show (r,r2)
-            putChan $ c2 { chArg = CArgTx r2 }
-            return r2
-            -- putChan $ c2 { chArg = CArgRx p }
-            -- return p
-          arg -> do
-            logT $ "ext_thtp:unexpected cArg:" ++ show arg
-            assert False undefined
+      r <- forM rxs $ \p -> do
+              c2 <- getChan cid -- may have changed in earlier loop iteration
+              case packet_get_str p "err" of
+                Just v -> do
+                  logT $ "ext_thtp:got err: " ++ show v
+                Nothing -> return ()
+              logT $ "ext_thtp:chArg:" ++ show (chArg c2)
+              buf <- case chArg c2 of
+                CArgNone -> do
+                  let pt = rxTelexToTxTelex p (HN "thtp")
+                  putChan $ c2 { chArg = CArgTx pt }
+                  return $ pt
+                CArgRx r -> do
+                  let pt = rxTelexToTxTelex p (HN "thtp")
+                      rt = rxTelexToTxTelex r (HN "thtp")
+                  let r2 = packet_append rt (unBody $ paBody (tPacket pt))
+                  putChan $ c2 { chArg = CArgTx r2 }
+                  return r2
+                CArgTx r -> do
+                  let r2 = packet_append r (unBody $ paBody (rtPacket p))
+                  logT $ "ext_thtp:CArgTx: (r,r2)=" ++ show (r,r2)
+                  putChan $ c2 { chArg = CArgTx r2 }
+                  return r2
+                  -- putChan $ c2 { chArg = CArgRx p }
+                  -- return p
+                arg -> do
+                  logT $ "ext_thtp:unexpected cArg:" ++ show arg
+                  assert False undefined
 
-        -- for now we're processing whole-requests-at-once, to do streaming
-        --  we can try parsing note->body for the headers anytime
-        c3 <- getChan cid
-        if not (chState c3 == ChanEnding)
-          then return ()
-          else do
-            -- When the last chunk is sent, the "end" flag is set, should all be here in the body
+              -- for now we're processing whole-requests-at-once, to do streaming
+              --  we can try parsing note->body for the headers anytime
+              c3 <- getChan cid
+              if not (chState c3 == ChanEnding)
+                then return False
+                else do
+                  -- When the last chunk is sent, the "end" flag is set, should all be here in the body
 
-            -- parse the payload
-            logT $ "ext_thtp:(rtPacket buf)=" ++ show (tPacket buf)
-            let bufBody = unBody $ paBody (tPacket buf)
-            let mnp = fromNetworkPacket (LP bufBody)
-            logT $ "ext_thtp:mnp=" ++ show mnp
-            case mnp of
-              Nothing -> do
-                logT $ "ext_thtp:malformed long packet received:" ++ show (bufBody)
-                void $ chan_fail c (Just "422")
-                return ()
-              Just (OpenPacket _b _bs) -> do
-                logT $ "ext_thtp:unexpected OpenPacket received:" ++ show (mnp)
-                void $ chan_fail c (Just "422")
-                return ()
-              Just (LinePacket _pbody) -> do
-                logT $ "ext_thtp:unexpected LinePacket received:" ++ show (mnp)
-                void $ chan_fail c (Just "422")
-                return ()
-              Just (PingPongPacket lp) -> do
-                logT $ "ext_thtp:PingPongPacket received:" ++ show (lp)
+                  -- parse the payload
+                  logT $ "ext_thtp:(rtPacket buf)=" ++ show (tPacket buf)
+                  let bufBody = unBody $ paBody (tPacket buf)
+                  let mnp = fromNetworkPacket (LP bufBody)
+                  logT $ "ext_thtp:mnp=" ++ show mnp
+                  case mnp of
+                    Nothing -> do
+                      logT $ "ext_thtp:malformed long packet received:" ++ show (bufBody)
+                      void $ chan_fail c (Just "422")
+                      return True
+                    Just (OpenPacket _b _bs) -> do
+                      logT $ "ext_thtp:unexpected OpenPacket received:" ++ show (mnp)
+                      void $ chan_fail c (Just "422")
+                      return True
+                    Just (LinePacket _pbody) -> do
+                      logT $ "ext_thtp:unexpected LinePacket received:" ++ show (mnp)
+                      void $ chan_fail c (Just "422")
+                      return True
+                    Just (PingPongPacket lp) -> do
+                      logT $ "ext_thtp:PingPongPacket received:" ++ show (lp)
 
-                -- this is a response, send it
-{-
-ext_thtp:chArg:CArgTx (TxTelex {tId = 0, tTo = HN "packet_link", tOut = PNone, tJs = fromList [], tPacket = Packet {paHead = HeadEmpty, paBody = Body ""}, tChain = Nothing, tLp = Nothing})
+                      -- this is a response, send it
+                      logT $ "ext_thtp: buf=" ++ show buf
 
-ext_thtp:PingPongPacket received:Packet {paHead = HeadJson "{\"status\":200}", paBody = Body "{\"*\":\"invited\",\"49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a\":\"177b603c,1000\"}"}
--}
-                logT $ "ext_thtp: buf=" ++ show buf
+                      case packet_unlink buf of
+                      -- case Nothing of
+                        Just note -> do
+                          -- note is the orignal request sent.
+                          logT $ "ext_thtp:got response " ++ (show $ packetJson lp) ++ " for " ++ showJson (tJs note)
+                          logT $ "ext_thtp:got response2 " ++ (show note)
+                          let note2 = note { tPacket = lp }
+                              note3 = packet_set_str note2 "thtp" "resp"
+                          void $ chan_reply (chUid c) note3
+                          void $ chan_end c Nothing
+                          return True
 
-                case packet_unlink buf of
-                -- case Nothing of
-                  Just note -> do
-                    -- note is the orignal request sent.
-                    logT $ "ext_thtp:got response " ++ (show $ packetJson lp) ++ " for " ++ showJson (tJs note)
-                    logT $ "ext_thtp:got response2 " ++ (show note)
-                    let note2 = note { tPacket = lp }
-                        note3 = packet_set_str note2 "thtp" "resp"
-                    void $ chan_reply (chUid c) note3
-                    void $ chan_end c Nothing
-                    return ()
+                        Nothing -> do
+                          -- this is an incoming request
+                          let req = lp
+                          logT $ "ext_thtp:got req:" ++ show (paHead lp)
+                          let mjs = packetJson lp
+                          case mjs of
+                            Nothing -> do
+                              logT $ "ext_thtp: malformed request received"
+                              void $ chan_fail c (Just "422")
+                              return True
+                            Just v -> do
+                              logT $ "ext_thtp:req json=" ++ showJson v
+                              let mpath  = get_str_from_value "path" v
+                                  mmatch = if isJust mpath then Map.lookup (fromJust mpath) (thIndex t)
+                                                           else Nothing
+                              mmatch2 <- if isJust mmatch then return mmatch
+                                                          else _thtp_glob t (gfromJust "ext_thtp" mpath)
 
-                  Nothing -> do
-                    -- this is an incoming request
-                    let req = lp
-                    logT $ "ext_thtp:got req:" ++ show (paHead lp)
-                    let mjs = packetJson lp
-                    case mjs of
-                      Nothing -> do
-                        logT $ "ext_thtp: malformed request received"
-                        void $ chan_fail c (Just "422")
-                        return ()
-                      Just v -> do
-                        logT $ "ext_thtp:req json=" ++ showJson v
-                        let mpath  = get_str_from_value "path" v
-                            mmatch = if isJust mpath then Map.lookup (fromJust mpath) (thIndex t)
-                                                     else Nothing
-                        mmatch2 <- if isJust mmatch then return mmatch
-                                                    else _thtp_glob t (gfromJust "ext_thtp" mpath)
-
-                        case mmatch2 of
-                          Nothing -> do
-                            logT $ "ext_thtp:no match value in request"
-                            void $ chan_fail c (Just "404")
-                            return ()
-                          Just mm -> do
-                            -- built in response
-                            case packet_linked mm of
-                              Just linked -> do
-                                thtp_send c linked
-                                return ()
-                              Nothing -> do
-                                -- attach and route request to a new note
-                                let note = mm
-                                sw <- get
-                                let f = packet_link (Just note) ((packet_new (chTo c)){ tPacket = req } )
-                                    f2 = packet_set_str f "thtp" "req"
-                                r <- chan_reply (chUid c) f2
-                                logT $ "ext_thtp:chan_reply (r,f2):" ++ show (r,f2)
-                                case r of
-                                  Ok   -> return ()
-                                  Fail -> do
-                                    chan_fail c (Just "500")
-                                    return ()
-
-  -- optionally sends ack if needed
-  chan_ack c
+                              case mmatch2 of
+                                Nothing -> do
+                                  logT $ "ext_thtp:no match value in request"
+                                  void $ chan_fail c (Just "404")
+                                  return True
+                                Just mm -> do
+                                  -- built in response
+                                  case packet_linked mm of
+                                    Just linked -> do
+                                      thtp_send c linked
+                                      return True
+                                    Nothing -> do
+                                      -- attach and route request to a new note
+                                      let note = mm
+                                      sw <- get
+                                      let f = packet_link (Just note) ((packet_new (chTo c)){ tPacket = req } )
+                                          f2 = packet_set_str f "thtp" "req"
+                                      r <- chan_reply (chUid c) f2
+                                      logT $ "ext_thtp:chan_reply (r,f2):" ++ show (r,f2)
+                                      case r of
+                                        Ok   -> return True
+                                        Fail -> do
+                                          chan_fail c (Just "500")
+                                          return True
+      if any (==True) r
+        then return ()
+        else chan_ack c
 
 {-
 void ext_thtp(chan_t c)

@@ -306,7 +306,7 @@ crypt_lineize_1a c p = do
 
     rc = c { cCs = cs { cs1aSeq = (cs1aSeq cs) + 1 } }
     r = (rc,Just $ toLinePacket (Packet HeadEmpty (Body final)))
-  -- logT $ "crypt_lineize_1a:(p,body)=" ++ show (p,body)
+  logT $ "crypt_lineize_1a:(p,body)=" ++ show (p,body)
   return r
 
   -- 16 bytes of lineIn
@@ -643,7 +643,7 @@ crypt_delineize_1a c rxTelex = do
         else do
           let deciphered = decryptCTR (initAES keyIn) (BC.append ivz iv) body2
               mret = fromLinePacket (LP deciphered)
-          -- logT $ "crypt_delineize_1a:mret=" ++ show mret
+          logT $ "crypt_delineize_1a:mret=" ++ show mret
           case mret of
             Nothing -> return (Left "invalid decrypted packet")
             Just ret -> do
