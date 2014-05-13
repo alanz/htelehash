@@ -31,6 +31,7 @@ import Data.Bits
 import Data.Char
 import Data.IP
 import Data.List
+import Data.List.Split
 import Data.Maybe
 import Data.String.Utils
 import Data.Text.Lazy.Builder
@@ -1107,10 +1108,28 @@ chat_hub chatId = do
                         let p2 = packet_set_int pn "status" 200
                             p3 = packet_body p2 (lbsTocbs $ Aeson.encode (ecRoster chat))
                         logT $ "chat_hub:ecRoster=" ++ show (ecRoster chat)
-                        logT $ "chat_hub:p3=" ++ show p3
+                        logT $ "chat_hub:roster p3=" ++ show p3
                         return p3
                       else do
-                        assert False undefined
+                        -- /chat/56419861/id/01544f0d,1000
+                        if isInfixOf "/id/" (Text.unpack path)
+                          then do
+                            logT $ "chat_hub:path=" ++ show path
+                            let pathParts = splitOn "/" (Text.unpack path)
+                                idVal = last pathParts
+                            logT $ "chat_hub:idVal=" ++ show idVal
+                            case Map.lookup idVal (ecLog chat) of
+                              Nothing -> do
+                                logT $ "chat_hub:no log for " ++ show idVal
+                                return $ packet_set_int pn "status" 404
+                              Just resp -> do
+                                (LP respBody) <- packet_raw resp
+                                let p2 = packet_set_int pn "status" 200
+                                    p3 = packet_body p2 respBody
+                                logT $ "chat_hub:id p3=" ++ show p3
+                                return p3
+                          else do
+                            assert False undefined
           Nothing -> do
             assert False undefined
         let note2 = packet_link (Just note) p
@@ -1231,8 +1250,6 @@ chat_t chat_hub(chat_t chat)
 ext_chat :: Uid -> TeleHash (Maybe Chat)
 ext_chat cid = do
   c <- getChan cid
-
-
   logT $ "ext_chan:chArg c=" ++ show (chArg c)
   -- this is the hub channel, process it there
   case chArg c of
