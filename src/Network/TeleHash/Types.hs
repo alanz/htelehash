@@ -10,6 +10,7 @@ module Network.TeleHash.Types
   , Hash(..)
   , unHash
   , Uid
+  , TxId
   , PathId
   , TxTelex(..)
   , RxTelex(..)
@@ -58,6 +59,7 @@ module Network.TeleHash.Types
   , OkFail(..)
 
   , ChatId(..)
+  , ChatPerm(..)
   , ChatHash(..)
   , unCH
   , chatIdToString
@@ -125,6 +127,7 @@ unHN :: HashName -> String
 unHN (HN s) = s
 
 type Uid = Int
+type TxId = Int
 
 data RxTelex = RxTelex
       { rtId     :: !Int
@@ -136,7 +139,7 @@ data RxTelex = RxTelex
       } deriving Show
 
 data TxTelex = TxTelex
-      { tId     :: !Int
+      { tId     :: !TxId
       , tTo     :: !HashName
       , tOut    :: !PathJson
       , tJs     :: !(HM.HashMap Text.Text Aeson.Value)
@@ -208,6 +211,7 @@ data Switch = Switch
        , swParts       :: !Parts
        , swChans       :: !(Set.Set Uid) -- channels waiting to be processed
        , swUid         :: !Uid
+       , swTxid        :: !TxId
        , swCap         :: !Int
        , swWindow      :: !Int
        , swIsSeed      :: !Bool
@@ -270,7 +274,6 @@ data HashContainer = H
   , hCrypto   :: !(Maybe Crypto)
   , hPaths    :: !(Map.Map PathJson Path)
   , hLast     :: !(Maybe PathJson)
-  -- , hChans    :: !(Map.Map ChannelId TChan)
   , hChans    :: !(Map.Map ChannelId Uid)
   , hOnopen   :: !(Maybe TxTelex)
   , hParts    :: !(Maybe Parts)
@@ -463,7 +466,8 @@ typedef struct seq_struct
 
 data Miss = Miss
   { mNextAck :: !Int
-  , mOut     :: !(Map.Map Int TxTelex)
+  , mOut     :: !(Map.Map Int TxId)
+  , mPackets :: !(Map.Map TxId TxTelex)
   } deriving Show
 {-
 typedef struct miss_struct
@@ -646,6 +650,9 @@ data ChatHash = CH String deriving (Eq,Show,Ord)
 unCH :: ChatHash -> String
 unCH (CH s) = s
 
+data ChatPerm = PermBlocked | PermReadOnly | PermAllowed
+     deriving (Eq,Show,Ord)
+
 data Chat = Chat
      { ecEp     :: !String
      , ecId     :: !ChatId
@@ -657,7 +664,7 @@ data Chat = Chat
      , ecSeed   :: !ChatHash
      , ecSeq    :: !Word16
      , ecRoster :: !(Map.Map String String) -- name (possibly hashname) to id
-     , ecConn   :: !(Map.Map String Uid) -- For channels
+     , ecConn   :: !(Map.Map HashName Uid) -- For channels
      , ecLog    :: !(Map.Map String TxTelex)
      , ecMsgs   :: ![TxTelex]
      , ecJoin   :: !(Maybe String)

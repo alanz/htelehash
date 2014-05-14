@@ -30,6 +30,10 @@ module Network.TeleHash.Utils
   , rmChanFromHn
 
   , getNextUid
+  , getNextTxid
+
+  , getChatR
+  , putChatR
 
   -- * Hashcontainers
   , getHN
@@ -494,6 +498,30 @@ getNextUid = do
   put sw { swUid = uid }
   return uid
 
+
+-- ---------------------------------------------------------------------
+
+getNextTxid :: TeleHash TxId
+getNextTxid = do
+  sw <- get
+  let txid = 1 + swTxid sw
+  put sw { swTxid = txid }
+  return txid
+
+
+-- ---------------------------------------------------------------------
+
+getChatR :: Uid -> TeleHash (Maybe ChatR)
+getChatR uid = do
+  c <- getChan uid
+  case chArg c of
+    CArgChatR r -> return (Just r)
+    _ -> return Nothing
+
+putChatR :: Uid -> ChatR -> TeleHash ()
+putChatR uid r = do
+  c <- getChan uid
+  putChan $ c { chArg = CArgChatR r }
 
 -- ---------------------------------------------------------------------
 

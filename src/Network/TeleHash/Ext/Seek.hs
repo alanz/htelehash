@@ -188,7 +188,7 @@ peer_send to address = do
           c <- chan_new to "peer" Nothing
           let c2 = c {chHandler = Just peer_handler }
           putChan c2
-          mp <- chan_packet c2
+          mp <- chan_packet (chUid c2)
           case mp of
             Nothing -> do
               logT $ "peer_send:cannot create packet for " ++ show c2
@@ -203,7 +203,7 @@ peer_send to address = do
                 Just (ipStr,portStr) -> do
                   logT $ "peer_send:must still send NAT punch to" ++ show mipp
                   assert False undefined
-              chan_send c2 p3
+              chan_send (chUid c2) p3
 
 {-
 // csid may be address format
@@ -331,7 +331,7 @@ seek_send sk to = do
              , chArg = CArgSeek sk2
              }
   putChan c2
-  mp <- chan_packet c2
+  mp <- chan_packet (chUid c2)
   case mp of
     Nothing -> do
       logT $ "seek_send:failed to make channel packet"
@@ -339,7 +339,7 @@ seek_send sk to = do
     Just p -> do
       let p2 = packet_set_str p "seek" (unHN $ seekId sk2) -- TODO make a prefix
       logT $ "seek_send about to send on " ++ show c2
-      chan_send c2 p2
+      chan_send (chUid c2) p2
 {-
 void seek_send(switch_t s, seek_t sk, hn_t to)
 {

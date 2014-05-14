@@ -66,8 +66,8 @@ ext_link c = do
   logT $ "ext_link entered for:" ++ show (chId c, chUid c)
   util_chan_popall c Nothing
   -- always respond/ack
-  reply <- chan_packet c
-  chan_send c (gfromJust "ext_link" reply)
+  reply <- chan_packet (chUid c)
+  chan_send (chUid c) (gfromJust "ext_link" reply)
 {-
 void ext_link(chan_t c)
 {
@@ -116,14 +116,14 @@ link_hn :: HashName -> TeleHash (Maybe ChannelId)
 link_hn hn = do
   l <- link_get
   c <- chan_new hn "link" Nothing
-  mp <- chan_packet c
+  mp <- chan_packet (chUid c)
   case mp of
     Nothing -> return Nothing
     Just p -> do
       let p2 = if lSeeding l
                  then packet_set p "seed" True
                  else p
-      chan_send c p2
+      chan_send (chUid c) p2
       return $ Just (chId c)
 
 {-

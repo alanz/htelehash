@@ -624,6 +624,7 @@ switch_new = do
        , swParts       = []
        , swChans       = Set.empty
        , swUid         = 0
+       , swTxid        = 0
        , swCap         = 256 -- default cap size
        , swWindow      = 32 -- default reliable window size
        , swIsSeed      = False

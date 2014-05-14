@@ -702,7 +702,7 @@ chat_restate cid hn = do
           let state2 = packet_set_str state "type" "state"
               state3 = packet_set_str state2 "from" hn
 
-          state4 <- case Map.lookup hn (ecConn chat) of
+          state4 <- case Map.lookup (HN hn) (ecConn chat) of
             Just uid -> do
               c <- getChan uid
               case chArg c of
@@ -795,7 +795,7 @@ chat_sync cid = do
         logT $ "chat_sync:not processing part " ++ show part
         return ()
       else do
-        case Map.lookup part (ecConn chat) of
+        cont <- case Map.lookup (HN part) (ecConn chat) of
           Just uid -> do
             logT $ "chat_sync:got channel uid:" ++ show uid
             c <- getChan uid
@@ -803,34 +803,35 @@ chat_sync cid = do
             case mr of
               CArgChatR r -> do
                 if ecrJoined r == joined
-                  then return ()
-                  else do
-                    logT $ "chat_sync:initiating chat to " ++ show (part,ecId chat)
-                    -- state change
-                    chat_restate (ecId chat) part
-                    assert False undefined
+                  then return False
+                  else return True
               _ -> do
                 logT $ "chat_sync: unexpected cArg:" ++ show mr
-                return ()
-          Nothing -> do
+                return False
+          Nothing -> return True
+
+        if not cont
+           then return ()
+           else do
+            logT $ "chat_sync:initiating chat to " ++ show (part,ecId chat)
             -- state change
             chat_restate (ecId chat) part
 
             -- try to connect
             c <- chan_start (HN part) "chat"
             chat2 <- getChat cid
-            let chat3 = chat2 { ecConn = Map.insert part (chUid c) (ecConn chat2) }
+            let chat3 = chat2 { ecConn = Map.insert (HN part) (chUid c) (ecConn chat2) }
             putChat chat3
             let r = (chatr_new chat3) { ecrJoined = joined }
                 c2 = c { chArg = CArgChatR r }
             putChan c2
-            mp <- chan_packet c2
+            mp <- chan_packet (chUid c2)
             let p1 = gfromJust "chat_sync" mp
                 p2 = packet_set_str p1 "to" (show (unChannelId $ chId c2))
                 p3 = packet_set_str p2 "from" (show (ecJoin chat))
                 p4 = packet_set_str p3 "roster" (unCH (ecRHash chat))
             logT $ "chat_sync:p4=" ++ show p4
-            chan_send c2 p4
+            chan_send (chUid c2) p4
 
 {-
 // process roster to check connection/join state
@@ -987,7 +988,7 @@ chat_send cid msg = do
 
   -- send as a note to all connected
   forM_ (Map.elems $ ecRoster chat) $ \idVal -> do
-    case Map.lookup idVal (ecConn chat) of
+    case Map.lookup (HN idVal) (ecConn chat) of
       Nothing -> return ()
       Just cuid -> do
         c <- getChan cuid
@@ -1060,6 +1061,22 @@ chat_t chat_add(chat_t chat, char *hn, char *val)
 -}
 
 -- ---------------------------------------------------------------------
+
+-- |participant permissions, -1 blocked, 0 read-only, 1 allowed
+chat_perm :: ChatId -> HashName -> TeleHash ChatPerm
+chat_perm chid hn = do
+  chat <- getChat chid
+  let val =case Map.lookup (unHN hn) (ecRoster chat) of
+             Nothing ->
+              case Map.lookup "*" (ecRoster chat) of
+                Just v -> v
+                Nothing -> ""
+             Just v -> v
+
+  case val of
+    "blocked" -> return PermBlocked
+    ""        -> return PermReadOnly
+    _         -> return PermAllowed
 
 {-
 // participant permissions, -1 blocked, 0 read-only, 1 allowed
@@ -1257,17 +1274,52 @@ ext_chat cid = do
   c <- getChan cid
   logT $ "ext_chan:chArg c=" ++ show (chArg c)
   -- this is the hub channel, process it there
-  case chArg c of
-    CArgChatR r -> do
-      -- this is the hub channel, process it there
-      rchat <- getChat (ecrChat r)
-      if ecHub rchat == cid
+  mr <- case chArg c of
+    CArgChatR r -> return (Just r)
+    CArgNone ->    return Nothing
+    arg -> do
+      logT $ "ext_chat:unexpected arg:" ++ show arg
+      return Nothing
+  case mr of
+    Just r -> do
+      chat <- getChat (ecrChat r)
+      if ecHub chat == cid
         then do
+          -- this is the hub channel, process it there
           mchat <- chat_hub (ecrChat r)
           return mchat
         else do
-          assert False undefined
-    CArgNone -> do
+          -- response to a join
+          if (ecrOnline r)
+            then do
+              mp <- chan_pop cid
+              case mp of
+                Nothing -> return Nothing
+                Just p -> do
+                  logT $ "ext_chat:processing join response:" ++ show p
+                  case packet_get_str p "err" of
+                    Just errVal -> do
+                      logT $ "ext_chat:join response has error " ++ show p
+                      -- assert False undefined
+                      return Nothing
+                    Nothing -> do
+                      let mid = packet_get_str p "from"
+                          showIdVal = case mid of
+                            Just i -> i
+                            Nothing -> packet_get_str_always p "err"
+
+                      chat <- getChat (ecrChat r)
+                      logT $ "ext_chat:chat online from:" ++ show (ecId chat,chTo c,showIdVal)
+                      case mid of
+                        Nothing -> do
+                          void $ chan_fail cid (Just "invalid")
+                          return Nothing
+                        Just idVal -> do
+                          assert False undefined
+            else return Nothing
+
+
+    Nothing -> do
       -- channel start request
       mp <- chan_pop cid
       logT $ "ext_chat:chan start:mp=" ++ show mp
@@ -1276,19 +1328,113 @@ ext_chat cid = do
           logT $ "ext_chat:chan start got bad channel"
           chansStr <- showAllChans
           logT $ "ext_chat:current channels:\n" ++ chansStr
-          chan_fail c (Just "500")
+          chan_fail cid (Just "500")
           return Nothing
         Just p -> do
           mchat <- chat_get (packet_get_str p "to")
           case mchat of
             Nothing -> do
-              chan_fail c (Just "500")
+              void $ chan_fail cid (Just "500")
               return Nothing
             Just chat -> do
               logT $ "ext_chat: got chat " ++ show chat
-              assert False undefined
-    _ -> do
-      assert False undefined
+              perm <- chat_perm (ecId chat) (chTo c)
+              let idVal = packet_get_str_always p "from"
+              logT $ "ext_chat:chat from is:" ++ show (ecId chat,chTo c,perm)
+              continue <- case perm of
+                PermBlocked -> do
+                  void $ chan_fail cid (Just "blocked")
+                  return False
+                PermReadOnly -> do
+                  if idVal /= ""
+                    then do
+                      void $ chan_fail cid (Just "read-only")
+                      return False
+                    else return True
+                PermAllowed -> do
+                  return True
+              if not continue
+                then return Nothing
+                else do
+                  -- legit new chat conn
+                  let r = (chatr_new chat) { ecrOnline = True }
+                      c2 = c { chArg = CArgChatR r }
+                      chat2 = chat { ecConn = Map.insert (chTo c) (chUid c2) (ecConn chat) }
+                  putChan c2 -- NOTE: must re-store this when done
+                             --       with val of r at the time
+                  putChat chat2
+
+                  -- response
+                  mp <- chan_packet (chUid c2)
+                  let p = gfromJust "ext_chat" mp
+                  (r2,p2) <- case ecJoin chat2 of
+                    Nothing -> return (r,p)
+                    Just j -> do
+                      let r2' = r { ecrJoined = True }
+                          p2' = packet_set_str p "from" j
+                      return (r2',p2')
+
+                  -- add to roster if given
+                  if idVal /= ""
+                    then do
+                      void $ chat_add (ecId chat2) (unHN $ chTo c) idVal
+                    else return ()
+                  chat3 <- getChat (ecId chat2)
+
+                  -- re-fetch roster if hashes don't match
+                  if packet_get_str_always p2 "roster" /= (unCH $ ecRHash chat3)
+                    then do
+                      chat_cache (ecId chat3) (ecOrigin chat3) Nothing
+                    else return ()
+
+                  let p3 = packet_set_str p2 "roster" (unCH $ ecRHash chat3)
+
+                  void $ chan_send (chUid c2) p3
+                  chat4 <- getChat (ecId chat3)
+                  return (Just chat4)
+
+  rxs <- chan_pop_all cid
+  forM_ rxs $ \p -> do
+    logT $ "ext_chat:chat packet " ++ showJson (rtJs p)
+    logT $ "ext_chat:chat packet body" ++ show (paBody $ rtPacket p)
+    mr2 <- getChatR cid
+    if isJust mr2
+      then do
+        let rIn = ecrIn $ fromJust mr2
+        let rin2 = packet_append rIn (unBody $ paBody $ rtPacket p)
+        putChatR cid ((fromJust mr2) { ecrIn = rin2 })
+      else return ()
+    if packet_get_str_always p "done" == "true"
+      then do
+        mr3 <- getChatR cid
+        logT $ "ext_chat:got done msg:(mr3,p)=" ++ show (mr3,p)
+        assert False undefined
+      else return ()
+
+  -- optionally send ack if needed
+  chan_ack cid
+
+  c2 <- getChan cid
+  ok <- if isJust mr && (chState c2 == ChanEnding || chState c2 == ChanEnded)
+          then do
+            -- if its this channel in the index, zap it
+            chat <- getChat (ecrChat $ fromJust mr)
+            case Map.lookup (chTo c2) (ecConn chat) of
+              Just uid -> do
+                let chat2 = chat { ecConn = Map.delete (chTo c2) (ecConn chat) }
+                putChat chat2
+                putChan $ c2 { chArg = CArgNone }
+                return False
+              Nothing -> return True
+          else return True
+  if ok && isJust mr
+    then do
+      chat3 <- getChat (ecrChat $ fromJust mr)
+      if null (ecMsgs chat3)
+        then return Nothing
+        else return (Just chat3)
+    else return Nothing
+
 
 {-
 chat_t ext_chat(chan_t c)

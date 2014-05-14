@@ -222,9 +222,9 @@ packet_t _thtp_glob(thtp_t t, char *p1)
 -- ---------------------------------------------------------------------
 
 -- chunk the packet out
-thtp_send :: TChan -> TxTelex -> TeleHash ()
-thtp_send cIn req = do
-  c <- getChan (chUid cIn)
+thtp_send :: Uid -> TxTelex -> TeleHash ()
+thtp_send cid req = do
+  c <- getChan cid
   logT $ "thtp_send:sending " ++ showJson (tJs req)
   lpraw <- packet_raw req
   let LP raw = lpraw
@@ -234,7 +234,7 @@ thtp_send cIn req = do
 
   let
     sendChunks toSend = do
-      mchunk <- chan_packet c
+      mchunk <- chan_packet cid
       case mchunk of
         Nothing -> do
           logT $ "thtp_send:could not make chan_packet"
@@ -252,7 +252,7 @@ thtp_send cIn req = do
                          then chunk2
                          else packet_set chunk2 "end" True
           logT $ "thtp_send:sending " ++ show chunk3
-          chan_send c chunk3
+          chan_send (chUid c) chunk3
           if restLen > 0
             then sendChunks rest
             else return ()
@@ -317,7 +317,7 @@ thtp_req note = do
   logT $ "thtp_req:setting CArgTx to " ++ show linked
   putChan c3
   void $ chan_reliable c3 10
-  thtp_send c3 req
+  thtp_send (chUid c3) req
   c4 <- getChan (chUid c3)
   return (Just c4)
 
@@ -378,7 +378,7 @@ ext_thtp cid = do
           mp = packet_unlink note
       logT $ "ext_thtp:reply note p=" ++ show mp
       case mp of
-        Just p -> thtp_send c p
+        Just p -> thtp_send cid p
         Nothing -> do
           assert False undefined
           return ()
@@ -430,15 +430,15 @@ ext_thtp cid = do
                   case mnp of
                     Nothing -> do
                       logT $ "ext_thtp:malformed long packet received:" ++ show (bufBody)
-                      void $ chan_fail c (Just "422")
+                      void $ chan_fail cid (Just "422")
                       return True
                     Just (OpenPacket _b _bs) -> do
                       logT $ "ext_thtp:unexpected OpenPacket received:" ++ show (mnp)
-                      void $ chan_fail c (Just "422")
+                      void $ chan_fail cid (Just "422")
                       return True
                     Just (LinePacket _pbody) -> do
                       logT $ "ext_thtp:unexpected LinePacket received:" ++ show (mnp)
-                      void $ chan_fail c (Just "422")
+                      void $ chan_fail cid (Just "422")
                       return True
                     Just (PingPongPacket lp) -> do
                       logT $ "ext_thtp:PingPongPacket received:" ++ show (lp)
@@ -466,7 +466,7 @@ ext_thtp cid = do
                           case mjs of
                             Nothing -> do
                               logT $ "ext_thtp: malformed request received"
-                              void $ chan_fail c (Just "422")
+                              void $ chan_fail cid (Just "422")
                               return True
                             Just v -> do
                               logT $ "ext_thtp:req json=" ++ showJson v
@@ -479,13 +479,13 @@ ext_thtp cid = do
                               case mmatch2 of
                                 Nothing -> do
                                   logT $ "ext_thtp:no match value in request"
-                                  void $ chan_fail c (Just "404")
+                                  void $ chan_fail cid (Just "404")
                                   return True
                                 Just mm -> do
                                   -- built in response
                                   case packet_linked mm of
                                     Just linked -> do
-                                      thtp_send c linked
+                                      thtp_send cid linked
                                       return True
                                     Nothing -> do
                                       -- attach and route request to a new note
@@ -498,11 +498,11 @@ ext_thtp cid = do
                                       case r of
                                         Ok   -> return True
                                         Fail -> do
-                                          chan_fail c (Just "500")
+                                          chan_fail cid (Just "500")
                                           return True
       if any (==True) r
         then return ()
-        else chan_ack c
+        else chan_ack cid
 
 {-
 void ext_thtp(chan_t c)
