@@ -394,12 +394,14 @@ void chat_cache(chat_t chat, char *hn, char *id)
 
 putChat :: Chat -> TeleHash ()
 putChat chat = do
+  -- logT $ "putChat: " ++ show (chatIdToString $ ecId chat,ecConn chat)
   sw <- get
   put $ sw {swIndexChat = Map.insert (ecId chat) chat (swIndexChat sw) }
 
 
 getChat :: ChatId -> TeleHash Chat
 getChat cid = do
+  -- logT $ "getChat: " ++ (chatIdToString cid)
   sw <- get
   return $ gfromJust ("getChat " ++ show cid) $ Map.lookup cid (swIndexChat sw)
 
@@ -626,6 +628,12 @@ packet_t chat_message(chat_t chat)
 
 -- ---------------------------------------------------------------------
 
+-- |add msg to queue
+chat_push :: ChatId -> RxTelex -> TeleHash ()
+chat_push cid p = do
+  chat <- getChat cid
+  putChat $ chat { ecMsgs = (ecMsgs chat) ++ [p]}
+
 {-
 // add msg to queue
 void chat_push(chat_t chat, packet_t msg)
@@ -642,7 +650,7 @@ void chat_push(chat_t chat, packet_t msg)
 
 -- ---------------------------------------------------------------------
 
-chat_pop_all :: ChatId -> TeleHash [TxTelex]
+chat_pop_all :: ChatId -> TeleHash [RxTelex]
 chat_pop_all cid = do
   chat <- getChat cid
   let msgs = ecMsgs chat
@@ -651,7 +659,7 @@ chat_pop_all cid = do
 
 -- ---------------------------------------------------------------------
 
-chat_pop :: ChatId -> TeleHash (Maybe TxTelex)
+chat_pop :: ChatId -> TeleHash (Maybe RxTelex)
 chat_pop cid = do
   chat <- getChat cid
   if null (ecMsgs chat)
@@ -795,20 +803,21 @@ chat_sync cid = do
         logT $ "chat_sync:not processing part " ++ show part
         return ()
       else do
-        cont <- case Map.lookup (HN part) (ecConn chat) of
+        (cont,mc) <- case Map.lookup (HN part) (ecConn chat) of
           Just uid -> do
             logT $ "chat_sync:got channel uid:" ++ show uid
             c <- getChan uid
             let mr = chArg c
             case mr of
               CArgChatR r -> do
+                logT $ "chat_sync:(ecrJoined r,joined)=" ++ show (ecrJoined r,joined)
                 if ecrJoined r == joined
-                  then return False
-                  else return True
+                  then return (False,Just c)
+                  else return (True,Just c)
               _ -> do
                 logT $ "chat_sync: unexpected cArg:" ++ show mr
-                return False
-          Nothing -> return True
+                return (False,Just c)
+          Nothing -> return (True,Nothing)
 
         if not cont
            then return ()
@@ -818,7 +827,9 @@ chat_sync cid = do
             chat_restate (ecId chat) part
 
             -- try to connect
-            c <- chan_start (HN part) "chat"
+            c <- case mc of
+              Nothing -> chan_start (HN part) "chat"
+              Just c -> return c
             chat2 <- getChat cid
             let chat3 = chat2 { ecConn = Map.insert (HN part) (chUid c) (ecConn chat2) }
             putChat chat3
@@ -986,17 +997,23 @@ chat_send cid msg = do
   chat <- getChat cid
   chat_log (ecId chat) msg
 
+  logT $ "chat_send:ecConn=" ++ show (ecConn chat)
+
   -- send as a note to all connected
-  forM_ (Map.elems $ ecRoster chat) $ \idVal -> do
-    case Map.lookup (HN idVal) (ecConn chat) of
+  forM_ (Map.toList $ ecRoster chat) $ \(hn,idVal) -> do
+    logT $ "chat_send:processing " ++ show (hn,idVal)
+    case Map.lookup (HN hn) (ecConn chat) of
       Nothing -> return ()
       Just cuid -> do
+        logT $ "chat_send:got cuid:" ++ show cuid
         c <- getChan cuid
         case (chArg c) of
           CArgChatR r -> do
+            logT $ "chat_send:got r:" ++ show r
             if (not (ecrJoined r) || not (ecrOnline r))
               then return ()
               else do
+                logT $ "chat_send:calling chat_chunk"
                 chat_chunk c msg
           _ -> return ()
 
@@ -1357,6 +1374,7 @@ ext_chat cid = do
                 then return Nothing
                 else do
                   -- legit new chat conn
+                  logT $ "ext_chat:legit new chat conn"
                   let r = (chatr_new chat) { ecrOnline = True }
                       c2 = c { chArg = CArgChatR r }
                       chat2 = chat { ecConn = Map.insert (chTo c) (chUid c2) (ecConn chat) }
@@ -1396,7 +1414,7 @@ ext_chat cid = do
   rxs <- chan_pop_all cid
   forM_ rxs $ \p -> do
     logT $ "ext_chat:chat packet " ++ showJson (rtJs p)
-    logT $ "ext_chat:chat packet body" ++ show (paBody $ rtPacket p)
+    logT $ "ext_chat:chat packet body " ++ show (paBody $ rtPacket p)
     mr2 <- getChatR cid
     if isJust mr2
       then do
@@ -1404,11 +1422,37 @@ ext_chat cid = do
         let rin2 = packet_append rIn (unBody $ paBody $ rtPacket p)
         putChatR cid ((fromJust mr2) { ecrIn = rin2 })
       else return ()
-    if packet_get_str_always p "done" == "true"
+    logT $ "ext_chat:chat packet done str=" ++ show (packet_get_str_always p "done")
+    if packet_get_str_always p "done" == "Bool True"
       then do
         mr3 <- getChatR cid
-        logT $ "ext_chat:got done msg:(mr3,p)=" ++ show (mr3,p)
-        assert False undefined
+        -- logT $ "ext_chat:got done msg:(mr3,p)=" ++ show (mr3,p)
+        case mr3 of
+          Nothing -> do
+            logT $ "ext_chat:mr3=Nothing"
+            return ()
+          Just r -> do
+            let pp = fromLinePacket (LP $ unBody $ paBody $ rtPacket $ ecrIn r)
+            logT $ "ext_chat:pp=" ++ show pp
+            case pp of
+              Just p@(Packet (HeadJson js) body) -> do
+                let mjson = Aeson.decode (cbsTolbs js) :: Maybe Aeson.Value
+                case mjson of
+                  Nothing -> do
+                    logT $ "invalid js in packet:" ++ show js
+                    return ()
+                  Just (Aeson.Object jsHashMap) -> do
+                    c <- getChan cid
+                    let rp = packet_new_rx { rtPacket = p
+                                           , rtJs = jsHashMap
+                                           }
+                        rp2 = packet_set_str rp "from" (unHN $ chTo c)
+                    chat_push (ecrChat r) rp2
+                    putChatR cid (r { ecrIn = packet_new_rx })
+              _ -> do
+                logT $ "ext_chat:unexpeced value for pp" ++ show pp
+                return ()
+
       else return ()
 
   -- optionally send ack if needed
@@ -1430,6 +1474,7 @@ ext_chat cid = do
   if ok && isJust mr
     then do
       chat3 <- getChat (ecrChat $ fromJust mr)
+      -- logT $ "ext_chat:final chat="  ++ show chat3
       if null (ecMsgs chat3)
         then return Nothing
         else return (Just chat3)
@@ -1528,10 +1573,12 @@ chat_t ext_chat(chan_t c)
 
 -- ---------------------------------------------------------------------
 
-chat_participant :: ChatId -> String -> TeleHash (Maybe RxTelex)
+chat_participant :: ChatId -> String -> TeleHash (Maybe TxTelex)
 chat_participant cid hn = do
   chat <- getChat cid
-  assert False undefined
+  logT $ "chat_participant:(hn,chat)=" ++ show (hn,chat)
+  return $ Map.lookup hn (ecLog chat)
+
 {-
 packet_t chat_participant(chat_t chat, char *hn)
 {

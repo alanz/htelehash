@@ -698,7 +698,13 @@ chan_new :: HashName -> String -> Maybe ChannelId -> TeleHash TChan
 chan_new toHn typ mcid = do
   logT $ "chan_new:" ++ show (toHn,typ,mcid)
   to <- getHN toHn
-probably need hChanOut variables for base=odd and even
+
+  sw <- get
+  let base = if (swId sw) > toHn
+               then 1 else 2
+
+  logT $ "chan_new:(base,hChanOut)" ++ show (base,hChanOut to)
+
   case hChanOut to of
     CID 0 -> chan_reset toHn
     CID _ -> return ()
@@ -875,6 +881,11 @@ chan_reset toHn = do
   logT $ "chan_reset:" ++ show toHn
   sw <- get
   to1 <- getHN toHn
+
+  -- sort both hashnames alphabetically and the lower/first sorted one
+  -- uses only even numbers (2 or greater), while the higher/second
+  -- one uses odd numbers (1 or greater).
+
   let base = if (swId sw) > (hHashName to1)
                then 1 else 2
   withHN toHn $ \hc -> if (hChanOut hc == CID 0
@@ -923,10 +934,10 @@ chan_in hn p = do
         Just chan -> return (Just chan)
         Nothing -> do
           from <- getHN hn
-          logT $ "chan_in:p=" ++ show p
+          -- logT $ "chan_in:p=" ++ show p
           let mtyp = getRxTelexType p
-          logT $ "chan_in:mtyp=" ++ show mtyp
-          logT $ "chan_in:cid,hChanout from=" ++ show (cid,hChanOut from)
+          -- logT $ "chan_in:mtyp=" ++ show mtyp
+          -- logT $ "chan_in:cid,hChanout from=" ++ show (cid,hChanOut from)
           if (mtyp == Nothing
              || channelSlot cid == channelSlot (hChanOut from))
             then return Nothing

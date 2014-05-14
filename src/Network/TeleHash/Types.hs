@@ -666,7 +666,7 @@ data Chat = Chat
      , ecRoster :: !(Map.Map String String) -- name (possibly hashname) to id
      , ecConn   :: !(Map.Map HashName Uid) -- For channels
      , ecLog    :: !(Map.Map String TxTelex)
-     , ecMsgs   :: ![TxTelex]
+     , ecMsgs   :: ![RxTelex]
      , ecJoin   :: !(Maybe String)
      , ecSent   :: !(Maybe String)
      , ecAfter  :: !(Maybe String)

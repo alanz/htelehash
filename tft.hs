@@ -148,9 +148,9 @@ app = do
   logT $ "admin channel:" ++ showChan admin
 
   let rx_loop = do
-        logT $ "rx_loop entered"
+        -- logT $ "rx_loop entered"
         mc <- switch_pop
-        logT $ "rx_loop entered:mc=" ++ show mc
+        -- logT $ "rx_loop entered:mc=" ++ show mc
         case mc of
           Nothing -> return ()
           Just cid -> do
@@ -193,9 +193,11 @@ app = do
                       if (packet_get_str_always p "type") == "chat"
                         then do
                           mparticipant <- chat_participant (ecId chat) (packet_get_str_always p "from")
-                          let participant = gfromJust "tft" mparticipant
-                          io $ logg nick ((packet_get_str_always participant "text")
-                                          ++ "> " ++ (packet_get_str_always p "text"))
+                          logT $ "rx_loop:(mparticipant,from)=" ++ show (mparticipant,packet_get_str_always p "from")
+                          let participant = case mparticipant of
+                                              Nothing -> "*UNK*"
+                                              Just pa  -> packet_get_str_always pa "text"
+                          io $ logg nick $ participant ++ "> " ++ (packet_get_str_always p "text")
                         else return ()
 
                   typ -> do
