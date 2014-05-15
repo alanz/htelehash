@@ -973,18 +973,21 @@ chan_t chan_in(switch_t s, hn_t from, packet_t p)
 -- ---------------------------------------------------------------------
 
 -- |create a packet ready to be sent for this channel, returns Nothing for backpressure
-chan_packet :: Uid -> TeleHash (Maybe TxTelex)
-chan_packet cid = do
+chan_packet :: Uid -> Bool -> TeleHash (Maybe TxTelex)
+chan_packet cid incSeq = do
   chan <- getChan cid
   if chState chan == ChanEnded
     then return Nothing
     else do
-      mp <- if chReliable chan /= 0
+      mp <- if incSeq && chReliable chan /= 0
               then chan_seq_packet cid
               else return $ Just (packet_new (chTo chan))
       chan2 <- getChan cid
+      logT $ "chan_packet:chSeq=" ++ show (chSeq chan2)
       case mp of
-        Nothing -> return Nothing
+        Nothing -> do
+          logT $ "chan_packet:mp=Nothing"
+          return Nothing
         Just p -> do
           let p1 = p { tTo = chTo chan2 }
           alive <- case chLast chan2 of
@@ -999,6 +1002,8 @@ chan_packet cid = do
                      then packet_set_str p2 "type" (chType chan2)
                      else p2
               p4 = packet_set_int p3 "c" (unChannelId $ chId chan2)
+          chan3 <- getChan cid
+          logT $ "chan_packet:chSeq 3=" ++ show (chSeq chan3)
           return (Just p4)
 
 {-
@@ -1106,7 +1111,7 @@ chan_fail cid merr = do
     Just err -> do
       if chState c /= ChanEnded
         then do
-          e <- chan_packet cid
+          e <- chan_packet cid True
           case e of
             Nothing -> return ()
             Just e1 -> do
@@ -1358,12 +1363,10 @@ chan_ack cid = do
       if not (chReliable c /= 0)
         then return ()
         else do
-          logT $ "chan_ack about to call chan_seq_ack"
           mp <- chan_seq_ack cid Nothing
           case mp of
             Nothing -> return ()
             Just p -> do
-              logT $ "channel ack " ++ show (chId c,p)
               switch_send p
 
 {-
@@ -1441,30 +1444,35 @@ chan_seq_ack cid mp = do
     Just s -> do
       -- detemine if we need to ack
       if seNextIn s == 0
-        then return mp
+        then do
+          logT $ "chan_seq_ack ack not needed " ++ show cid
+          return mp
         else do
           if isNothing mp && seAcked s /= 0 && seAcked s == (seNextIn s) - 1
-            then return Nothing
+            then do
+              return Nothing
             else do
               mp2 <- case mp of
                 Nothing -> do
                   -- ack-only packet
-                  mcp <- chan_packet cid
+                  mcp <- chan_packet cid False
                   return mcp
                 Just pp -> return (Just pp)
               case mp2 of
                 Nothing -> do
-                  logT $ "chan_seq_ack: no packet available for uid " ++ show cid
                   return Nothing
                 Just p -> do
-                  let s2 = s { seAcked = (seNextIn s) - 1 }
+                  c1 <- getChan cid
+                  let s1 = gfromJust "chan_seq_ack" $ chSeq c1
+                      s2 = s1 { seAcked = (seNextIn s) - 1 }
                       p2 = packet_set_int p "ack" (seAcked s2)
                       c2 = c { chSeq = Just s2 }
                   putChan c2
 
                   -- check if miss is not needed
                   if seSeen s2 < seNextIn s2 || Map.member 0 (seIn s2)
-                    then return (Just p2)
+                    then do
+                      return (Just p2)
                     else do
                       -- create miss array, up to 10 ids of missing packets
                       let misses = concatMap (\i -> if Map.member i (seIn s2) then [i] else [])
@@ -1513,6 +1521,7 @@ packet_t chan_seq_packet(chan_t c);
 chan_seq_packet :: Uid -> TeleHash (Maybe TxTelex)
 chan_seq_packet cid = do
   c <- getChan cid
+  logT $ "chan_seq_packet:" ++ showChan c ++ "," ++ show (chSeq c)
   case chSeq c of
     Nothing -> do
       logT $ "chan_seq_packet:no chSeq structure"
@@ -1534,6 +1543,8 @@ chan_seq_packet cid = do
           putChan $ c2 { chSeq = Just s2 }
           logT $ "chan_seq_packet about to call chan_seq_ack"
           r <- chan_seq_ack cid (Just p2)
+          ccc <- getChan cid
+          logT $ "chan_seq_packet about to call chan_seq_ack done " ++ show (chSeq ccc)
           return r
 
 {-

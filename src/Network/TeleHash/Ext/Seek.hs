@@ -188,7 +188,7 @@ peer_send to address = do
           c <- chan_new to "peer" Nothing
           let c2 = c {chHandler = Just peer_handler }
           putChan c2
-          mp <- chan_packet (chUid c2)
+          mp <- chan_packet (chUid c2) True
           case mp of
             Nothing -> do
               logT $ "peer_send:cannot create packet for " ++ show c2
@@ -331,7 +331,7 @@ seek_send sk to = do
              , chArg = CArgSeek sk2
              }
   putChan c2
-  mp <- chan_packet (chUid c2)
+  mp <- chan_packet (chUid c2) True
   case mp of
     Nothing -> do
       logT $ "seek_send:failed to make channel packet"

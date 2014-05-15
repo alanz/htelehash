@@ -273,7 +273,7 @@ util_chunk_out cid req doneFlag = do
 
   let
     sendChunks toSend = do
-      mchunk <- chan_packet cid
+      mchunk <- chan_packet cid True
       case mchunk of
         Nothing -> do
           logT $ "thtp_send:could not make chan_packet"

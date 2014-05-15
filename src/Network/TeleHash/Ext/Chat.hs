@@ -835,7 +835,7 @@ chat_sync cid = do
                 c2 = c { chArg = CArgChatR (ecrId r) }
             putChatR r
             putChan c2
-            mp <- chan_packet (chUid c2)
+            mp <- chan_packet (chUid c2) True
             let p1 = gfromJust "chat_sync" mp
                 p2 = packet_set_str p1 "to" (chatIdToString $ ecId chat3 )
                 p3 = packet_set_str p2 "from" (gfromJust "chat_sync" $ ecJoin chat)
@@ -1309,7 +1309,7 @@ ext_chat cid = do
         then do
           -- this is the hub channel, process it there
           mchat <- chat_hub (ecrChat r)
-          return mchat
+          return () -- mchat
         else do
           logT $ "ext_chat:processing response to a join"
           -- response to a join
@@ -1317,14 +1317,14 @@ ext_chat cid = do
             then do
               mp <- chan_pop cid
               case mp of
-                Nothing -> return Nothing
+                Nothing -> return ()
                 Just p -> do
                   logT $ "ext_chat:processing join response:" ++ show p
                   case packet_get_str p "err" of
                     Just errVal -> do
                       logT $ "ext_chat:join response has error " ++ show p
                       -- assert False undefined
-                      return Nothing
+                      return ()
                     Nothing -> do
                       let mid = packet_get_str p "from"
                           showIdVal = case mid of
@@ -1337,13 +1337,13 @@ ext_chat cid = do
                       case mid of
                         Nothing -> do
                           void $ chan_fail cid (Just "invalid")
-                          return Nothing
+                          return ()
                         Just idVal -> do
                           let r2 = r { ecrOnline = True }
                           putChatR r2
                           chat_restate (ecrChat r) (unHN $ chTo c)
-                          return Nothing
-            else return Nothing
+                          return ()
+            else return ()
 
 
     Nothing -> do
@@ -1356,13 +1356,13 @@ ext_chat cid = do
           chansStr <- showAllChans
           logT $ "ext_chat:current channels:\n" ++ chansStr
           chan_fail cid (Just "500")
-          return Nothing
+          return ()
         Just p -> do
           mchat <- chat_get (packet_get_str p "to")
           case mchat of
             Nothing -> do
               void $ chan_fail cid (Just "500")
-              return Nothing
+              return ()
             Just chat -> do
               logT $ "ext_chat: got chat " ++ show chat
               perm <- chat_perm (ecId chat) (chTo c)
@@ -1381,7 +1381,7 @@ ext_chat cid = do
                 PermAllowed -> do
                   return True
               if not continue
-                then return Nothing
+                then return ()
                 else do
                   -- legit new chat conn
                   logT $ "ext_chat:legit new chat conn"
@@ -1394,7 +1394,7 @@ ext_chat cid = do
                   putChat chat2
 
                   -- response
-                  mp <- chan_packet (chUid c2)
+                  mp <- chan_packet (chUid c2) True
                   let p = gfromJust "ext_chat" mp
                   (r2,p2) <- case ecJoin chat2 of
                     Nothing -> return (r,p)
@@ -1424,9 +1424,7 @@ ext_chat cid = do
                   logT $ "ext_chat:p3=" ++ show p3
 
                   void $ chan_send (chUid c2) p3
-                  chat4 <- getChat (ecId chat3)
-                  logT $ "ext_chat:chat4=" ++ show chat4
-                  return (Just chat4)
+                  return ()
 
   rxs <- chan_pop_all cid
   forM_ rxs $ \p -> do
@@ -1473,7 +1471,9 @@ ext_chat cid = do
       else return ()
 
   -- optionally send ack if needed
+  logT $ "ext_chat:re-instate chan_ack"
   chan_ack cid
+  logT $ "ext_chat:re-instate chan_ack done"
 
   c2 <- getChan cid
   ok <- if isJust mr && (chState c2 == ChanEnding || chState c2 == ChanEnded)
