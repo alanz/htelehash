@@ -64,6 +64,7 @@ module Network.TeleHash.Types
   , unCH
   , chatIdToString
   , Chat(..)
+  , ChatRId(..)
   , ChatR(..)
 
   , Link(..)
@@ -210,8 +211,12 @@ data Switch = Switch
        -- , swParts       :: !TxTelex
        , swParts       :: !Parts
        , swChans       :: !(Set.Set Uid) -- channels waiting to be processed
+
+       -- unique id sources
        , swUid         :: !Uid
        , swTxid        :: !TxId
+       , swCrid        :: !ChatRId
+
        , swCap         :: !Int
        , swWindow      :: !Int
        , swIsSeed      :: !Bool
@@ -227,9 +232,13 @@ data Switch = Switch
        , swSender :: !(LinePacket -> SockAddr -> TeleHash ())
 
        -- extensions
-       , swThtp      :: !(Maybe Thtp)
-       , swIndexChat :: !(Map.Map ChatId Chat)
-       , swLink      :: !(Maybe Link)
+       , swThtp       :: !(Maybe Thtp)
+       , swIndexChat  :: !(Map.Map ChatId Chat)
+       , swIndexChatR :: !(Map.Map ChatRId ChatR)
+       , swLink       :: !(Maybe Link)
+
+       -- horrible, belongs elswhere
+       , swCurrentChat :: !(Maybe ChatId)
 
        , swRNG  :: !SystemRNG
        }
@@ -403,7 +412,7 @@ data ChannelState = ChanStarting | ChanOpen | ChanEnding | ChanEnded
 
 type ChannelHandler = (Uid -> TeleHash ())
 
-data CArg = CArgNone | CArgTx TxTelex | CArgRx RxTelex | CArgChatR ChatR
+data CArg = CArgNone | CArgTx TxTelex | CArgRx RxTelex | CArgChatR ChatRId
           | CArgSeek Seek | CArgPath PathJson
 
           deriving (Show)
@@ -689,11 +698,15 @@ typedef struct chat_struct
 } *chat_t;
 -}
 
+data ChatRId = CR Int deriving (Show,Eq,Ord)
+
 data ChatR = ChatR
-      { ecrChat   :: !ChatId
+      { ecrId     :: !ChatRId
+      , ecrChat   :: !ChatId
       , ecrIn     :: !RxTelex
       , ecrJoined :: !Bool
       , ecrOnline :: !Bool
+      , ecrChan   :: !Uid -- convenience/tracking
       } deriving Show
 
 {-

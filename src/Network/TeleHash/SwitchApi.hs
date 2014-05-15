@@ -201,9 +201,11 @@ switch_receive rxPacket path timeNow = do
             Left err -> do
               -- DEBUG_PRINTF("invlaid line from %s %s",path_json(in),from->hexname);
               logT $ "invalid line from " ++ show (inVal,hHashName from)
+              logP $ "delineize:err " ++ err
               return ()
             Right rx -> do
               mchan <- chan_in (hHashName from) rx
+              logP $ "<<<:" ++ show (fmap showChanShort mchan,showPathJson $ rtSender rx,rtPacket rx)
               case mchan of
                 Just chan -> do
                   sw <- get

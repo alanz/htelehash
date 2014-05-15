@@ -319,3 +319,67 @@ chat_hub:got note TxTelex
 
 ```
 
+chat flow
+---------
+
+hosted here, joined from there
+--------------------------------
+
+```
+ext_chat:chan start:mp=Just (RxTelex
+{rtId = 0
+, rtSender = PIPv4 (PathIPv4 {v4Ip = 172.17.42.1, v4Port = 51130})
+, rtAt = Thu May 15 08:24:49 SAST 2014
+, rtJs = fromList
+  [("seq",Number 0.0)
+  ,("c",Number 5.0)
+  ,("to",String "tft@0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348")
+  ,("from",String "c2b0425e,1000")
+  ,("type",String "chat")
+  ,("roster",String "5dfc44e8")]
+, rtPacket = Packet
+    {paHead = HeadJson "{\"seq\":0,\"type\":\"chat\",\"c\":5,\"to\":\"tft@0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348\",\"from\":\"c2b0425e,1000\",\"roster\":\"5dfc44e8\"}"
+    , paBody = Body ""}
+, rtChanId = Nothing})
+```
+
+This results in a local chat structure
+
+```
+ext_chat: got chat
+Chat
+{ ecEp = "tft"
+, ecId = ChatId {ciEndpoint = "tft"
+                , ciOriginator = Just (HN "0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348")}
+, ecIdHash = CH "56419861"
+, ecOrigin = HN "0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348"
+, ecHub = 1
+, ecRHash = CH "74299b2c"
+, ecLocal = True
+, ecSeed = CH "726b08b1"
+, ecSeq = 999
+, ecRoster = fromList
+  [("*","invited")
+  ,("0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348","ee1f7099,1000")]
+, ecConn = fromList []
+, ecLog = fromList
+   [("ee1f7099,1000"
+     ,TxTelex
+      {tId = 0
+      , tTo = HN "0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348"
+      , tOut = PNone
+      , tJs = fromList
+        [("id",String "ee1f7099,1000")
+        ,("type",String "join")
+        ,("at",Number 1.400135083e9)
+        ,("text",String "ThreadId 168")]
+      , tPacket = Packet {paHead = HeadEmpty, paBody = Body ""}
+      , tChain = Nothing
+      , tLp = Nothing})]
+, ecMsgs = []
+, ecJoin = Just "ee1f7099,1000"
+, ecSent = Nothing
+, ecAfter = Nothing}
+```
+
+

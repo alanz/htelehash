@@ -279,6 +279,7 @@ crypt_lineize mc p = do
     Just c -> do
       if cLined c /= LineNone
         then do
+          logP $ ">>>:" ++ show (tTo p,tOut p,tPacket p)
           (c2,mlp) <- crypt_lineize_1a c p
           return (Just c2,mlp)
         else return (Just c,Nothing)

@@ -84,6 +84,10 @@ main = do
   s <- streamHandler stdout DEBUG
   updateGlobalLogger rootLoggerName (setHandlers [s])
 
+  h <- fileHandler "line.log" DEBUG
+  updateGlobalLogger "Network.TeleHash.Line" (addHandler h)
+
+
   sock <- util_server 0 100
 
   -- (ch1,ch2,thread) <- startSwitchThread
@@ -94,6 +98,8 @@ main = do
 
 app :: TeleHash ()
 app = do
+  logP "-------------------------------------starting new run---------------------------"
+
   crypt_init
 
   switch_init testId
@@ -126,6 +132,8 @@ app = do
   -- new chat, must be after-init
   mchat <- chat_get (Just "tft")
   let chat = (gfromJust "app" mchat)
+  putChatCurrent (ecId chat)
+  logT $ "app:chat=" ++ show chat
   void $ chat_add (ecId chat) "*" "invited"
   mp <- chat_message (ecId chat)
   let p1 = gfromJust "app" mp
@@ -181,24 +189,27 @@ app = do
                   "path"    -> ext_path c
                   "peer"    -> ext_peer c
                   "chat"    -> do
-                    ext_chat (chUid c)
-                    msgs <-chat_pop_all (ecId chat)
-                    forM_ msgs $ \p -> do
-                      logT $ "processing chat msg:" ++ show p
+                    mchat2 <- ext_chat (chUid c)
+                    case mchat2 of
+                      Nothing -> return ()
+                      Just ch -> do
+                        msgs <-chat_pop_all (ecId ch)
+                        forM_ msgs $ \p -> do
+                          logT $ "processing chat msg:" ++ show p
 
-                      if (packet_get_str_always p "type") == "state"
-                        then io $ logg nick (packet_get_str_always p "text" ++ " joined")
-                        else return ()
+                          if (packet_get_str_always p "type") == "state"
+                            then io $ logg nick (packet_get_str_always p "text" ++ " joined")
+                            else return ()
 
-                      if (packet_get_str_always p "type") == "chat"
-                        then do
-                          mparticipant <- chat_participant (ecId chat) (packet_get_str_always p "from")
-                          logT $ "rx_loop:(mparticipant,from)=" ++ show (mparticipant,packet_get_str_always p "from")
-                          let participant = case mparticipant of
-                                              Nothing -> "*UNK*"
-                                              Just pa  -> packet_get_str_always pa "text"
-                          io $ logg nick $ participant ++ "> " ++ (packet_get_str_always p "text")
-                        else return ()
+                          if (packet_get_str_always p "type") == "chat"
+                            then do
+                              mparticipant <- chat_participant (ecId ch) (packet_get_str_always p "from")
+                              logT $ "rx_loop:(mparticipant,from)=" ++ show (mparticipant,packet_get_str_always p "from")
+                              let participant = case mparticipant of
+                                                  Nothing -> "*UNK*"
+                                                  Just pa  -> packet_get_str_always pa "text"
+                              io $ logg nick $ participant ++ "> " ++ (packet_get_str_always p "text")
+                            else return ()
 
                   typ -> do
                     logT $ "not processing channel type:" ++ typ
@@ -241,7 +252,8 @@ app = do
                 Just p -> do
                   let nick = (drop (length ("/nick ")) l)
                   let p2 = packet_set_str p "text" nick
-                  void $ chat_join (ecId chat) p2
+                  cid <- getChatCurrent
+                  void $ chat_join cid p2
                   io $ logg nick ""
                 Nothing -> return ()
 
@@ -254,7 +266,8 @@ app = do
 
            | isPrefixOf "/chat " l -> do
               logT $ "processing chat:" ++ show (drop 6 l)
-              chat_free (ecId chat)
+              cid <- getChatCurrent
+              chat_free cid
               mchat <- chat_get (Just (drop 6 l))
               case mchat of
                 Nothing -> do
@@ -262,6 +275,7 @@ app = do
                   return ()
                 Just chat2 -> do
                   putChat chat2
+                  putChatCurrent (ecId chat2)
                   mp <- chat_message (ecId chat2)
                   case mp of
                     Nothing -> do
@@ -279,14 +293,14 @@ app = do
 
            | otherwise -> do
               -- default send as message
-              mp <- chat_message (ecId chat)
+              cid <- getChatCurrent
+              mp <- chat_message cid
               case mp of
                 Nothing -> return ()
                 Just p -> do
                   let p2 = packet_set_str p "text" l
-                  chat_send (ecId chat) p2
+                  chat_send cid p2
                   io $ logg nick ""
-
 
     rx_loop
     util_sendall sock

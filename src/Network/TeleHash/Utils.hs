@@ -31,7 +31,14 @@ module Network.TeleHash.Utils
 
   , getNextUid
   , getNextTxid
+  , getNextCrid
 
+  , getChat
+  , getChatMaybe
+  , putChat
+  , getChatCurrent
+  , putChatCurrent
+  , getChatRFromChan
   , getChatR
   , putChatR
 
@@ -53,9 +60,11 @@ module Network.TeleHash.Utils
   -- * Info about the switch
   , showAllChans
   , showChan
+  , showChanShort
 
   -- * Original
   , logT
+  , logP
   , io
 
   , ghead
@@ -508,20 +517,68 @@ getNextTxid = do
   put sw { swTxid = txid }
   return txid
 
+-- ---------------------------------------------------------------------
+
+getNextCrid :: TeleHash ChatRId
+getNextCrid = do
+  sw <- get
+
+  let (CR cridOld) = swCrid sw
+      crid = CR (1 + cridOld)
+  put sw { swCrid = crid }
+  return crid
 
 -- ---------------------------------------------------------------------
 
-getChatR :: Uid -> TeleHash (Maybe ChatR)
-getChatR uid = do
+putChat :: Chat -> TeleHash ()
+putChat chat = do
+  logT $ "putChat: " ++ show (chatIdToString $ ecId chat,ecConn chat,ecRoster chat)
+  sw <- get
+  put $ sw {swIndexChat = Map.insert (ecId chat) chat (swIndexChat sw) }
+
+
+getChat :: ChatId -> TeleHash Chat
+getChat cid = do
+  -- logT $ "getChat: " ++ (chatIdToString cid)
+  sw <- get
+  return $ gfromJust ("getChat " ++ show (chatIdToString cid)) $ Map.lookup cid (swIndexChat sw)
+
+getChatMaybe :: ChatId -> TeleHash (Maybe Chat)
+getChatMaybe cid = do
+  sw <- get
+  return $ Map.lookup cid (swIndexChat sw)
+
+putChatCurrent :: ChatId -> TeleHash ()
+putChatCurrent cid = do
+  sw <- get
+  put $ sw { swCurrentChat = Just cid }
+
+getChatCurrent :: TeleHash ChatId
+getChatCurrent = do
+  sw <- get
+  return $ gfromJust "getChatCurrent" $ swCurrentChat sw
+
+-- ---------------------------------------------------------------------
+
+getChatRFromChan :: Uid -> TeleHash (Maybe ChatR)
+getChatRFromChan uid = do
   c <- getChan uid
   case chArg c of
-    CArgChatR r -> return (Just r)
+    CArgChatR rid -> do
+      cr <- getChatR rid
+      return (Just cr)
     _ -> return Nothing
 
-putChatR :: Uid -> ChatR -> TeleHash ()
-putChatR uid r = do
-  c <- getChan uid
-  putChan $ c { chArg = CArgChatR r }
+getChatR :: ChatRId -> TeleHash ChatR
+getChatR crid = do
+  sw <- get
+  return $ gfromJust ("getChatR:" ++ show crid) $ Map.lookup crid (swIndexChatR sw)
+
+putChatR :: ChatR -> TeleHash ()
+putChatR r = do
+  logT $ "putChatR:r=" ++ show r
+  sw <- get
+  put $ sw {swIndexChatR = Map.insert (ecrId r) r (swIndexChatR sw)}
 
 -- ---------------------------------------------------------------------
 
@@ -618,11 +675,29 @@ showAllChans = do
 showChan :: TChan -> String
 showChan c = "(chan:" ++ show (chUid c,chId c,chTo c,chReliable c,chState c,chType c) ++ ")"
 
+showChanShort :: TChan -> String
+showChanShort c = "(chan:" ++ show (chUid c,chId c,chReliable c,chState c,chType c) ++ ")"
+
 -- ---------------------------------------------------------------------
 -- Logging
 
+{-
+Kinds of logging
+
+1. Line packets immediateley before/after crypto
+
+2. Debug messages
+
+-}
+
+-- |Debug log stuff
 logT :: String -> TeleHash ()
-logT str = io (warningM "Controller" str)
+logT str = io (warningM "Network.TeleHash" str)
+
+-- |line traffic
+logP :: String -> TeleHash ()
+logP str = io (warningM "Network.TeleHash.Line" str)
+
 
 -- ---------------------------------------------------------------------
 -- Convenience.

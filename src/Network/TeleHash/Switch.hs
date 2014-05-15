@@ -625,6 +625,7 @@ switch_new = do
        , swChans       = Set.empty
        , swUid         = 0
        , swTxid        = 0
+       , swCrid        = CR 0
        , swCap         = 256 -- default cap size
        , swWindow      = 32 -- default reliable window size
        , swIsSeed      = False
@@ -641,7 +642,10 @@ switch_new = do
 
        , swThtp        = Nothing
        , swIndexChat   = Map.empty
+       , swIndexChatR  = Map.empty
        , swLink        = Nothing
+
+       , swCurrentChat = Nothing
 
        , swRNG         = rng
        }
