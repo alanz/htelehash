@@ -224,6 +224,7 @@ packet_t _thtp_glob(thtp_t t, char *p1)
 -- chunk the packet out
 thtp_send :: Uid -> TxTelex -> TeleHash ()
 thtp_send cid req = do
+  -- TODO: replace with util_chunk_out
   c <- getChan cid
   logT $ "thtp_send:sending " ++ showJson (tJs req)
   lpraw <- packet_raw req
@@ -316,7 +317,7 @@ thtp_req note = do
       c3 = c2 { chHandler = Just ext_thtp } -- shortcut
   logT $ "thtp_req:setting CArgTx to " ++ show linked
   putChan c3
-  void $ chan_reliable c3 10
+  void $ chan_reliable (chUid c3) 10
   thtp_send (chUid c3) req
   c4 <- getChan (chUid c3)
   return (Just c4)

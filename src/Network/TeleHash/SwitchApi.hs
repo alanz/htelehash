@@ -213,7 +213,7 @@ switch_receive rxPacket path timeNow = do
                   -- logT $ "switch_receive (chan,rx) :" ++ show (chan,rx)
                   -- logT $ "switch_receive (chState,seq) :" ++ show (chState chan,packet_has_key rx "seq")
                   chan2 <- if (chState chan == ChanStarting && packet_has_key rx "seq")
-                             then chan_reliable chan (swWindow sw)
+                             then chan_reliable (chUid chan) (swWindow sw)
                              else return chan
                   putChan chan2
                   chan_receive (chUid chan2) rx
@@ -679,8 +679,9 @@ int switch_note(switch_t s, packet_t note)
 chan_start :: HashName -> String -> TeleHash TChan
 chan_start hn typ = do
   c <- chan_new hn typ Nothing
+  putChan c
   window <- gets swWindow
-  chan_reliable c window
+  chan_reliable (chUid c) window
 
 {-
 // kind of a macro, just make a reliable channel of this type to this hashname
@@ -850,9 +851,9 @@ void chan_free(chan_t c)
 // configures channel as a reliable one, must be in STARTING state, is max # of packets to buffer before backpressure
 chan_t chan_reliable(chan_t c, int window);
 -}
-chan_reliable :: TChan -> Int -> TeleHash TChan
-chan_reliable cIn window = do
-  c <- getChan (chUid cIn)
+chan_reliable :: Uid -> Int -> TeleHash TChan
+chan_reliable cid window = do
+  c <- getChan cid
   -- logT $ "chan_reliable (c,window):" ++ show (c,window)
   if window == 0 || chState c /= ChanStarting || chReliable c /= 0
     then return c

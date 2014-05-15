@@ -7,6 +7,8 @@ module Network.TeleHash.SwitchUtils
   , util_readone
 
   , util_chan_popall
+
+  , util_chunk_out
   ) where
 
 import Control.Applicative
@@ -255,3 +257,43 @@ int util_server(int port, int ms)
 
 -}
  -- --------------------------------------------------------------------
+
+-- |chunk the packet out
+-- thtp uses "end" for the doneFlag, chat uses "done" to be able to
+-- re-use the channel
+util_chunk_out :: Uid -> TxTelex -> String -> TeleHash ()
+util_chunk_out cid req doneFlag = do
+  c <- getChan cid
+  logT $ "util_chunk_out:sending " ++ showChan c ++ ":" ++ showJson (tJs req)
+  lpraw <- packet_raw req
+  let LP raw = lpraw
+  logT $ "util_chunk_out:raw " ++ show raw
+
+  -- send until everything is done
+
+  let
+    sendChunks toSend = do
+      mchunk <- chan_packet cid
+      case mchunk of
+        Nothing -> do
+          logT $ "thtp_send:could not make chan_packet"
+          return () -- TODO: back pressure
+        Just chunk -> do
+          space <- packet_space chunk
+          let len = BC.length toSend
+          let space2 = if space > len
+                         then len
+                         else space
+          let chunk2 = packet_body chunk (BC.take space2 toSend)
+              rest = BC.drop space2 toSend
+              restLen = BC.length rest
+              chunk3 = if restLen > 0
+                         then chunk2
+                         else packet_set chunk2 doneFlag True
+          logT $ "thtp_send:sending " ++ show chunk3
+          chan_send cid chunk3
+          if restLen > 0
+            then sendChunks rest
+            else return ()
+
+  sendChunks raw

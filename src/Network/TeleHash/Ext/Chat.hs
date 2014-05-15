@@ -821,12 +821,8 @@ chat_sync cid = do
             chat_restate (ecId chat) part
 
             -- try to connect
-            {-
-            c <- case mc of
-              Nothing -> chan_start (HN part) "chat"
-              Just c -> return c
-            -}
             c <- chan_start (HN part) "chat"
+            putChan c
 
             chat2 <- getChat cid
             logT $ "chat_sync:chat2=" ++ show chat2
@@ -968,9 +964,11 @@ chat_t chat_join(chat_t chat, packet_t join)
 
 -- ---------------------------------------------------------------------
 
-chat_chunk :: TChan -> TxTelex -> TeleHash ()
-chat_chunk c msg = do
-  assert False undefined
+-- |chunk the packet out
+chat_chunk :: Uid -> TxTelex -> TeleHash ()
+chat_chunk cid msg = do
+  util_chunk_out cid msg "done"
+
 {-
 // chunk the packet out
 void chat_chunk(chan_t c, packet_t msg)
@@ -1020,8 +1018,7 @@ chat_send cid msg = do
               then return ()
               else do
                 logT $ "chat_send:calling chat_chunk"
-                c <- getChan cuid
-                chat_chunk c msg
+                chat_chunk cuid msg
           _ -> return ()
 
 {-
