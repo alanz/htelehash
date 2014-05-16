@@ -1123,11 +1123,11 @@ int chat_perm(chat_t chat, char *hn)
 chat_hub :: ChatId -> TeleHash (Maybe Chat)
 chat_hub chatId = do
   chat <- getChat chatId
-  logT $ "chat_hub:chat=" ++ show chat
+  -- logT $ "chat_hub:chat=" ++ show chat
   hub <- getChan (ecHub chat)
   notes <- chan_notes_all hub
   forM_ notes $ \note -> do
-    logT $ "chat_hub:got note " ++ show note
+    -- logT $ "chat_hub:got note " ++ show note
     let mthtp = packet_get_str note "thtp"
     case mthtp of
       Nothing -> do
@@ -1139,9 +1139,9 @@ chat_hub chatId = do
         let pn = packet_new (HN "chat_hub")
         p <- case packet_linked note of
           Just req -> do
-            logT $ "chat_hub:note req packet " ++ show req
+            -- logT $ "chat_hub:note req packet " ++ show req
             let mj = packetJson (tPacket req)
-            logT $ "chat_hub:note req packet json " ++ show mj
+            -- logT $ "chat_hub:note req packet json " ++ show mj
             case mj of
               Nothing -> do
                 return $ packet_set_int pn "status" 404
@@ -1155,17 +1155,17 @@ chat_hub chatId = do
                       then do
                         let p2 = packet_set_int pn "status" 200
                             p3 = packet_body p2 (lbsTocbs $ Aeson.encode (ecRoster chat))
-                        logT $ "chat_hub:ecRoster=" ++ show (ecRoster chat)
-                        logT $ "chat_hub:roster p3=" ++ show p3
+                        -- logT $ "chat_hub:ecRoster=" ++ show (ecRoster chat)
+                        -- logT $ "chat_hub:roster p3=" ++ show p3
                         return p3
                       else do
                         -- /chat/56419861/id/01544f0d,1000
                         if isInfixOf "/id/" (Text.unpack path)
                           then do
-                            logT $ "chat_hub:path=" ++ show path
+                            -- logT $ "chat_hub:path=" ++ show path
                             let pathParts = splitOn "/" (Text.unpack path)
                                 idVal = last pathParts
-                            logT $ "chat_hub:idVal=" ++ show idVal
+                            -- logT $ "chat_hub:idVal=" ++ show idVal
                             case Map.lookup idVal (ecLog chat) of
                               Nothing -> do
                                 logT $ "chat_hub:no log for " ++ show idVal
@@ -1174,7 +1174,7 @@ chat_hub chatId = do
                                 (LP respBody) <- packet_raw resp
                                 let p2 = packet_set_int pn "status" 200
                                     p3 = packet_body p2 respBody
-                                logT $ "chat_hub:id p3=" ++ show p3
+                                -- logT $ "chat_hub:id p3=" ++ show p3
                                 return p3
                           else do
                             assert False undefined
@@ -1187,7 +1187,7 @@ chat_hub chatId = do
         -- answers to our requests
         let resp = tPacket note
             mpath = packet_get_str note "path"
-        logT $ "chat_hub:note resp packet " ++ show (mpath, resp)
+        -- logT $ "chat_hub:note resp packet " ++ show (mpath, resp)
         case mpath of
           Nothing -> do
             assert False undefined
@@ -1196,7 +1196,7 @@ chat_hub chatId = do
               then do
                 let mjhead = packetJson resp
                     mjbody = Aeson.decode (cbsTolbs $ unBody $ paBody resp) :: Maybe Aeson.Value
-                logT $ "chat_hub:(mjhead,mjbody)=" ++ show (mjhead,mjbody)
+                -- logT $ "chat_hub:(mjhead,mjbody)=" ++ show (mjhead,mjbody)
                 case mjbody of
                   Nothing -> return ()
                   Just (Object hm) -> do
@@ -1204,7 +1204,7 @@ chat_hub chatId = do
                       doOne (k,String v) = (Text.unpack k,Text.unpack v)
                       doOne (k,v) = error $ "chat_hub:doOne got " ++ show (k,v)
                       rval = map doOne $ HM.toList hm
-                    logT $ "chat_hub:rval=" ++ show rval
+                    -- logT $ "chat_hub:rval=" ++ show rval
                     let chat2 = chat { ecRoster = Map.fromList rval }
                     putChat chat2
                     chat_sync (ecId chat2)
@@ -1215,7 +1215,7 @@ chat_hub chatId = do
               else return Ok
 
   chat2 <- getChat (ecId chat)
-  logT $ "chat_hub:chat2=" ++ show chat2
+  -- logT $ "chat_hub:chat2=" ++ show chat2
   if null (ecMsgs chat2)
     then return Nothing
     else return (Just chat2)
@@ -1300,11 +1300,11 @@ ext_chat :: Uid -> TeleHash (Maybe Chat)
 ext_chat cid = do
   c <- getChan cid
   mr <- getChatRFromChan cid
-  logT $ "ext_chan:mr=" ++ show mr
+  -- logT $ "ext_chan:mr=" ++ show mr
   case mr of
     Just r -> do
       chat <- getChat (ecrChat r)
-      logT $ "ext:chat=" ++ show chat
+      -- logT $ "ext:chat=" ++ show chat
       if ecHub chat == cid
         then do
           -- this is the hub channel, process it there
@@ -1332,8 +1332,8 @@ ext_chat cid = do
                             Nothing -> packet_get_str_always p "err"
 
                       chat <- getChat (ecrChat r)
-                      logT $ "chat_add: 2 chat=" ++ show chat
-                      logT $ "ext_chat:chat online from:" ++ show (ecId chat,chTo c,showIdVal)
+                      -- logT $ "chat_add: 2 chat=" ++ show chat
+                      -- logT $ "ext_chat:chat online from:" ++ show (ecId chat,chTo c,showIdVal)
                       case mid of
                         Nothing -> do
                           void $ chan_fail cid (Just "invalid")
@@ -1354,7 +1354,7 @@ ext_chat cid = do
         Nothing -> do
           logT $ "ext_chat:chan start got bad channel"
           chansStr <- showAllChans
-          logT $ "ext_chat:current channels:\n" ++ chansStr
+          -- logT $ "ext_chat:current channels:\n" ++ chansStr
           chan_fail cid (Just "500")
           return ()
         Just p -> do
@@ -1367,7 +1367,7 @@ ext_chat cid = do
               logT $ "ext_chat: got chat " ++ show chat
               perm <- chat_perm (ecId chat) (chTo c)
               let idVal = packet_get_str_always p "from"
-              logT $ "ext_chat:chat from is:" ++ show (idVal,chatIdToString $ ecId chat,chTo c,perm)
+              -- logT $ "ext_chat:chat from is:" ++ show (idVal,chatIdToString $ ecId chat,chTo c,perm)
               continue <- case perm of
                 PermBlocked -> do
                   void $ chan_fail cid (Just "blocked")
@@ -1403,7 +1403,7 @@ ext_chat cid = do
                           p2' = packet_set_str p "from" j
                       return (r2',p2')
 
-                  logT $ "ext_chat:(r2,p2)=" ++ show (r2,p2)
+                  -- logT $ "ext_chat:(r2,p2)=" ++ show (r2,p2)
 
                   -- add to roster if given
                   if idVal /= ""
@@ -1411,7 +1411,7 @@ ext_chat cid = do
                       void $ chat_add (ecId chat2) (unHN $ chTo c) idVal
                     else return ()
                   chat3 <- getChat (ecId chat2)
-                  logT $ "ext_chat:chat3=" ++ show chat3
+                  -- logT $ "ext_chat:chat3=" ++ show chat3
 
                   -- re-fetch roster if hashes don't match
                   if packet_get_str_always p2 "roster" /= (unCH $ ecRHash chat3)
@@ -1428,8 +1428,8 @@ ext_chat cid = do
 
   rxs <- chan_pop_all cid
   forM_ rxs $ \p -> do
-    logT $ "ext_chat:chat packet " ++ showJson (rtJs p)
-    logT $ "ext_chat:chat packet body " ++ show (paBody $ rtPacket p)
+    -- logT $ "ext_chat:chat packet " ++ showJson (rtJs p)
+    -- logT $ "ext_chat:chat packet body " ++ show (paBody $ rtPacket p)
     mr2 <- getChatRFromChan cid
     if isJust mr2
       then do
@@ -1437,7 +1437,7 @@ ext_chat cid = do
         let rin2 = packet_append rIn (unBody $ paBody $ rtPacket p)
         putChatR ((fromJust mr2) { ecrIn = rin2 })
       else return ()
-    logT $ "ext_chat:chat packet done str=" ++ show (packet_get_str_always p "done")
+    -- logT $ "ext_chat:chat packet done str=" ++ show (packet_get_str_always p "done")
     if packet_get_str_always p "done" == "Bool True"
       then do
         mr3 <- getChatRFromChan cid
@@ -1493,7 +1493,7 @@ ext_chat cid = do
   if ok && isJust mr
     then do
       chat3 <- getChat (ecrChat $ fromJust mr)
-      logT $ "ext_chat:final chat="  ++ show chat3
+      -- logT $ "ext_chat:final chat="  ++ show chat3
       if null (ecMsgs chat3)
         then return Nothing
         else return (Just chat3)

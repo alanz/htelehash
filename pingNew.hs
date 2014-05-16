@@ -52,11 +52,11 @@ app = do
 
   --  create/send a ping packet
   c <- chan_new (gfromJust "app" (bucket_get seeds 0)) "seek" Nothing
-  p <- chan_packet c
+  p <- chan_packet (chUid c) True
   sw <- get
   let p2 = packet_set_str (gfromJust "run" p) "seek" (unHN $ swId sw)
   logT $ "run:p2=" ++ show p2
-  chan_send c p2
+  chan_send (chUid c) p2
   logT $ "run:chan_send done"
 
   -- send all queued packets in the switch
@@ -78,9 +78,10 @@ app = do
         case mc of
           Nothing -> return ()
           Just c2 -> do
-            if (chUid c2 == chUid c)
+            if (c2 == chUid c)
               then do
-                logT $ "got pong state " ++ show (chState c2,chTo c2)
+                chan2 <- getChan c2
+                logT $ "got pong state " ++ show (chState chan2,chTo chan2)
               else do
                 assert False undefined
             rxall

@@ -94,7 +94,11 @@ fails, the parser must return an error.
 -}
 
 data Head = HeadEmpty | HeadJson BC.ByteString
-          deriving (Show,Eq)
+          deriving (Eq)
+
+instance Show Head where
+  show (HeadEmpty) = "HeadEmpty"
+  show (HeadJson j) = "HeadJson " ++ BC.unpack j
 
 {-
 BODY

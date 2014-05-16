@@ -346,16 +346,13 @@ crypt_openize_1a self c inner = do
   -- logT $ "crypt_openize_1a:(self,c,inner)=" ++ show (self,c,inner)
   let cs  = cCs c -- line crypto
       scs = cCs self -- self/own crypto
-  let Public1a (PublicKey _ linePub) = (cs1aIdPublic cs)
+  let -- Public1a (PublicKey _ linePub) = (cs1aIdPublic cs)
       Public1a (PublicKey _ ourPub)  = (cs1aIdPublic scs)
       js = lbsTocbs $ Aeson.encode inner
       -- innerPacket = Packet (HeadJson js) (Body $ pointTow8s linePub)
       innerPacket = Packet (HeadJson js) (Body $ pointTow8s ourPub)
       (LP innerPacketBody) = toLinePacket innerPacket
       body = innerPacketBody
-
-  -- logT $ "crypt_openize_1a:js=" ++ (BC.unpack js)
-  -- logT $ "crypt_openize_1a:linePub=" ++ show (B16.encode $ pointTow8s linePub)
 
   -- get the shared secret to create the iv+key for the open aes
   -- uses  line private key and destination public key

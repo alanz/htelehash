@@ -13,6 +13,7 @@ module Network.TeleHash.Switch
    , sendDgram
    , addrFromHostPort
    , onesec
+   , timer
    ) where
 
 import Control.Applicative
@@ -648,6 +649,7 @@ switch_new = do
        , swCurrentChat = Nothing
 
        , swRNG         = rng
+       , swTick        = 0
        }
 
 {-

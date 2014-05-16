@@ -616,11 +616,54 @@ void switch_seed(switch_t s, hn_t hn)
 
 -- |give all channels a chance
 switch_loop :: TeleHash ()
-switch_loop = return ()
+switch_loop = do
+  (TOD now _) <- io getClockTime
+  sw <- get
+  if swTick sw == now
+    then return ()
+    else do
+      put $ sw { swTick = now }
+
+      -- give all channels a tick
+      forM_ (Map.keys (swIndexChans sw)) $ \cid -> do
+        logT $ "switch_loop: processing : " ++ show cid
+        chan_tick cid
+      return ()
+
 {-
+// fire tick events no more than once a second
 void switch_loop(switch_t s)
 {
-  // give all channels a chance
+  hn_t hn;
+  int i = 0;
+  uint32_t now = platform_seconds();
+  if(s->tick == now) return;
+  s->tick = now;
+
+  // give all channels a tick
+  while((hn = bucket_get(s->active,i)))
+  {
+    i++;
+    chan_tick(s,hn);
+  }
+}
+-}
+-- ---------------------------------------------------------------------
+
+chan_tick :: Uid -> TeleHash ()
+chan_tick cid = do
+  logT $ "chan_tick called"
+  -- assert False undefined
+{-
+void walktick(xht_t h, const char *key, void *val, void *arg)
+{
+  chan_t c = (chan_t)val;
+  // TODO check packet resend timers
+  if(c->tick) c->tick(c);
+}
+void chan_tick(switch_t s, hn_t hn)
+{
+  xht_walk(hn->chans, &walktick, NULL);
 }
 -}
 
@@ -629,9 +672,9 @@ void switch_loop(switch_t s)
 -- |sends a note packet to it's channel if it can, !0 for error
 switch_note :: TxTelex -> TeleHash OkFail
 switch_note note = do
-  logT $ "switch_note:note=" ++ show note
+  -- logT $ "switch_note:note=" ++ show note
   cstr <- showAllChans
-  logT $ "switch_note:all chans=\n" ++ cstr
+  -- logT $ "switch_note:all chans=\n" ++ cstr
   case packet_get_int note ".to" of
     Nothing -> return Fail
     Just toVal -> do
@@ -704,7 +747,7 @@ chan_new toHn typ mcid = do
 
   sw <- get
   let base = if (swId sw) > toHn
-               then 1 else 2
+               then 1 else 2::Int
 
   logT $ "chan_new:(base,hChanOut)" ++ show (base,hChanOut to)
 
@@ -983,10 +1026,10 @@ chan_packet cid incSeq = do
               then chan_seq_packet cid
               else return $ Just (packet_new (chTo chan))
       chan2 <- getChan cid
-      logT $ "chan_packet:chSeq=" ++ show (chSeq chan2)
+      -- logT $ "chan_packet:chSeq=" ++ show (chSeq chan2)
       case mp of
         Nothing -> do
-          logT $ "chan_packet:mp=Nothing"
+          -- logT $ "chan_packet:mp=Nothing"
           return Nothing
         Just p -> do
           let p1 = p { tTo = chTo chan2 }
@@ -1003,7 +1046,7 @@ chan_packet cid incSeq = do
                      else p2
               p4 = packet_set_int p3 "c" (unChannelId $ chId chan2)
           chan3 <- getChan cid
-          logT $ "chan_packet:chSeq 3=" ++ show (chSeq chan3)
+          -- logT $ "chan_packet:chSeq 3=" ++ show (chSeq chan3)
           return (Just p4)
 
 {-
@@ -1034,7 +1077,7 @@ chan_pop chanUid = do
   case mchan of
     Nothing -> return Nothing
     Just chan -> do
-      logT $ "chan_pop:(uid,id,chReliable)=" ++ show (chanUid,chId chan,chReliable chan)
+      -- logT $ "chan_pop:(uid,id,chReliable)=" ++ show (chanUid,chId chan,chReliable chan)
       if (chReliable chan /= 0)
         then chan_seq_pop chanUid
         else do
@@ -1210,7 +1253,7 @@ packet_t chan_note(chan_t c, packet_t note)
 chan_reply :: Uid -> TxTelex -> TeleHash OkFail
 chan_reply cid note = do
   c <- getChan cid
-  logT $ "chan_reply:c,note=" ++ showChan c ++ "," ++ show note
+  -- logT $ "chan_reply:c,note=" ++ showChan c ++ "," ++ show note
   case packet_get_int note ".from" of
     Nothing -> do
       logT $ "chan_reply:missing .from in note"
@@ -1321,7 +1364,7 @@ isAckOnlyPacket p = r
 chan_send :: Uid -> TxTelex -> TeleHash ()
 chan_send cid p = do
   c <- getChan cid
-  logT $ "chan_send:channel out " ++ show (chUid c,chId c,p)
+  -- logT $ "chan_send:channel out " ++ show (chUid c,chId c,p)
   p2 <- if chReliable c /= 0
           then do
             -- track the actual packet being sent in the miss structure

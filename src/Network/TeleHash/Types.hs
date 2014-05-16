@@ -241,6 +241,7 @@ data Switch = Switch
        , swCurrentChat :: !(Maybe ChatId)
 
        , swRNG  :: !SystemRNG
+       , swTick :: !Integer -- unix epoch
        }
      deriving Show
 

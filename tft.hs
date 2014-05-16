@@ -8,6 +8,7 @@ import Control.Monad.State
 import Data.List
 import Data.Maybe
 import Network.Socket
+import System.Environment
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
@@ -36,6 +37,7 @@ import qualified Network.Socket.ByteString as SB
 -- ---------------------------------------------------------------------
 
 data Input = IConsole String | IUdp BC.ByteString SockAddr
+             | ITick
            deriving (Show)
 
 -- ---------------------------------------------------------------------
@@ -78,6 +80,8 @@ recvUdpMsg ch sock = forever $ do
   (msg,rinfo) <- (SB.recvFrom sock 1000)
   writeChan ch (IUdp msg rinfo)
 
+
+
 -- ---------------------------------------------------------------------
 
 main = do
@@ -87,6 +91,29 @@ main = do
   h <- fileHandler "line.log" DEBUG
   updateGlobalLogger "Network.TeleHash.Line" (addHandler h)
 
+
+{-
+  Log priorities
+
+  DEBUG         Debug messages               logT
+  INFO          Information
+  NOTICE        Normal runtime conditions    logR
+  WARNING       General Warnings             logP
+  ERROR General Errors
+  CRITICAL      Severe situations
+  ALERT         Take immediate action
+  EMERGENCY     System is unusable
+-}
+
+  args <- getArgs
+  if null args
+    then do
+      updateGlobalLogger mainLoggerName (setLevel NOTICE)
+    else do
+      updateGlobalLogger mainLoggerName (setLevel DEBUG)
+
+  updateGlobalLogger lineLoggerName (setLevel WARNING)
+  updateGlobalLogger rootLoggerName (setLevel ERROR)
 
   sock <- util_server 0 100
 
@@ -125,6 +152,7 @@ app = do
   chInput <- io newChan
   threadConsole <- io $ forkIO (readConsole chInput)
   threadUdp     <- io $ forkIO (recvUdpMsg chInput sock)
+  threadTimer   <- io $ forkIO (timer (1000 * onesec) ITick chInput)
   logT $ "threads launched"
 
   logT $ "loaded hashname " ++ show (swId sw)
@@ -134,7 +162,7 @@ app = do
   let chat = (gfromJust "app" mchat)
   putChatCurrent (ecId chat)
   logT $ "app:chat=" ++ show chat
-  void $ chat_add (ecId chat) "*" "invited"
+  void $ chat_add (ecId chat) "*" "invite"
   mp <- chat_message (ecId chat)
   let p1 = gfromJust "app" mp
       p2 = packet_set_str p1 "text" nick
@@ -233,6 +261,9 @@ app = do
     inp <- io $ readChan chInput
 
     case inp of
+      ITick -> do
+        switch_loop
+
       IUdp msg rinfo -> do
         recvTelex msg rinfo
         switch_loop
@@ -243,6 +274,7 @@ app = do
         if | isPrefixOf "/quit" l -> do
               io $ killThread threadConsole
               io $ killThread threadUdp
+              io $ killThread threadTimer
               me <- io $ myThreadId
               io $ killThread me
 

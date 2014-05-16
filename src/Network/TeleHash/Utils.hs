@@ -62,9 +62,12 @@ module Network.TeleHash.Utils
   , showChan
   , showChanShort
 
-  -- * Original
+  -- * Utility
   , logT
   , logP
+  , logR
+  , mainLoggerName
+  , lineLoggerName
   , io
 
   , ghead
@@ -382,7 +385,7 @@ telexToPacket telex = do
   case (HM.toList $ tJs telex) of
     [] -> return $ telex
     _js -> do
-      logT $ "telexToPacket: encoded js=" ++ (BC.unpack $ lbsTocbs $ encode (tJs telex))
+      -- logT $ "telexToPacket: encoded js=" ++ (BC.unpack $ lbsTocbs $ encode (tJs telex))
       let packet = (tPacket telex) { paHead = HeadJson (lbsTocbs $ encode (tJs telex)) }
       return $ telex { tPacket = packet}
 
@@ -457,7 +460,7 @@ dequeueChan chanUid = do
 
 putChan :: TChan -> TeleHash ()
 putChan chan = do
-  logT $ "putChan:" ++ show (chId chan, chUid chan, chSeq chan)
+  -- logT $ "putChan:" ++ show (chId chan, chUid chan, chSeq chan)
   sw <- get
   put $ sw { swIndexChans = Map.insert (chUid chan) chan (swIndexChans sw)}
 
@@ -690,13 +693,26 @@ Kinds of logging
 
 -}
 
+mainLoggerName :: String
+mainLoggerName = "Network.TeleHash.Main"
+
 -- |Debug log stuff
 logT :: String -> TeleHash ()
-logT str = io (warningM "Network.TeleHash" str)
+logT str = io (debugM mainLoggerName str)
+
+-- |normal status reports
+logR :: String -> TeleHash ()
+logR str = io (noticeM mainLoggerName str)
+
+--------
+
+lineLoggerName :: String
+lineLoggerName = "Network.TeleHash.Line"
 
 -- |line traffic
 logP :: String -> TeleHash ()
-logP str = io (warningM "Network.TeleHash.Line" str)
+logP str = io (noticeM lineLoggerName str)
+
 
 
 -- ---------------------------------------------------------------------

@@ -108,8 +108,8 @@ hn_fromjson p = do
                               logT $ "hn_fromjson:pp=" ++ show mpp
                               case mpp of
                                 Nothing -> return Nothing
-                                Just pp -> do
-                                  let mkey = packet_get_str (packet_from_val pp) (hCsid hc)
+                                Just pp1 -> do
+                                  let mkey = packet_get_str (packet_from_val pp1) (hCsid hc)
                                   logT $ "hn_fromjson:mkey=" ++ show mkey
                                   case mkey of
                                     Nothing -> return Nothing
@@ -307,8 +307,8 @@ hn_path hn p = do
   ret <- case mp of
     [] -> do
       return pa
-    [p] -> return p
-    ps -> do
+    [p1] -> return p1
+    _ps -> do
       logT $ "hn_path got multiple path match.:" ++ show(hn,p,hPaths hc)
       assert False undefined
   putHN $ hc { hPaths = Map.insert (pJson ret) (upd ret) (hPaths hc)

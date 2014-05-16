@@ -188,7 +188,7 @@ void thtp_path(switch_t s, char *path, packet_t note)
 -- |Retrieve a value from the global store
 _thtp_glob :: Thtp -> String -> TeleHash (Maybe TxTelex)
 _thtp_glob t p1 = do
-  logT $ "_thtp_glob:(t,p1)=" ++ show (t,p1)
+  -- logT $ "_thtp_glob:(t,p1)=" ++ show (t,p1)
   let myMatch str1 p =
         case packet_get_str p "glob" of
           Nothing -> False
@@ -197,8 +197,8 @@ _thtp_glob t p1 = do
       r = case mcur of
             [] -> Nothing
             (x:_) -> Just x
-  logT $ "_thtp_glob:mcur=" ++ show mcur
-  logT $ "_thtp_glob:r=" ++ show r
+  -- logT $ "_thtp_glob:mcur=" ++ show mcur
+  -- logT $ "_thtp_glob:r=" ++ show r
   return r
 
 
@@ -385,14 +385,14 @@ ext_thtp cid = do
           return ()
     else do
       rxs <- chan_pop_all cid
-      logT $ "ext_thtp:rxs=" ++ show rxs
+      -- logT $ "ext_thtp:rxs=" ++ show rxs
       r <- forM rxs $ \p -> do
               c2 <- getChan cid -- may have changed in earlier loop iteration
               case packet_get_str p "err" of
                 Just v -> do
                   logT $ "ext_thtp:got err: " ++ show v
                 Nothing -> return ()
-              logT $ "ext_thtp:chArg:" ++ show (chArg c2)
+              -- logT $ "ext_thtp:chArg:" ++ show (chArg c2)
               buf <- case chArg c2 of
                 CArgNone -> do
                   let pt = rxTelexToTxTelex p (HN "thtp")
@@ -406,7 +406,7 @@ ext_thtp cid = do
                   return r2
                 CArgTx r -> do
                   let r2 = packet_append r (unBody $ paBody (rtPacket p))
-                  logT $ "ext_thtp:CArgTx: (r,r2)=" ++ show (r,r2)
+                  -- logT $ "ext_thtp:CArgTx: (r,r2)=" ++ show (r,r2)
                   putChan $ c2 { chArg = CArgTx r2 }
                   return r2
                   -- putChan $ c2 { chArg = CArgRx p }
@@ -424,7 +424,7 @@ ext_thtp cid = do
                   -- When the last chunk is sent, the "end" flag is set, should all be here in the body
 
                   -- parse the payload
-                  logT $ "ext_thtp:(rtPacket buf)=" ++ show (tPacket buf)
+                  -- logT $ "ext_thtp:(rtPacket buf)=" ++ show (tPacket buf)
                   let bufBody = unBody $ paBody (tPacket buf)
                   let mnp = fromNetworkPacket (LP bufBody)
                   logT $ "ext_thtp:mnp=" ++ show mnp
@@ -451,8 +451,8 @@ ext_thtp cid = do
                       -- case Nothing of
                         Just note -> do
                           -- note is the orignal request sent.
-                          logT $ "ext_thtp:got response " ++ (show $ packetJson lp) ++ " for " ++ showJson (tJs note)
-                          logT $ "ext_thtp:got response2 " ++ (show note)
+                          -- logT $ "ext_thtp:got response " ++ (show $ packetJson lp) ++ " for " ++ showJson (tJs note)
+                          -- logT $ "ext_thtp:got response2 " ++ (show note)
                           let note2 = note { tPacket = lp }
                               note3 = packet_set_str note2 "thtp" "resp"
                           void $ chan_reply (chUid c) note3
@@ -470,7 +470,7 @@ ext_thtp cid = do
                               void $ chan_fail cid (Just "422")
                               return True
                             Just v -> do
-                              logT $ "ext_thtp:req json=" ++ showJson v
+                              -- logT $ "ext_thtp:req json=" ++ showJson v
                               let mpath  = get_str_from_value "path" v
                                   mmatch = if isJust mpath then Map.lookup (fromJust mpath) (thIndex t)
                                                            else Nothing
@@ -495,7 +495,7 @@ ext_thtp cid = do
                                       let f = packet_link (Just note) ((packet_new (chTo c)){ tPacket = req } )
                                           f2 = packet_set_str f "thtp" "req"
                                       r <- chan_reply (chUid c) f2
-                                      logT $ "ext_thtp:chan_reply (r,f2):" ++ show (r,f2)
+                                      -- logT $ "ext_thtp:chan_reply (r,f2):" ++ show (r,f2)
                                       case r of
                                         Ok   -> return True
                                         Fail -> do
