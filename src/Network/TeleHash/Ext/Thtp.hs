@@ -6,60 +6,60 @@ module Network.TeleHash.Ext.Thtp
   , thtp_req
   ) where
 
-import Control.Applicative
-import Control.Concurrent
+-- import Control.Applicative
+-- import Control.Concurrent
 import Control.Exception
 import Control.Monad
-import Control.Monad.Error
+-- import Control.Monad.Error
 import Control.Monad.State
-import Crypto.Random
-import Data.Aeson (object,(.=), (.:), (.:?) )
-import Data.Aeson.Encode
-import Data.Aeson.Types
-import Data.Bits
-import Data.Char
-import Data.IP
+-- import Crypto.Random
+-- import Data.Aeson (object,(.=), (.:), (.:?) )
+-- import Data.Aeson.Encode
+-- import Data.Aeson.Types
+-- import Data.Bits
+-- import Data.Char
+-- import Data.IP
 import Data.List
 import Data.Maybe
-import Data.String.Utils
-import Data.Text.Lazy.Builder
-import Data.Typeable
-import Data.Word
-import Network.BSD
-import Network.Socket
-import Prelude hiding (id, (.), head, either, catch)
-import System.IO
-import System.Log.Handler.Simple
-import System.Log.Logger
-import System.Time
+-- import Data.String.Utils
+-- import Data.Text.Lazy.Builder
+-- import Data.Typeable
+-- import Data.Word
+-- import Network.BSD
+-- import Network.Socket
+import Prelude hiding (id, (.), head, either)
+-- import System.IO
+-- import System.Log.Handler.Simple
+-- import System.Log.Logger
+-- import System.Time
 
-import Network.TeleHash.Convert
-import Network.TeleHash.Crypt
-import Network.TeleHash.Hn
+-- import Network.TeleHash.Convert
+-- import Network.TeleHash.Crypt
+-- import Network.TeleHash.Hn
 import Network.TeleHash.Packet
-import Network.TeleHash.Path
-import Network.TeleHash.Paths
+-- import Network.TeleHash.Path
+-- import Network.TeleHash.Paths
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
 import Network.TeleHash.SwitchApi
-import Network.TeleHash.SwitchUtils
+-- import Network.TeleHash.SwitchUtils
 
-import qualified Crypto.Hash.SHA256 as SHA256
-import qualified Crypto.PubKey.DH as DH
-import qualified Crypto.Types.PubKey.ECDSA as ECDSA
-import qualified Data.Aeson as Aeson
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Base16 as B16
+-- import qualified Crypto.Hash.SHA256 as SHA256
+-- import qualified Crypto.PubKey.DH as DH
+-- import qualified Crypto.Types.PubKey.ECDSA as ECDSA
+-- import qualified Data.Aeson as Aeson
+-- import qualified Data.ByteString as B
+-- import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Digest.Pure.SHA as SHA
-import qualified Data.HashMap.Strict as HM
+-- import qualified Data.ByteString.Lazy as BL
+-- import qualified Data.Digest.Pure.SHA as SHA
+-- import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
-import qualified Data.Set as Set
-import qualified Data.Text as Text
-import qualified Data.Text.Lazy as TL
-import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as SB
+-- import qualified Data.Set as Set
+-- import qualified Data.Text as Text
+-- import qualified Data.Text.Lazy as TL
+-- import qualified Network.Socket as NS
+-- import qualified Network.Socket.ByteString as SB
 
 -- ---------------------------------------------------------------------
 
@@ -146,7 +146,7 @@ thtp_glob mglob note = do
          Nothing -> note
          Just v -> packet_set_str note "glob" v
       note3 = rxTelexToTxTelex note2 (swId sw)
-      key = fromMaybe "glob" mglob
+      -- key = fromMaybe "glob" mglob
   -- thtp_put $ t { thGlob = note2:(thGlob t)}
   let t2 = t { thGlob = note3:(thGlob t)}
   thtp_put t2
@@ -431,15 +431,15 @@ ext_thtp cid = do
                   case mnp of
                     Nothing -> do
                       logT $ "ext_thtp:malformed long packet received:" ++ show (bufBody)
-                      void $ chan_fail cid (Just "422")
+                      chan_fail cid (Just "422")
                       return True
                     Just (OpenPacket _b _bs) -> do
                       logT $ "ext_thtp:unexpected OpenPacket received:" ++ show (mnp)
-                      void $ chan_fail cid (Just "422")
+                      chan_fail cid (Just "422")
                       return True
                     Just (LinePacket _pbody) -> do
                       logT $ "ext_thtp:unexpected LinePacket received:" ++ show (mnp)
-                      void $ chan_fail cid (Just "422")
+                      chan_fail cid (Just "422")
                       return True
                     Just (PingPongPacket lp) -> do
                       logT $ "ext_thtp:PingPongPacket received:" ++ show (lp)
@@ -467,7 +467,7 @@ ext_thtp cid = do
                           case mjs of
                             Nothing -> do
                               logT $ "ext_thtp: malformed request received"
-                              void $ chan_fail cid (Just "422")
+                              chan_fail cid (Just "422")
                               return True
                             Just v -> do
                               -- logT $ "ext_thtp:req json=" ++ showJson v
@@ -480,7 +480,7 @@ ext_thtp cid = do
                               case mmatch2 of
                                 Nothing -> do
                                   logT $ "ext_thtp:no match value in request"
-                                  void $ chan_fail cid (Just "404")
+                                  chan_fail cid (Just "404")
                                   return True
                                 Just mm -> do
                                   -- built in response
@@ -491,7 +491,6 @@ ext_thtp cid = do
                                     Nothing -> do
                                       -- attach and route request to a new note
                                       let note = mm
-                                      sw <- get
                                       let f = packet_link (Just note) ((packet_new (chTo c)){ tPacket = req } )
                                           f2 = packet_set_str f "thtp" "req"
                                       r <- chan_reply (chUid c) f2

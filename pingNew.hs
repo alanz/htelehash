@@ -10,7 +10,7 @@ import System.Log.Logger
 
 import Network.TeleHash.Bucket
 import Network.TeleHash.Crypt
-import Network.TeleHash.Paths
+-- import Network.TeleHash.Paths
 import Network.TeleHash.Switch
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.Types

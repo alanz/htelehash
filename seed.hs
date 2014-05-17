@@ -49,8 +49,8 @@ app = do
 
   --  create/send a ping packet
   c <- chan_new (ghead "app" $ Set.elems (swSeeds sw)) "link" Nothing
-  p <- chan_packet c
-  chan_send c (gfromJust "app.2" p)
+  p <- chan_packet (chUid c) True
+  chan_send (chUid c) (gfromJust "app.2" p)
   util_sendall sock
 
   let inPath = PNone
@@ -65,7 +65,8 @@ app = do
         mc <- switch_pop
         case mc of
           Nothing -> return ()
-          Just c -> do
+          Just cid -> do
+            c <- getChan cid
             logT $ "channel active " ++ show (chState c,chUid c,chTo c)
             case chType c of
               "link" -> ext_link c

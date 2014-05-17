@@ -1,4 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+
+-- | Implement Cypher Suite 1a for TeleHash, as per
+-- https://github.com/telehash/telehash.org/blob/master/cs/1a.md
+
 module Network.TeleHash.Crypto1a
   (
     -- cset_1a
@@ -14,8 +18,6 @@ module Network.TeleHash.Crypto1a
   , mkHashFromB64
   ) where
 
--- | Implement Cypher Suite 1a for TeleHash, as per
--- https://github.com/telehash/telehash.org/blob/master/cs/1a.md
 
 {-
 
@@ -41,12 +43,12 @@ import Crypto.MAC.HMAC
 import Crypto.Number.Serialize
 import Crypto.PubKey.ECC.ECDSA
 import Crypto.PubKey.ECC.Generate
-import Crypto.Random
+-- import Crypto.Random
 import Data.Bits
 import Data.ByteString.Base64
 import Data.Int
 import Data.List
-import Data.Maybe
+-- import Data.Maybe
 import Data.Word
 import System.Time
 import Network.TeleHash.Convert
@@ -56,9 +58,9 @@ import Network.TeleHash.Utils
 
 -- import qualified Crypto.Hash.SHA1 as SHA1
 import qualified Crypto.Hash.SHA256 as SHA256
-import qualified Crypto.PubKey.DH as DH
+-- import qualified Crypto.PubKey.DH as DH
 import qualified Crypto.PubKey.ECC.Prim as ECC
-import qualified Crypto.Types.PubKey.DH as DH
+-- import qualified Crypto.Types.PubKey.DH as DH
 import qualified Crypto.Types.PubKey.ECC as ECC
 import qualified Data.Aeson as Aeson
 import qualified Data.Binary as Binary
@@ -66,10 +68,11 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Map as Map
-import qualified Data.HashMap.Strict as HM
-import qualified Data.Text as Text
+-- import qualified Data.Map as Map
+-- import qualified Data.HashMap.Strict as HM
+-- import qualified Data.Text as Text
 
+curve :: ECC.Curve
 curve = ECC.getCurveByName ECC.SEC_p160r1
 
 -- ---------------------------------------------------------------------
@@ -136,7 +139,7 @@ crypt_new_1a mPubStr mPubBin = do
 
 
               hexName = mkHashFromBS bs
-              newParts = [("1a",unHash hexName)]
+              -- newParts = [("1a",unHash hexName)] :: Parts
               cs = Crypt1a
                       { cs1aIdPrivate   = Nothing
                       , cs1aIdPublic    = Public1a pubkey
@@ -420,6 +423,9 @@ crypt_deopenize_1a self open = do
     LinePacket _ -> do
       logT $ "crypt_deopenize_1a:trying to deopenize a line packet"
       return DeOpenizeVerifyFail
+    PingPongPacket _ -> do
+      logT $ "crypt_deopenize_1a:trying to deopenize a pingpong packet"
+      return DeOpenizeVerifyFail
     OpenPacket _ pbody -> do
       if BC.length pbody <= 44 -- c version checks for 44
         then do
@@ -550,7 +556,8 @@ crypt_line_1a open c = do
                              , cs1aSeq = seqVal
                              }}
 
-tl = (B16.encode keyOut,B16.encode keyIn)
+_tl :: (BC.ByteString, BC.ByteString)
+_tl = (B16.encode keyOut,B16.encode keyIn)
   where
     secret  = b16ToCbs "f3112580f84c04c74631d9a31fc010ad3424eb64"
     lineIn  = b16ToCbs "d5f1f542b98912d47187d38e1a847f04"
@@ -694,6 +701,7 @@ pointTow8s (ECC.Point i1 i2)= B.append i1_20 i2_20
 
 -- ---------------------------------------------------------------------
 
+privToBs :: Integer -> BC.ByteString
 privToBs p = pbs
   where
     (Just pbs) = i2ospOf 20 p

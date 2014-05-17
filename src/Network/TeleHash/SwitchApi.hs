@@ -34,31 +34,31 @@ module Network.TeleHash.SwitchApi
 
   ) where
 
-import Control.Applicative
-import Control.Concurrent
+-- import Control.Applicative
+-- import Control.Concurrent
 import Control.Exception
 import Control.Monad
-import Control.Monad.Error
+-- import Control.Monad.Error
 import Control.Monad.State
-import Crypto.Random
-import Data.Aeson (object,(.=), (.:), (.:?) )
-import Data.Aeson.Encode
-import Data.Aeson.Types
-import Data.Bits
-import Data.Char
-import Data.IP
+-- import Crypto.Random
+-- import Data.Aeson (object,(.=), (.:), (.:?) )
+-- import Data.Aeson.Encode
+-- import Data.Aeson.Types
+-- import Data.Bits
+-- import Data.Char
+-- import Data.IP
 import Data.List
 import Data.Maybe
-import Data.String.Utils
-import Data.Text.Lazy.Builder
-import Data.Typeable
-import Data.Word
-import Network.BSD
-import Network.Socket
-import Prelude hiding (id, (.), head, either, catch)
-import System.IO
-import System.Log.Handler.Simple
-import System.Log.Logger
+-- import Data.String.Utils
+-- import Data.Text.Lazy.Builder
+-- import Data.Typeable
+-- import Data.Word
+-- import Network.BSD
+-- import Network.Socket
+import Prelude hiding (id, (.), head, either)
+-- import System.IO
+-- import System.Log.Handler.Simple
+-- import System.Log.Logger
 import System.Time
 
 import Network.TeleHash.Convert
@@ -70,22 +70,22 @@ import Network.TeleHash.Paths
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
 
-import qualified Crypto.Hash.SHA256 as SHA256
-import qualified Crypto.PubKey.DH as DH
-import qualified Crypto.Types.PubKey.ECDSA as ECDSA
+-- import qualified Crypto.Hash.SHA256 as SHA256
+-- import qualified Crypto.PubKey.DH as DH
+-- import qualified Crypto.Types.PubKey.ECDSA as ECDSA
 import qualified Data.Aeson as Aeson
-import qualified Data.ByteString as B
+-- import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Digest.Pure.SHA as SHA
+-- import qualified Data.ByteString.Lazy as BL
+-- import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-import qualified Data.Text.Lazy as TL
-import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as SB
+-- import qualified Data.Text.Lazy as TL
+-- import qualified Network.Socket as NS
+-- import qualified Network.Socket.ByteString as SB
 
 
 switch_sending :: TeleHash (Maybe TxTelex)
@@ -124,7 +124,7 @@ switch_receive rxPacket path timeNow = do
                 }
 
   case rxPacket of
-    OpenPacket b bs -> do
+    OpenPacket _b _bs -> do
       -- process open packet
       open <- crypt_deopenize rxPacket
       logT $ "DEOPEN " ++ showJson (doJs open)
@@ -238,7 +238,7 @@ switch_receive rxPacket path timeNow = do
                         packet_free(p);
                       }
                      -}
-    PingPongPacket p -> do
+    PingPongPacket _p -> do
       -- handle valid pong responses, start handshake
 
      {-
@@ -673,7 +673,7 @@ void chan_tick(switch_t s, hn_t hn)
 switch_note :: TxTelex -> TeleHash OkFail
 switch_note note = do
   -- logT $ "switch_note:note=" ++ show note
-  cstr <- showAllChans
+  -- cstr <- showAllChans
   -- logT $ "switch_note:all chans=\n" ++ cstr
   case packet_get_int note ".to" of
     Nothing -> return Fail
@@ -1045,7 +1045,7 @@ chan_packet cid incSeq = do
                      then packet_set_str p2 "type" (chType chan2)
                      else p2
               p4 = packet_set_int p3 "c" (unChannelId $ chId chan2)
-          chan3 <- getChan cid
+          -- chan3 <- getChan cid
           -- logT $ "chan_packet:chSeq 3=" ++ show (chSeq chan3)
           return (Just p4)
 
@@ -1146,7 +1146,7 @@ chan_t chan_end(chan_t c, packet_t p)
 -- ---------------------------------------------------------------------
 
 -- |immediately fails/removes channel, if err tries to send message
-chan_fail :: Uid -> Maybe String -> TeleHash TChan
+chan_fail :: Uid -> Maybe String -> TeleHash ()
 chan_fail cid merr = do
   c <- getChan cid
   logT $ "channel fail " ++ show (chId c,chUid c,merr)
@@ -1168,7 +1168,7 @@ chan_fail cid merr = do
   to <- getHN $ chTo c2
   putHN $ to { hChans = Map.delete (chId c2) (hChans to) }
   chan_queue c2
-  return c2
+  return ()
 
 {-
 // immediately fails/removes channel, if err tries to send message
@@ -1823,7 +1823,7 @@ chan_miss_check cid p = do
               -- logT $ "chan_miss_check:(cid,ack,nNextAck m,mOut m,mPackets m,chReliable c)="
               --                 ++ show (cid,ack,mNextAck m,mOut m,mPackets m,chReliable c)
               let ackCount = (ack - (mNextAck m))
-                  acked = [mNextAck m .. ack]
+                  -- acked = [mNextAck m .. ack]
               if ackCount > 0
                 then do
                   let
@@ -1837,7 +1837,6 @@ chan_miss_check cid p = do
                            }
                   putChan $ c { chMiss = Just m2 }
                 else return ()
-              c2 <- getChan cid
 
               -- track any miss packets if we have them and resend
               let mmiss = packet_get_packet p "miss"

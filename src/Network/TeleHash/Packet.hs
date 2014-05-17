@@ -23,17 +23,17 @@ module Network.TeleHash.Packet
   , myencode
   ) where
 
-import Control.Applicative
-import Control.Concurrent
-import Control.Exception
-import Control.Monad
-import Control.Monad.Error
+-- import Control.Applicative
+-- import Control.Concurrent
+-- import Control.Exception
+-- import Control.Monad
+-- import Control.Monad.Error
 
 import Crypto.Number.Serialize
 import Data.Binary
-import Data.Bits
+-- import Data.Bits
 import Data.Binary.Get
-import Data.Binary.Put
+-- import Data.Binary.Put
 import Network.TeleHash.Convert
 
 import qualified Data.Aeson as Aeson
@@ -116,6 +116,8 @@ any app-specific usage.
 
 data Body = Body BC.ByteString
           deriving (Eq,Show)
+
+unBody :: Body -> BC.ByteString
 unBody (Body b) = b
 
 
@@ -203,6 +205,7 @@ unLP (LP x) = x
 toNetworkPacket :: NetworkPacket -> LinePacket
 toNetworkPacket (OpenPacket cs bs) = LP $ BC.append (lbsTocbs $ BL.pack [0,1,cs]) bs
 toNetworkPacket (LinePacket    bs) = LP $ BC.append (lbsTocbs $ BL.pack [0,0])    bs
+toNetworkPacket (PingPongPacket p) = toLinePacket p
 
 fromNetworkPacket :: LinePacket -> Maybe NetworkPacket
 fromNetworkPacket (LP bs) =
@@ -244,8 +247,8 @@ First packet out
    {"type":"seek","c":0,"seek":"89a4cbc6c27eb913c1bcaf06bac2d8b872c7cbef626b35b6d7eaf993590d37de"}
 -}
 
-p1 :: [Word8]
-p1 =
+_p1 :: [Word8]
+_p1 =
  [
  0x00, 0x01,   -- head length = 1 (BE 16 bit)
 
@@ -284,8 +287,8 @@ p1 =
 Second packet out
 -}
 
-p2 :: [Word8]
-p2 =
+_p2 :: [Word8]
+_p2 =
  [
  0x00, 0x00,  -- head length 0
 
@@ -300,15 +303,17 @@ p2 =
  ]
 
 
-testp1 = do
-  let p1b = BL.pack p1
-  let p@(Packet h (Body b)) = decode p1b :: Packet
+_testp1 :: IO ()
+_testp1 = do
+  let p1b = BL.pack _p1
+  let p@(Packet _h (Body b)) = decode p1b :: Packet
   putStrLn $ show p
   putStrLn $ show (BC.length b)
 
-testp2 = do
-  let p1b = BL.pack p2
-  let p@(Packet h (Body b)) = decode p1b :: Packet
+_testp2 :: IO ()
+_testp2 = do
+  let p1b = BL.pack _p2
+  let p@(Packet _h (Body b)) = decode p1b :: Packet
   putStrLn $ show p
   putStrLn $ show (BC.length b)
 
@@ -317,22 +322,28 @@ testp2 = do
 -- Received open packet
 -- RECV from IPP "10.0.0.42:42424":"00011adee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b4679c59fbc93a2267e1c2b7cf4bfe832f0fb07221f8654a758d6a63200979f9367e046379aa1f4d27f74be6ae9367f4ff655820f2e0dedea70c6a8e32084180a464993e625803fa9774ac99a50c2e63fa637a07a2ae52860a1961f630c51d4f6779c7409c80497f52c91c69ed812261f2dcb5c1675b24d978a94fb55d9d55ecb772b542aa21c32d9dc704374dcbf53b32579e68cc3a01da6f9fd44ee1a1753919c50a09790c168d2a22069e0bd1f7e7db5410ec540c90f893956ddbdf01fc9ae5a7c82fc832ae72f846a2b1dc3a911dc13aa641fcf83f68ed1d3e6f445f5b82814649b9a127c7ad6fd2e3a8d5b986852c8bca221931e7a09ea1a2e7aff7ea090fdc8eebdd8664bb926909c396c3f7dd01ac38819a6cf7b947a855f8bdc87593e20bda115913056d6935b188308fad9a7873fb95395216d487cb5173a20296b86103715005e1ccbe3bcaae8ee64e4806928dd654a08ed8a7818d4eff2052aaa62c300c7661e678febaf34378a32028e0a3eea83cc87bc9c18742d4daafa3029df15030d7fc2cf916eab082e2424e4f912cadd319aaa39d6a8dc32c4282" at
 
-b16_rx_open = "00011adee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b4679c59fbc93a2267e1c2b7cf4bfe832f0fb07221f8654a758d6a63200979f9367e046379aa1f4d27f74be6ae9367f4ff655820f2e0dedea70c6a8e32084180a464993e625803fa9774ac99a50c2e63fa637a07a2ae52860a1961f630c51d4f6779c7409c80497f52c91c69ed812261f2dcb5c1675b24d978a94fb55d9d55ecb772b542aa21c32d9dc704374dcbf53b32579e68cc3a01da6f9fd44ee1a1753919c50a09790c168d2a22069e0bd1f7e7db5410ec540c90f893956ddbdf01fc9ae5a7c82fc832ae72f846a2b1dc3a911dc13aa641fcf83f68ed1d3e6f445f5b82814649b9a127c7ad6fd2e3a8d5b986852c8bca221931e7a09ea1a2e7aff7ea090fdc8eebdd8664bb926909c396c3f7dd01ac38819a6cf7b947a855f8bdc87593e20bda115913056d6935b188308fad9a7873fb95395216d487cb5173a20296b86103715005e1ccbe3bcaae8ee64e4806928dd654a08ed8a7818d4eff2052aaa62c300c7661e678febaf34378a32028e0a3eea83cc87bc9c18742d4daafa3029df15030d7fc2cf916eab082e2424e4f912cadd319aaa39d6a8dc32c4282"
+_b16_rx_open :: String
+_b16_rx_open = "00011adee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b4679c59fbc93a2267e1c2b7cf4bfe832f0fb07221f8654a758d6a63200979f9367e046379aa1f4d27f74be6ae9367f4ff655820f2e0dedea70c6a8e32084180a464993e625803fa9774ac99a50c2e63fa637a07a2ae52860a1961f630c51d4f6779c7409c80497f52c91c69ed812261f2dcb5c1675b24d978a94fb55d9d55ecb772b542aa21c32d9dc704374dcbf53b32579e68cc3a01da6f9fd44ee1a1753919c50a09790c168d2a22069e0bd1f7e7db5410ec540c90f893956ddbdf01fc9ae5a7c82fc832ae72f846a2b1dc3a911dc13aa641fcf83f68ed1d3e6f445f5b82814649b9a127c7ad6fd2e3a8d5b986852c8bca221931e7a09ea1a2e7aff7ea090fdc8eebdd8664bb926909c396c3f7dd01ac38819a6cf7b947a855f8bdc87593e20bda115913056d6935b188308fad9a7873fb95395216d487cb5173a20296b86103715005e1ccbe3bcaae8ee64e4806928dd654a08ed8a7818d4eff2052aaa62c300c7661e678febaf34378a32028e0a3eea83cc87bc9c18742d4daafa3029df15030d7fc2cf916eab082e2424e4f912cadd319aaa39d6a8dc32c4282"
 
-rx_open = b16ToLbs b16_rx_open
+_rx_open :: BL.ByteString
+_rx_open = b16ToLbs _b16_rx_open
 
-lp_rx_open = LP (lbsTocbs rx_open)
+_lp_rx_open :: LinePacket
+_lp_rx_open = LP (lbsTocbs _rx_open)
 
+b16ToLbs :: String -> BL.ByteString
 b16ToLbs str = cbsTolbs r
   where (r,_) = B16.decode $ BC.pack str
 
-headok :: Head
-headok = decode $ b16ToLbs "00011a"
+_headok :: Head
+_headok = decode $ b16ToLbs "00011a"
 
-bodyok :: Body
-bodyok = decode $ b16ToLbs "dee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b4679c59fbc93a2267e1c2b7cf4bfe832f0fb07221f8654a758d6a63200979f9367e046379aa1f4d27f74be6ae9367f4ff655820f2e0dedea70c6a8e32084180a464993e625803fa9774ac99a50c2e63fa637a07a2ae52860a1961f630c51d4f6779c7409c80497f52c91c69ed812261f2dcb5c1675b24d978a94fb55d9d55ecb772b542aa21c32d9dc704374dcbf53b32579e68cc3a01da6f9fd44ee1a1753919c50a09790c168d2a22069e0bd1f7e7db5410ec540c90f893956ddbdf01fc9ae5a7c82fc832ae72f846a2b1dc3a911dc13aa641fcf83f68ed1d3e6f445f5b82814649b9a127c7ad6fd2e3a8d5b986852c8bca221931e7a09ea1a2e7aff7ea090fdc8eebdd8664bb926909c396c3f7dd01ac38819a6cf7b947a855f8bdc87593e20bda115913056d6935b188308fad9a7873fb95395216d487cb5173a20296b86103715005e1ccbe3bcaae8ee64e4806928dd654a08ed8a7818d4eff2052aaa62c300c7661e678febaf34378a32028e0a3eea83cc87bc9c18742d4daafa3029df15030d7fc2cf916eab082e2424e4f912cadd319aaa39d6a8dc32c4282"
+_bodyok :: Body
+_bodyok = decode $ b16ToLbs "dee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b4679c59fbc93a2267e1c2b7cf4bfe832f0fb07221f8654a758d6a63200979f9367e046379aa1f4d27f74be6ae9367f4ff655820f2e0dedea70c6a8e32084180a464993e625803fa9774ac99a50c2e63fa637a07a2ae52860a1961f630c51d4f6779c7409c80497f52c91c69ed812261f2dcb5c1675b24d978a94fb55d9d55ecb772b542aa21c32d9dc704374dcbf53b32579e68cc3a01da6f9fd44ee1a1753919c50a09790c168d2a22069e0bd1f7e7db5410ec540c90f893956ddbdf01fc9ae5a7c82fc832ae72f846a2b1dc3a911dc13aa641fcf83f68ed1d3e6f445f5b82814649b9a127c7ad6fd2e3a8d5b986852c8bca221931e7a09ea1a2e7aff7ea090fdc8eebdd8664bb926909c396c3f7dd01ac38819a6cf7b947a855f8bdc87593e20bda115913056d6935b188308fad9a7873fb95395216d487cb5173a20296b86103715005e1ccbe3bcaae8ee64e4806928dd654a08ed8a7818d4eff2052aaa62c300c7661e678febaf34378a32028e0a3eea83cc87bc9c18742d4daafa3029df15030d7fc2cf916eab082e2424e4f912cadd319aaa39d6a8dc32c4282"
 
-decodeok = fromLinePacket lp_rx_open
+_decodeok :: Maybe Packet
+_decodeok = fromLinePacket _lp_rx_open
 
-decodefail = fromLinePacket (LP (lbsTocbs $ b16ToLbs "08011adee339dc7ca422"))
+_decodefail :: Maybe Packet
+_decodefail = fromLinePacket (LP (lbsTocbs $ b16ToLbs "08011adee339dc7ca422"))
 

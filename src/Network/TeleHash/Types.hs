@@ -20,7 +20,7 @@ module Network.TeleHash.Types
   , txTelexToRxTelex
   , TeleHash
   , Switch(..)
-  , Bucket(..)
+  , Bucket
   , nullHandler
 
   , HashContainer(..)
@@ -53,6 +53,11 @@ module Network.TeleHash.Types
   , SeedInfo(..)
   , Path(..)
   , pathFromPathJson
+  , pathType
+  , pathIp
+  , pathPort
+  , pathHttp
+  , showPath
 
   -- * Extensions types
   , Thtp(..)
@@ -73,51 +78,51 @@ module Network.TeleHash.Types
 
 import Control.Applicative
 import Control.Concurrent
-import Control.Exception
+-- import Control.Exception
 import Control.Monad
-import Control.Monad.Error
+-- import Control.Monad.Error
 import Control.Monad.State
 import Crypto.Random
-import Data.Aeson (object,(.=), (.:), (.:?) )
-import Data.Aeson.Encode
+-- import Data.Aeson (object,(.=), (.:), (.:?) )
+-- import Data.Aeson.Encode
 import Data.Aeson.Types
-import Data.Bits
-import Data.Char
+-- import Data.Bits
+-- import Data.Char
 import Data.IP
 import Data.List
 import Data.Maybe
-import Data.String.Utils
-import Data.Text.Lazy.Builder
+-- import Data.String.Utils
+-- import Data.Text.Lazy.Builder
 import Data.Typeable
 import Data.Word
-import Network.BSD
+-- import Network.BSD
 import Network.Socket
-import Prelude hiding (id, (.), head, either, catch)
-import System.IO
-import System.Log.Handler.Simple
-import System.Log.Logger
+import Prelude hiding (id, (.), head, either)
+-- import System.IO
+-- import System.Log.Handler.Simple
+-- import System.Log.Logger
 import System.Time
 
 -- import Network.TeleHash.Crypt
 import Network.TeleHash.Packet
 import Network.TeleHash.Paths
 
-import qualified Crypto.Hash.SHA256 as SHA256
-import qualified Crypto.PubKey.DH as DH
+-- import qualified Crypto.Hash.SHA256 as SHA256
+-- import qualified Crypto.PubKey.DH as DH
 import qualified Crypto.Types.PubKey.ECDSA as ECDSA
 import qualified Data.Aeson as Aeson
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Base16 as B16
+-- import qualified Data.ByteString as B
+-- import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Digest.Pure.SHA as SHA
+-- import qualified Data.ByteString.Lazy as BL
+-- import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-import qualified Data.Text.Lazy as TL
+-- import qualified Data.Text.Lazy as TL
 import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as SB
+-- import qualified Network.Socket.ByteString as SB
 -- import qualified Data.Digest.Murmur as Murmur
 
 -- ---------------------------------------------------------------------
@@ -380,9 +385,10 @@ showPath p = showPathJson (pJson p)
 
 -- ---------------------------------------------------------------------
 
-nullPath = pathFromPathJson (PWebRtc (PathWebRtc "*null*"))
+-- nullPath = pathFromPathJson (PWebRtc (PathWebRtc "*null*"))
 
 -- nullPathId = PId (-1) -- horrible, need better way of doing this
+nullPathJson :: PathJson
 nullPathJson = PNone
 
 -- ---------------------------------------------------------------------
@@ -565,7 +571,8 @@ instance FromJSON OpenizeInner where
   parseJSON _ = mzero
 
 jsAtToClockTime :: Aeson.Value -> ClockTime
-jsAtToClockTime (Aeson.Number atVal) = TOD (round (atVal / 1000)) (((round  atVal) `mod` 1000) * 10^9)
+jsAtToClockTime (Aeson.Number atVal)
+  = TOD (round (atVal / 1000)) (((round  atVal) `mod` 1000) * (10::Integer) ^ (9::Integer))
 jsAtToClockTime v = error $ "jsAtToClockTime expecting Aeson.Number, got" ++ show v
 
 -- ---------------------------------------------------------------------

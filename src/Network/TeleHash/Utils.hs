@@ -94,33 +94,33 @@ module Network.TeleHash.Utils
 
   ) where
 
-import Control.Applicative
-import Control.Concurrent
+-- import Control.Applicative
+-- import Control.Concurrent
 import Control.Exception
 import Control.Monad
-import Control.Monad.Error
+-- import Control.Monad.Error
 import Control.Monad.State
 import Crypto.Random
 import Crypto.Number.Serialize
-import Data.Aeson (object,(.=), (.:), (.:?) )
+-- import Data.Aeson (object,(.=), (.:), (.:?) )
 import Data.Aeson.Encode
 import Data.Aeson.Types
-import Data.Bits
+-- import Data.Bits
 import Data.Char
-import Data.IP
+-- import Data.IP
 import Data.List
 import Data.Maybe
-import Data.String.Utils
-import Data.Text.Lazy.Builder
-import Data.Typeable
+-- import Data.String.Utils
+-- import Data.Text.Lazy.Builder
+-- import Data.Typeable
 import Data.Word
-import Network.BSD
-import Network.Socket
-import Prelude hiding (id, (.), head, either, catch)
-import System.IO
-import System.Log.Handler.Simple
+-- import Network.BSD
+-- import Network.Socket
+import Prelude hiding (id, (.), head, either)
+-- import System.IO
+-- import System.Log.Handler.Simple
 import System.Log.Logger
-import System.Time
+-- import System.Time
 
 import Network.TeleHash.Convert
 import Network.TeleHash.Paths
@@ -128,22 +128,22 @@ import Network.TeleHash.Types
 import Network.TeleHash.Packet
 
 import qualified Crypto.Hash.SHA256 as SHA256
-import qualified Crypto.PubKey.DH as DH
-import qualified Crypto.Types.PubKey.ECDSA as ECDSA
+-- import qualified Crypto.PubKey.DH as DH
+-- import qualified Crypto.Types.PubKey.ECDSA as ECDSA
 import qualified Data.Aeson as Aeson
-import qualified Data.ByteString as B
+-- import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Digest.Pure.SHA as SHA
+-- import qualified Data.ByteString.Lazy as BL
+-- import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-import qualified Data.Text.Lazy as TL
-import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as SB
-import qualified System.Random as R
+-- import qualified Data.Text.Lazy as TL
+-- import qualified Network.Socket as NS
+-- import qualified Network.Socket.ByteString as SB
+-- import qualified System.Random as R
 
 -- ---------------------------------------------------------------------
 -- telehash-c api
@@ -185,7 +185,7 @@ instance PacketApi TxTelex where
     case HM.lookup (Text.pack key) (tJs p) of
       Nothing -> Nothing
       Just (Aeson.Number v) -> Just (round v)
-
+      Just un -> error $ "packet_get_int: did not get Number:" ++ show un
 
 
   packet_set p key val
@@ -223,7 +223,7 @@ instance PacketApi RxTelex where
     case HM.lookup (Text.pack key) (rtJs p) of
       Nothing -> Nothing
       Just (Aeson.Number v) -> Just (round v)
-
+      Just un -> error $ "packet_get_int: did not get Number:" ++ show un
 
 
   packet_set p key val
@@ -790,24 +790,21 @@ function parts2hn(parts)
 }
 -}
 
+-- |
+-- Convert a list of cipher set identities into a `HashName`
+--
+-- >>> parts2hn [ ("1a","o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg=="), ("1a_secret","iollyIcHaGeD/JpUNn/7ef1QAzE=")]
+-- HN "82b15283ae1d27dddb6d5250643ba1e4459be843ee9b1de84138a61939f8b717"
+--
 parts2hn :: Parts -> HashName
 parts2hn parts = HN r
   where
     sp = sort parts
-    iCtx = SHA256.init
     vals = concatMap (\(a,b) -> [BC.pack a,BC.pack b]) sp
-    ctx = SHA256.updates iCtx vals
-    -- bsfinal = SHA256.finalize ctx
 
     bsfinal = foldl' (\acc cur -> SHA256.hash (BC.append acc cur)) BC.empty vals
 
     r = BC.unpack $ B16.encode bsfinal
-
--- testParts2hn = parts2hn (sParts $ head initialSeeds)
-
-testParts2hn = parts2hn [ ("1a","o0UL/D6qQ+dcSX7hCoyMjLDYeA6dNScZ+YY/fcX4fyCtsSO2u9L5Lg==")
-                        , ("1a_secret","iollyIcHaGeD/JpUNn/7ef1QAzE=")]
-
 
 -- ---------------------------------------------------------------------
 
@@ -912,7 +909,8 @@ seeds=Just
             ,Object fromList [("ip",String "2605:da00:5222:5269:230:48ff:fe35:6572"),("port",Number 42424.0),("type",String "ipv6")]]))])])
 -}
 
-tp = do
+_tp :: Maybe Parts
+_tp = do
  let
   ps =  "{\"parts\": {\"2a\": \"beb07e8864786e1d3d70b0f537e96fb719ca2bbb4a2a3791ca45e215e2f67c9a\",\"1a\": \"6c0da502755941a463454e9d478b16bbe4738e67\"}}"
  vv <- Aeson.decode ps :: Maybe Parts

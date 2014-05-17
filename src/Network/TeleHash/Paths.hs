@@ -23,10 +23,9 @@ import Data.IP
 import Network.TeleHash.Convert
 
 import qualified Data.ByteString.Char8 as BC
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Text as T
-
-
 
 
 -- ---------------------------------------------------------------------
@@ -145,6 +144,7 @@ pjsonType (PIPv4 _) = PtIPv4
 pjsonType (PIPv6 _) = PtIPv6
 pjsonType (PHttp _) = PtHttp
 pjsonType (PWebRtc _) = PtWebRtc
+pjsonType (PNone)     = error $ "no json type for PNone"
 
 pjsonIp :: PathJson -> Maybe IP
 pjsonIp (PIPv4 (PathIPv4 ip _port)) = Just ip
@@ -221,7 +221,8 @@ instance FromJSON IP where
 -- Testing
 -- ---------------------------------------------------------------------
 
-pathsJs = cbsTolbs $ BC.pack (
+_pathsJs :: BL.ByteString
+_pathsJs = cbsTolbs $ BC.pack (
   "{\"path\":{\"type\":\"ipv4\",\"ip\":\"10.0.0.42\",\"port\":55794},"++
    "\"priority\":1,"++
    "\"paths\":"++
@@ -236,12 +237,17 @@ pathsJs = cbsTolbs $ BC.pack (
    "\"c\":2}"
    )
 
-pathJs = cbsTolbs $ BC.pack "{\"type\":\"ipv4\",\"ip\":\"10.0.0.42\",\"port\":55794}"
+_pathJs :: BL.ByteString
+_pathJs = cbsTolbs $ BC.pack "{\"type\":\"ipv4\",\"ip\":\"10.0.0.42\",\"port\":55794}"
 
-tIpv4 = decode pathJs :: Maybe PathIPv4
-tPath = decode pathJs :: Maybe PathJson
+_tIpv4 :: Maybe PathIPv4
+_tIpv4 = decode _pathJs :: Maybe PathIPv4
 
-pathaJs = cbsTolbs $ BC.pack (
+_tPath :: Maybe PathJson
+_tPath = decode _pathJs :: Maybe PathJson
+
+_pathaJs :: BL.ByteString
+_pathaJs = cbsTolbs $ BC.pack (
    -- "{\"path\":" ++
    "["++
      "{\"type\":\"http\",\"http\":\"http://172.17.42.1:42424\"}"++
@@ -254,13 +260,16 @@ pathaJs = cbsTolbs $ BC.pack (
    -- "}"
    )
 
-tPaths = decode pathaJs :: Maybe [PathJson]
+_tPaths :: Maybe [PathJson]
+_tPaths = decode _pathaJs :: Maybe [PathJson]
 
+pathhJs :: BL.ByteString
 pathhJs = cbsTolbs $ BC.pack (
      "{\"type\":\"http\",\"http\":\"http://172.17.42.1:42424\"}"
    )
 
-tPathh = decode pathhJs :: Maybe PathHttp
+_tPathh :: Maybe PathHttp
+_tPathh = decode pathhJs :: Maybe PathHttp
 
 
 {-

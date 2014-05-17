@@ -7,31 +7,31 @@ module Network.TeleHash.Hn
   , hn_get
   ) where
 
-import Control.Applicative
-import Control.Concurrent
+-- import Control.Applicative
+-- import Control.Concurrent
 import Control.Exception
 import Control.Monad
-import Control.Monad.Error
+-- import Control.Monad.Error
 import Control.Monad.State
-import Crypto.Random
-import Data.Aeson (object,(.=), (.:), (.:?) )
-import Data.Aeson.Encode
-import Data.Aeson.Types
-import Data.Bits
-import Data.Char
-import Data.IP
+-- import Crypto.Random
+-- import Data.Aeson (object,(.=), (.:), (.:?) )
+-- import Data.Aeson.Encode
+-- import Data.Aeson.Types
+-- import Data.Bits
+-- import Data.Char
+-- import Data.IP
 import Data.List
 import Data.Maybe
-import Data.String.Utils
-import Data.Text.Lazy.Builder
-import Data.Typeable
-import Data.Word
-import Network.BSD
-import Network.Socket
-import Prelude hiding (id, (.), head, either, catch)
-import System.IO
-import System.Log.Handler.Simple
-import System.Log.Logger
+-- import Data.String.Utils
+-- import Data.Text.Lazy.Builder
+-- import Data.Typeable
+-- import Data.Word
+-- import Network.BSD
+-- import Network.Socket
+import Prelude hiding (id, (.), head, either)
+-- import System.IO
+-- import System.Log.Handler.Simple
+-- import System.Log.Logger
 import System.Time
 
 import Network.TeleHash.Crypt
@@ -41,22 +41,22 @@ import Network.TeleHash.Packet
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
 
-import qualified Crypto.Hash.SHA256 as SHA256
-import qualified Crypto.PubKey.DH as DH
-import qualified Crypto.Types.PubKey.ECDSA as ECDSA
-import qualified Data.Aeson as Aeson
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Base16 as B16
+-- import qualified Crypto.Hash.SHA256 as SHA256
+-- import qualified Crypto.PubKey.DH as DH
+-- import qualified Crypto.Types.PubKey.ECDSA as ECDSA
+-- import qualified Data.Aeson as Aeson
+-- import qualified Data.ByteString as B
+-- import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy as BL
-import qualified Data.Digest.Pure.SHA as SHA
-import qualified Data.HashMap.Strict as HM
+-- import qualified Data.ByteString.Lazy as BL
+-- import qualified Data.Digest.Pure.SHA as SHA
+-- import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
-import qualified Data.Set as Set
-import qualified Data.Text as Text
-import qualified Data.Text.Lazy as TL
-import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as SB
+-- import qualified Data.Set as Set
+-- import qualified Data.Text as Text
+-- import qualified Data.Text.Lazy as TL
+-- import qualified Network.Socket as NS
+-- import qualified Network.Socket.ByteString as SB
 
 -- ---------------------------------------------------------------------
 
@@ -81,11 +81,11 @@ hn_fromjson p = do
               -- if any paths are stored, associate them
               let mpp4 = packet_get_packet p "paths"
               case mpp4 of
-                Nothing -> return Nothing
+                Nothing -> return ()
                 Just pp4 -> do
                   let mpaths = parseJsVal pp4 :: Maybe [PathJson]
                   case mpaths of
-                    Nothing -> return Nothing
+                    Nothing -> return ()
                     Just paths -> do
                       forM_ paths $ \path -> do
                         mpath2 <- hn_path hn path
@@ -96,27 +96,27 @@ hn_fromjson p = do
                       -- already have crypto
                       hc <- getHN hn
                       case (hCrypto hc) of
-                        Just _ -> return (Just hn)
+                        Just _ -> return ()
                         Nothing -> do
                           if (BC.length (unBody $ paBody $ rtPacket p) /= 0)
                             then do
                               c <- crypt_new (hCsid hc) Nothing (Just (unBody $ paBody $ rtPacket p))
                               putHN $ hc { hCrypto = c}
-                              return $ Just hn
+                              return ()
                             else do
                               let mpp = packet_get_packet p "keys"
                               logT $ "hn_fromjson:pp=" ++ show mpp
                               case mpp of
-                                Nothing -> return Nothing
+                                Nothing -> return ()
                                 Just pp1 -> do
                                   let mkey = packet_get_str (packet_from_val pp1) (hCsid hc)
                                   logT $ "hn_fromjson:mkey=" ++ show mkey
                                   case mkey of
-                                    Nothing -> return Nothing
+                                    Nothing -> return ()
                                     Just key -> do
                                       c <- crypt_new (hCsid hc) (Just key) Nothing
                                       putHN $ hc { hCrypto = c}
-                                      return $ Just hn
+                                      return ()
               hcFinal <- getHN hn
               if isNothing (hCrypto hcFinal)
                 then return Nothing

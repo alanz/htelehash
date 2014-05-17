@@ -6,14 +6,14 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad.State
 import Data.List
-import Data.Maybe
+-- import Data.Maybe
 import Network.Socket
 import System.Environment
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 
-import Network.TeleHash.Bucket
+-- import Network.TeleHash.Bucket
 import Network.TeleHash.Ext.Chat
 import Network.TeleHash.Ext.Connect
 import Network.TeleHash.Ext.Link
@@ -22,7 +22,7 @@ import Network.TeleHash.Ext.Seek
 import Network.TeleHash.Ext.Thtp
 import Network.TeleHash.Ext.Path
 import Network.TeleHash.Crypt
-import Network.TeleHash.Paths
+-- import Network.TeleHash.Paths
 import Network.TeleHash.Switch
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.Types
@@ -30,7 +30,7 @@ import Network.TeleHash.Utils
 import Network.TeleHash.SwitchUtils
 
 import qualified Data.ByteString.Char8 as BC
-import qualified Data.ByteString.Lazy as BL
+-- import qualified Data.ByteString.Lazy as BL
 import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
 
@@ -84,6 +84,7 @@ recvUdpMsg ch sock = forever $ do
 
 -- ---------------------------------------------------------------------
 
+main :: IO ()
 main = do
   s <- streamHandler stdout DEBUG
   updateGlobalLogger rootLoggerName (setHandlers [s])
@@ -164,23 +165,23 @@ app = do
   logT $ "app:chat=" ++ show chat
   void $ chat_add (ecId chat) "*" "invite"
   mp <- chat_message (ecId chat)
-  let p1 = gfromJust "app" mp
-      p2 = packet_set_str p1 "text" nick
-  void $ chat_join (ecId chat) p2
+  let p1a = gfromJust "app" mp
+      p2a = packet_set_str p1a "text" nick
+  void $ chat_join (ecId chat) p2a
 
   chat2 <- getChat (ecId chat)
-  logT $ "created chat:" ++ show (chatIdToString $ ecId chat2,packet_get_str p2 "id",unCH $ ecRHash chat2)
+  logT $ "created chat:" ++ show (chatIdToString $ ecId chat2,packet_get_str p2a "id",unCH $ ecRHash chat2)
   logT $ nick ++ ">"
 
-  sw <- get
-  logT $ "seeds:" ++ show (swSeeds sw)
+  sw2 <- get
+  logT $ "seeds:" ++ show (swSeeds sw2)
   -- link_hn bucket_get(s->seeds, 0));
-  link_hn $ head $ Set.toList (swSeeds sw)
+  void $ link_hn $ head $ Set.toList (swSeeds sw2)
 
   util_sendall sock
 
   -- create an admin channel for notes
-  admin <- chan_new (swId sw) ".admin" Nothing
+  admin <- chan_new (swId sw2) ".admin" Nothing
   logT $ "admin channel:" ++ showChan admin
 
   let rx_loop = do
@@ -196,17 +197,16 @@ app = do
             if cid == chUid admin
               then do
                 notes <- chan_notes_all c
-                forM_ notes $ \note -> do
-                  logT $ "admin note " ++ showJson (tJs note)
+                forM_ notes $ \note1 -> do
+                  logT $ "admin note " ++ showJson (tJs note1)
               else return ()
 
             logT $ "channel active " ++ show (chState c,chUid c,chTo c)
-            chanDone <- case chHandler c of
+            case chHandler c of
               Just h -> do
                 logT $ "rx_loop:calling handler"
                 h (chUid c)
-                c2 <- getChanMaybe (chUid c)
-                return (isNothing c2)
+                return ()
               Nothing -> do
                 logT $ "rx_loop:chType=" ++ (chType c)
                 case chType c of
@@ -245,18 +245,13 @@ app = do
                 if chState c == ChanEnded
                   then do
                     chan_free c
-                    return True
-                  else return False
+                    return ()
+                  else return ()
 
-
-            -- if not chanDone
-            --   then util_chan_popall c Nothing
-            --   else return ()
             rx_loop
 
-  let inPath = PNone
   logT $ "about to enter forever loop"
-  forever $ do
+  void $ forever $ do
     logT $ "top of forever loop"
     inp <- io $ readChan chInput
 
@@ -279,44 +274,44 @@ app = do
               io $ killThread me
 
            | isPrefixOf "/nick " l -> do
-              mp <- chat_message (ecId chat)
-              case mp of
+              mp1 <- chat_message (ecId chat)
+              case mp1 of
                 Just p -> do
                   let nick = (drop (length ("/nick ")) l)
-                  let p2 = packet_set_str p "text" nick
+                  let p2b = packet_set_str p "text" nick
                   cid <- getChatCurrent
-                  void $ chat_join cid p2
+                  void $ chat_join cid p2b
                   io $ logg nick ""
                 Nothing -> return ()
 
            | isPrefixOf "/get " l -> do
               io $ logg nick ("get " ++ drop 5 l)
               p <- chan_note admin Nothing
-              let p2 = rxTelexToTxTelex p (swId sw)
-              let p3 = packet_set_str p2 "uri" (drop 5 l)
-              void $ thtp_req p3
+              let p2c = rxTelexToTxTelex p (swId sw2)
+              let p3c = packet_set_str p2c "uri" (drop 5 l)
+              void $ thtp_req p3c
 
            | isPrefixOf "/chat " l -> do
               logT $ "processing chat:" ++ show (drop 6 l)
               cid <- getChatCurrent
               chat_free cid
-              mchat <- chat_get (Just (drop 6 l))
-              case mchat of
+              mchat2 <- chat_get (Just (drop 6 l))
+              case mchat2 of
                 Nothing -> do
                   logT $ "/chat: chat_get returned Nothing"
                   return ()
-                Just chat2 -> do
-                  putChat chat2
-                  putChatCurrent (ecId chat2)
-                  mp <- chat_message (ecId chat2)
-                  case mp of
+                Just chat3 -> do
+                  putChat chat3
+                  putChatCurrent (ecId chat3)
+                  mp2 <- chat_message (ecId chat3)
+                  case mp2 of
                     Nothing -> do
                       logT $ "/chat: chat_message returned Nothing"
                       return ()
                     Just p -> do
-                      let p2 = packet_set_str p "text" nick
-                      chat_join (ecId chat2) p2
-                      io $ logg nick ("joining chat " ++ show (ecId chat2,packet_get_str p2 "id", ecRHash chat2))
+                      let p2d = packet_set_str p "text" nick
+                      void $ chat_join (ecId chat3) p2d
+                      io $ logg nick ("joining chat " ++ show (ecId chat3,packet_get_str p2d "id", ecRHash chat3))
 
            | isPrefixOf "/chans" l -> do
               logT $ "Chans"
@@ -326,12 +321,12 @@ app = do
            | otherwise -> do
               -- default send as message
               cid <- getChatCurrent
-              mp <- chat_message cid
-              case mp of
+              mp3 <- chat_message cid
+              case mp3 of
                 Nothing -> return ()
                 Just p -> do
-                  let p2 = packet_set_str p "text" l
-                  chat_send cid p2
+                  let p2e = packet_set_str p "text" l
+                  chat_send cid p2e
                   io $ logg nick ""
 
     rx_loop

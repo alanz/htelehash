@@ -14,62 +14,62 @@ module Network.TeleHash.Ext.Chat
 
   ) where
 
-import Control.Applicative
-import Control.Concurrent
+-- import Control.Applicative
+-- import Control.Concurrent
 import Control.Exception
 import Control.Monad
-import Control.Monad.Error
+-- import Control.Monad.Error
 import Control.Monad.State
-import Crypto.Random
-import Data.Aeson (object,(.=), (.:), (.:?) )
-import Data.Aeson.Encode
+-- import Crypto.Random
+-- import Data.Aeson (object,(.=), (.:), (.:?) )
+-- import Data.Aeson.Encode
 import Data.Aeson.Types
 import Data.Bits
 import Data.Char
-import Data.IP
+-- import Data.IP
 import Data.List
 import Data.List.Split
 import Data.Maybe
-import Data.String.Utils
-import Data.Text.Lazy.Builder
-import Data.Typeable
+-- import Data.String.Utils
+-- import Data.Text.Lazy.Builder
+-- import Data.Typeable
 import Data.Word
-import Network.BSD
-import Network.Socket
-import Prelude hiding (id, (.), head, either, catch)
-import System.IO
-import System.Log.Handler.Simple
-import System.Log.Logger
+-- import Network.BSD
+-- import Network.Socket
+import Prelude hiding (id, (.), head, either)
+-- import System.IO
+-- import System.Log.Handler.Simple
+-- import System.Log.Logger
 import System.Time
 
 import Network.TeleHash.Convert
-import Network.TeleHash.Crypt
+-- import Network.TeleHash.Crypt
 import Network.TeleHash.Ext.Thtp
 import Network.TeleHash.Hn
 import Network.TeleHash.Packet
-import Network.TeleHash.Path
-import Network.TeleHash.Paths
+-- import Network.TeleHash.Path
+-- import Network.TeleHash.Paths
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.SwitchUtils
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
 
-import qualified Crypto.Hash.SHA256 as SHA256
-import qualified Crypto.PubKey.DH as DH
-import qualified Crypto.Types.PubKey.ECDSA as ECDSA
+-- import qualified Crypto.Hash.SHA256 as SHA256
+-- import qualified Crypto.PubKey.DH as DH
+-- import qualified Crypto.Types.PubKey.ECDSA as ECDSA
 import qualified Data.Aeson as Aeson
-import qualified Data.ByteString as B
-import qualified Data.ByteString.Base16 as B16
+-- import qualified Data.ByteString as B
+-- import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Digest.Pure.SHA as SHA
+-- import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
-import qualified Data.Set as Set
+-- import qualified Data.Set as Set
 import qualified Data.Text as Text
-import qualified Data.Text.Lazy as TL
-import qualified Network.Socket as NS
-import qualified Network.Socket.ByteString as SB
+-- import qualified Data.Text.Lazy as TL
+-- import qualified Network.Socket as NS
+-- import qualified Network.Socket.ByteString as SB
 
 -- ---------------------------------------------------------------------
 
@@ -185,7 +185,17 @@ char *chat_rhash(chat_t chat)
 }
 -}
 
--- chat_rhash 49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000|���h҆�ɱ to d49cf6fc
+-- ---------------------------------------------------------------------
+
+-- |
+-- Calculate murmur3 hash of a string
+--
+-- >>> thash "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000"
+-- CH "d49cf6fc"
+--
+-- >>> thash "tft@0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348"
+-- CH "56419861"
+--
 thash :: String -> ChatHash
 thash v = CH (word32AsHexString $ thash_raw v)
 
@@ -205,13 +215,13 @@ thash_raw v = r
 
     -- See https://en.wikipedia.org/wiki/MurmurHash
     mkTail :: Word32 -> Word32 -> Word32
-    mkTail h1 ts = r
+    mkTail h1 ts = r1
       where
         k1 = ts
         k1_2 = k1 * c1
         k1_3 = rotateL k1_2 15
         k1_4 = k1_3 * c2
-        r = h1 `xor` k1_4
+        r1 = h1 `xor` k1_4
      -- c code
      --  k1 *= c1; k1 = rotl32(k1,15); k1 *= c2; h1 ^= k1;
 
@@ -268,7 +278,8 @@ thash_raw v = r
 
 -}
     strTow32 :: String -> Word32
-    strTow32 str = foldl (\acc v -> 256 * acc + (fromIntegral v)) (0::Word32) $ BL.unpack $ cbsTolbs $ BC.pack $ reverse str
+    strTow32 str = foldl (\acc vv -> 256 * acc + (fromIntegral vv)) (0::Word32)
+                 $ BL.unpack $ cbsTolbs $ BC.pack $ reverse str
 
     vsw32 = map strTow32 vs
     t = last vsw32
@@ -276,7 +287,7 @@ thash_raw v = r
     -- r = word32AsHexString $ Murmur.hash $ map vsw32 vs
     -- r = (t,vsm,length v `mod` 4)
     mainHash = foldl' mkHash 0 vsm
-    mainHashP = scanl mkHash 0 vsm
+    -- mainHashP = scanl mkHash 0 vsm
     tailHash = if ((length (last vs)) `mod` 4) == 0
                   then mkHash mainHash t
                   else mkTail mainHash t
@@ -284,8 +295,6 @@ thash_raw v = r
     -- r = (word32AsHexString finalHash,word32AsHexString mainHash,word32AsHexString tailHash,map word32AsHexString vsw32,vs,map word32AsHexString mainHashP)
     r = finalHash
 
-tt = thash "49eb85838a320f60ce1894234f7d1ec04ec5957cb4644fa11750e01a6c88b58a6ca4ea6d,1000"
-tt1 = thash "tft@0ecedc9f49472737b9285c0e10066fd860983bb5aa3a04e1f0acc3d3b3c5e348"
 
 {-
 
@@ -413,7 +422,7 @@ chat_get mid = do
           logT $ "chat_get:got cid" ++ show cid
           case ciOriginator cid of
             Just hn -> do
-              hc <- hn_get hn -- make sure we know about the hn
+              _hc <- hn_get hn -- make sure we know about the hn
               return $ Just (cid { ciOriginator = Just hn })
             Nothing -> return $ Just (cid { ciOriginator = Just  (swId sw)})
 
@@ -688,9 +697,9 @@ chat_restate cid hn = do
         Nothing -> return ()
         Just idVal -> do
           --  see if there's a join message cached
-          state <- case Map.lookup idVal (ecLog chat) of
-            Just join -> do
-              return join
+          state1 <- case Map.lookup idVal (ecLog chat) of
+            Just joinVal -> do
+              return joinVal
             Nothing -> do
               if ',' `elem` idVal
                 then do
@@ -700,7 +709,7 @@ chat_restate cid hn = do
                 else do
                   return $ packet_set_str (packet_new (HN hn)) "text" idVal
           -- make a state packet
-          let state2 = packet_set_str state "type" "state"
+          let state2 = packet_set_str state1 "type" "state"
               state3 = packet_set_str state2 "from" hn
 
           state4 <- case Map.lookup (HN hn) (ecConn chat) of
@@ -797,21 +806,20 @@ chat_sync cid = do
         logT $ "chat_sync:not processing part " ++ show part
         return ()
       else do
-        (cont,mc) <- case Map.lookup (HN part) (ecConn chat) of
+        cont <- case Map.lookup (HN part) (ecConn chat) of
           Just uid -> do
             logT $ "chat_sync:got channel uid:" ++ show uid
-            c <- getChan uid
             mr <- getChatRFromChan uid
             case mr of
               Just r -> do
                 logT $ "chat_sync:(ecrJoined r,joined)=" ++ show (ecrJoined r,joined)
                 if ecrJoined r == joined
-                  then return (False,Just c)
-                  else return (True,Just c)
+                  then return False
+                  else return True
               Nothing -> do
                 logT $ "chat_sync: unexpected cArg:" ++ show mr
-                return (False,Just c)
-          Nothing -> return (True,Nothing)
+                return False
+          Nothing -> return True
 
         if not cont
            then return ()
@@ -908,17 +916,17 @@ void chat_log(chat_t chat, packet_t msg)
 -- ---------------------------------------------------------------------
 
 chat_join :: ChatId -> TxTelex -> TeleHash (Maybe Chat)
-chat_join cid join = do
+chat_join cid joinVal = do
   chat <- getChat cid
-  logT $ "chat_join:(ecJoin,join)=" ++ show (ecJoin chat,join)
+  logT $ "chat_join:(ecJoin,join)=" ++ show (ecJoin chat,joinVal)
   -- paranoid, don't double-join
   if isJust (ecJoin chat)
-     && ((ecJoin chat) == (packet_get_str join "id"))
+     && ((ecJoin chat) == (packet_get_str joinVal "id"))
     then do
       logT $ "chat_join: avoiding double join"
       return Nothing
     else do
-      let j2 = packet_set_str join "type" "join"
+      let j2 = packet_set_str joinVal "type" "join"
           chat2 = chat {ecJoin = packet_get_str j2 "id"}
       putChat chat2
       chat_log (ecId chat2) j2
@@ -932,7 +940,7 @@ chat_join cid join = do
       chat_restate (ecId chat4) (unHN $ swId sw)
       chat5 <- getChat cid
       logT $ "chat_join:chat5=" ++ show chat5
-      chat_rhash cid
+      void $ chat_rhash cid
 
       -- create/activate all chat channels
       chat_sync cid
@@ -1060,7 +1068,7 @@ chat_add cid hn val = do
           chat2 = chat { ecRoster = roster }
       putChat chat2
       logT $ "chat_add:ecRoster=" ++ show (ecRoster chat2)
-      chat_rhash cid
+      void $ chat_rhash cid
       chat_sync cid
       -- try to load if it's a message id
       if ',' `elem` val
@@ -1213,6 +1221,9 @@ chat_hub chatId = do
                     assert False undefined
                 return Ok
               else return Ok
+      Just unk -> do
+        logT $ "chat_hub:got unexpected thtp type:" ++ unk
+        return Fail
 
   chat2 <- getChat (ecId chat)
   -- logT $ "chat_hub:chat2=" ++ show chat2
@@ -1308,8 +1319,8 @@ ext_chat cid = do
       if ecHub chat == cid
         then do
           -- this is the hub channel, process it there
-          mchat <- chat_hub (ecrChat r)
-          return () -- mchat
+          _mchat <- chat_hub (ecrChat r)
+          return ()
         else do
           logT $ "ext_chat:processing response to a join"
           -- response to a join
@@ -1321,24 +1332,17 @@ ext_chat cid = do
                 Just p -> do
                   logT $ "ext_chat:processing join response:" ++ show p
                   case packet_get_str p "err" of
-                    Just errVal -> do
+                    Just _errVal -> do
                       logT $ "ext_chat:join response has error " ++ show p
                       -- assert False undefined
                       return ()
                     Nothing -> do
                       let mid = packet_get_str p "from"
-                          showIdVal = case mid of
-                            Just i -> i
-                            Nothing -> packet_get_str_always p "err"
-
-                      chat <- getChat (ecrChat r)
-                      -- logT $ "chat_add: 2 chat=" ++ show chat
-                      -- logT $ "ext_chat:chat online from:" ++ show (ecId chat,chTo c,showIdVal)
                       case mid of
                         Nothing -> do
-                          void $ chan_fail cid (Just "invalid")
+                          chan_fail cid (Just "invalid")
                           return ()
-                        Just idVal -> do
+                        Just _idVal -> do
                           let r2 = r { ecrOnline = True }
                           putChatR r2
                           chat_restate (ecrChat r) (unHN $ chTo c)
@@ -1353,7 +1357,7 @@ ext_chat cid = do
       case mp of
         Nothing -> do
           logT $ "ext_chat:chan start got bad channel"
-          chansStr <- showAllChans
+          -- chansStr <- showAllChans
           -- logT $ "ext_chat:current channels:\n" ++ chansStr
           chan_fail cid (Just "500")
           return ()
@@ -1361,7 +1365,7 @@ ext_chat cid = do
           mchat <- chat_get (packet_get_str p "to")
           case mchat of
             Nothing -> do
-              void $ chan_fail cid (Just "500")
+              chan_fail cid (Just "500")
               return ()
             Just chat -> do
               logT $ "ext_chat: got chat " ++ show chat
@@ -1370,12 +1374,12 @@ ext_chat cid = do
               -- logT $ "ext_chat:chat from is:" ++ show (idVal,chatIdToString $ ecId chat,chTo c,perm)
               continue <- case perm of
                 PermBlocked -> do
-                  void $ chan_fail cid (Just "blocked")
+                  chan_fail cid (Just "blocked")
                   return False
                 PermReadOnly -> do
                   if idVal /= ""
                     then do
-                      void $ chan_fail cid (Just "read-only")
+                      chan_fail cid (Just "read-only")
                       return False
                     else return True
                 PermAllowed -> do
@@ -1394,16 +1398,15 @@ ext_chat cid = do
                   putChat chat2
 
                   -- response
-                  mp <- chan_packet (chUid c2) True
-                  let p = gfromJust "ext_chat" mp
-                  (r2,p2) <- case ecJoin chat2 of
-                    Nothing -> return (r,p)
+                  mp2 <- chan_packet (chUid c2) True
+                  let p1 = gfromJust "ext_chat" mp2
+                  p2 <- case ecJoin chat2 of
+                    Nothing -> return p1
                     Just j -> do
                       let r2' = r { ecrJoined = True }
-                          p2' = packet_set_str p "from" j
-                      return (r2',p2')
-
-                  -- logT $ "ext_chat:(r2,p2)=" ++ show (r2,p2)
+                          p2' = packet_set_str p1 "from" j
+                      putChatR r2'
+                      return p2'
 
                   -- add to roster if given
                   if idVal /= ""
@@ -1450,22 +1453,25 @@ ext_chat cid = do
             let pp = fromLinePacket (LP $ unBody $ paBody $ rtPacket $ ecrIn r)
             logT $ "ext_chat:pp=" ++ show pp
             case pp of
-              Just p@(Packet (HeadJson js) body) -> do
+              Just p@(Packet (HeadJson js) _body) -> do
                 let mjson = Aeson.decode (cbsTolbs js) :: Maybe Aeson.Value
                 case mjson of
                   Nothing -> do
                     logT $ "invalid js in packet:" ++ show js
                     return ()
                   Just (Aeson.Object jsHashMap) -> do
-                    c <- getChan cid
+                    c2 <- getChan cid
                     let rp = packet_new_rx { rtPacket = p
                                            , rtJs = jsHashMap
                                            }
-                        rp2 = packet_set_str rp "from" (unHN $ chTo c)
+                        rp2 = packet_set_str rp "from" (unHN $ chTo c2)
                     chat_push (ecrChat r) rp2
                     putChatR (r { ecrIn = packet_new_rx })
+                  Just _ -> do
+                    logT $ "ext_chat:unexpeced value for mjson" ++ show mjson
+                    return ()
               _ -> do
-                logT $ "ext_chat:unexpeced value for pp" ++ show pp
+                logT $ "ext_chat:unexpected value for pp" ++ show pp
                 return ()
 
       else return ()
@@ -1483,7 +1489,7 @@ ext_chat cid = do
             logT $ "ext_chat:n chat=" ++ show chat
             putChan $ c2 { chArg = CArgNone }
             case Map.lookup (chTo c2) (ecConn chat) of
-              Just uid -> do
+              Just _uid -> do
                 let chat2 = chat { ecConn = Map.delete (chTo c2) (ecConn chat) }
                 putChat chat2
                 return False
