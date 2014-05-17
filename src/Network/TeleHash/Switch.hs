@@ -12,8 +12,11 @@ module Network.TeleHash.Switch
    , sendAll
    , sendDgram
    , addrFromHostPort
+
+   -- * timers
    , onesec
    , timer
+   , oneShotTimer
    ) where
 
 -- import Control.Applicative
@@ -29,8 +32,8 @@ import Data.Aeson.Types
 -- import Data.Bits
 -- import Data.Char
 -- import Data.IP
-import Data.List
-import Data.Maybe
+-- import Data.List
+-- import Data.Maybe
 -- import Data.String.Utils
 -- import Data.Text.Lazy.Builder
 -- import Data.Typeable
@@ -71,8 +74,8 @@ import qualified Network.Socket.ByteString as SB
 -- ---------------------------------------------------------------------
 
 -- localIP = "10.0.0.28"
-localIP :: String
-localIP = "10.2.2.83"
+-- localIP :: String
+-- localIP = "10.2.2.83"
 
 -- ---------------------------------------------------------------------
 
@@ -307,7 +310,7 @@ oneShotTimer timeoutVal signalValue  = do
 -- ---------------------------------------------------------------------
 
 doNullSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
-doNullSendDgram msgJson addr = do
+doNullSendDgram _msgJson _addr = do
   --logT ("doNullSendDgram[" ++ msgJson ++ "] to " ++ (show addr))
   logT ("doNullSendDgram" )
 
@@ -466,11 +469,11 @@ testSeeds = do
   putStrLn $ "seeds=" ++ show mv
 
 
-initialSeeds :: [SeedInfo]
+-- initialSeeds :: [SeedInfo]
 -- initialSeeds = [seed195,seed253]
 -- initialSeeds = [seed253]
 -- initialSeeds = [seedLocal]
-initialSeeds = []
+-- initialSeeds = []
 
 {-
 seedLocal:: SeedInfo

@@ -1,3 +1,8 @@
+
+[![Build Status](https://travis-ci.org/alanz/htelehash.png)](https://travis-ci.org/alanz/htelehash)
+
+
+
 How to build
 ------------
 

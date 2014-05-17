@@ -528,6 +528,7 @@ type Parts = [(String,String)] -- [(csid,key)]
 instance Aeson.FromJSON Parts where
   parseJSON (Aeson.Object v) = do
     return $ map (\(k,String val) -> (Text.unpack k,Text.unpack val)) $ HM.toList v
+  parseJSON j = error $ "no parseJSON (Parts instance) for " ++ show j
 
 instance Aeson.ToJSON Parts where
   -- toJSON from = Aeson.String $ Text.pack $ "{" ++ (intercalate "," $ map (\(k,v) ->  "\"" ++ k ++ "\":\"" ++ v ++ "\"") from) ++ "}"
@@ -788,6 +789,7 @@ typedef struct crypt_struct
 } *crypt_t;
 
 -}
+{-
 data HashCrypto = HC
   { hcHashName :: !HashName
   , hcHexName  :: !Hash
@@ -798,12 +800,12 @@ data HashCrypto = HC
   , hcPrivate  :: !(Maybe PrivateKey)
   -- , hcEccKeys  :: Maybe (DH.PublicNumber,DH.PrivateNumber)
   } deriving Show
-
+-}
 data PublicKey = Public1a ECDSA.PublicKey deriving Show
 data PrivateKey = Private1a ECDSA.PrivateKey deriving Show
 
 -- ---------------------------------------------------------------------
-
+{-
 data CSet = CS
   { csLoadkey   :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
   , csOpenize   :: HashContainer -> OpenizeInner -> TeleHash LinePacket
@@ -811,7 +813,7 @@ data CSet = CS
   , csOpenLine  :: HashContainer ->  DeOpenizeResult -> TeleHash ()
   , csDelineize :: HashContainer -> NetworkTelex -> TeleHash (Either String RxTelex)
   }
-
+-}
 
 -- ---------------------------------------------------------------------
 
@@ -824,7 +826,7 @@ data SeedInfo = SI
   , sIsBridge :: !Bool
   } deriving Show
 
-emptySeed = SI "" "" [] [] [] False
+-- emptySeed = SI "" "" [] [] [] False
 
 instance Aeson.FromJSON SeedInfo where
   parseJSON (Aeson.Object v) = do
@@ -847,10 +849,11 @@ instance Aeson.FromJSON SeedInfo where
                , sKeys = keys
                , sIsBridge = False
                }
+  parseJSON x = error $ "parseJSON (SeedInfo instance) unexpected Aeson value:" ++ show x
 
 instance Aeson.FromJSON [SeedInfo] where
   parseJSON (Aeson.Object v) = do
-     let (idval,vv) = head $ HM.toList v
+     let (idval,_vv) = head $ HM.toList v
      seed <- v .: idval
      return [seed]
 {-

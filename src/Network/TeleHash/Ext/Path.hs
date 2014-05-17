@@ -7,7 +7,7 @@ module Network.TeleHash.Ext.Path
 -- import Control.Applicative
 -- import Control.Concurrent
 -- import Control.Exception
-import Control.Monad
+-- import Control.Monad
 -- import Control.Monad.Error
 -- import Control.Monad.State
 -- import Crypto.Random
@@ -17,8 +17,8 @@ import Control.Monad
 -- import Data.Bits
 -- import Data.Char
 -- import Data.IP
-import Data.List
-import Data.Maybe
+-- import Data.List
+-- import Data.Maybe
 -- import Data.String.Utils
 -- import Data.Text.Lazy.Builder
 -- import Data.Typeable

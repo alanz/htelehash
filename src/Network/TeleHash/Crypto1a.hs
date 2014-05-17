@@ -36,7 +36,7 @@ was
 -}
 
 
-import Control.Exception
+-- import Control.Exception
 import Control.Monad.State
 import Crypto.Cipher.AES
 import Crypto.MAC.HMAC
@@ -642,7 +642,6 @@ crypt_delineize_1a c rxTelex = do
       if hm /= mac1
         then do
           logT $ "hmac mismatch:" ++ show (B16.encode hm,B16.encode mac1)
-          assert False undefined
           return $ Left $ "hmac mismatch:" ++ show (B16.encode hm,B16.encode mac1)
         else do
           let deciphered = decryptCTR (initAES keyIn) (BC.append ivz iv) body2

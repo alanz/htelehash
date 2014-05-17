@@ -652,7 +652,7 @@ void switch_loop(switch_t s)
 
 chan_tick :: Uid -> TeleHash ()
 chan_tick cid = do
-  logT $ "chan_tick called"
+  logT $ "chan_tick called for " ++ show cid
   -- assert False undefined
 {-
 void walktick(xht_t h, const char *key, void *val, void *arg)

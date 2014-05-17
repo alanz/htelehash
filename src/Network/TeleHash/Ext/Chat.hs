@@ -1186,6 +1186,12 @@ chat_hub chatId = do
                                 return p3
                           else do
                             assert False undefined
+                  Just aeson -> do
+                    logT $ "chat_hub:unexpected js1:" ++ show aeson
+                    return $ packet_set_int pn "status" 404
+              Just aeson -> do
+                logT $ "chat_hub:unexpected js2:" ++ show aeson
+                return $ packet_set_int pn "status" 404
           Nothing -> do
             assert False undefined
         let note2 = packet_link (Just note) p
@@ -1202,7 +1208,7 @@ chat_hub chatId = do
           Just path -> do
             if isInfixOf "/roster" path
               then do
-                let mjhead = packetJson resp
+                let -- mjhead = packetJson resp
                     mjbody = Aeson.decode (cbsTolbs $ unBody $ paBody resp) :: Maybe Aeson.Value
                 -- logT $ "chat_hub:(mjhead,mjbody)=" ++ show (mjhead,mjbody)
                 case mjbody of
@@ -1453,7 +1459,7 @@ ext_chat cid = do
             let pp = fromLinePacket (LP $ unBody $ paBody $ rtPacket $ ecrIn r)
             logT $ "ext_chat:pp=" ++ show pp
             case pp of
-              Just p@(Packet (HeadJson js) _body) -> do
+              Just p2@(Packet (HeadJson js) _body) -> do
                 let mjson = Aeson.decode (cbsTolbs js) :: Maybe Aeson.Value
                 case mjson of
                   Nothing -> do
@@ -1461,7 +1467,7 @@ ext_chat cid = do
                     return ()
                   Just (Aeson.Object jsHashMap) -> do
                     c2 <- getChan cid
-                    let rp = packet_new_rx { rtPacket = p
+                    let rp = packet_new_rx { rtPacket = p2
                                            , rtJs = jsHashMap
                                            }
                         rp2 = packet_set_str rp "from" (unHN $ chTo c2)
