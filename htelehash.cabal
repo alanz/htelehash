@@ -20,45 +20,67 @@ Cabal-version:   >= 1.10
 
 
 Library
-  Build-depends:     base             >= 4       && < 5
-                   , array            >= 0.3     && < 0.5
-                   , mtl              >= 1.1     && < 2.9
-                   , containers       >= 0.2     && < 0.6
-                   , Crypto           >= 4.2.3   && < 5.0
-                   , bytestring       >= 0.9.1   && < 1.0
-                   , attoparsec       >= 0.9.1   && < 1.0
-                   , network          >= 2.3.0   && < 2.5
-                   , random           >= 1.0     && < 2.0
-                   , SHA              >= 1.5.0   && < 1.9
-                   , dataenc          >= 0.14    && < 0.15
-                   , old-time         >= 1.0     && < 2.0
-                   , MissingH         >= 1.1     && < 1.3
-                   , transformers     >= 0.2.2   && < 0.4
-                   , json             >= 0.5     && < 1
-                   , hslogger         >= 1.1.5   && < 2
-                   , yesod            >= 0.9.3   && < 1.5
-                   , syb              >= 0.3.3   && < 0.5
-                   , crypto-random
-                   , crypto-pubkey
-                   , crypto-pubkey-types
-                   , crypto-numbers
-                   , cryptohash
-                   , base16-bytestring
-                   , base64-bytestring
-                   -- , utf8-string
-                   , aeson
-                   , iproute
-                   , binary
-                   , cipher-aes
-                   -- , byteable
-                   , bytestring
-                   , unordered-containers
-                   , text
-                   , scientific
-                   -- , tls
-                   , vector
-                   -- , mvc
-                   , split
+  Build-depends:    base             >= 4       && < 5
+                  , aeson
+                  , base16-bytestring
+                  , base64-bytestring
+                  , binary
+                  , bytestring
+                  , cipher-aes
+                  , containers
+                  , crypto-numbers
+                  , crypto-pubkey
+                  , crypto-pubkey-types
+                  , crypto-random
+                  , cryptohash
+                  , hslogger
+                  , iproute
+                  , mtl
+                  , network
+                  , old-time
+                  , split
+                  , text
+                  , unordered-containers
+
+                   -- , array            >= 0.3     && < 0.5
+                   -- , mtl              >= 1.1     && < 2.9
+                   -- , containers       >= 0.2     && < 0.6
+                   -- , Crypto           >= 4.2.3   && < 5.0
+                   -- , bytestring       >= 0.9.1   && < 1.0
+                   -- , attoparsec       >= 0.9.1   && < 1.0
+                   -- , network          >= 2.3.0   && < 2.5
+                   -- , random           >= 1.0     && < 2.0
+                   -- , SHA              >= 1.5.0   && < 1.9
+                   -- , dataenc          >= 0.14    && < 0.15
+                   -- , old-time         >= 1.0     && < 2.0
+                   -- , MissingH         >= 1.1     && < 1.3
+                   -- , transformers     >= 0.2.2   && < 0.4
+                   -- , json             >= 0.5     && < 1
+                   -- , hslogger         >= 1.1.5   && < 2
+                   -- , yesod            >= 0.9.3   && < 1.5
+                   -- , syb              >= 0.3.3   && < 0.5
+                   -- , crypto-random
+                   -- , crypto-pubkey
+                   -- , crypto-pubkey-types
+                   -- , crypto-numbers
+                   -- , cryptohash
+                   -- , base16-bytestring
+                   -- , base64-bytestring
+                   -- -- , utf8-string
+                   -- , aeson
+                   -- , iproute
+                   -- , binary
+                   -- , cipher-aes
+                   -- -- , byteable
+                   -- , bytestring
+                   -- , unordered-containers
+                   -- , text
+                   -- , scientific
+                   -- -- , tls
+                   -- , vector
+                   -- -- , mvc
+                   -- , split
+
   hs-source-dirs: src
   -- Buildable: False
   Exposed-modules:
@@ -87,24 +109,86 @@ Library
   ghc-options:         -Wall -fhpc
 
 
-executable             ping
-    hs-source-dirs:    . src
-    main-is:           pingNew.hs
-    default-language: Haskell2010
-    ghc-options:  -Wall
-
 executable             seed
     hs-source-dirs:    . src
     main-is:           seed.hs
     default-language: Haskell2010
     ghc-options:  -Wall
+  build-depends:    base
+                  , aeson
+                  , base16-bytestring
+                  , base64-bytestring
+                  , binary
+                  , bytestring
+                  , cipher-aes
+                  , containers
+                  , crypto-numbers
+                  , crypto-pubkey
+                  , crypto-pubkey-types
+                  , crypto-random
+                  , cryptohash
+                  , hslogger
+                  , iproute
+                  , mtl
+                  , network
+                  , old-time
+                  , split
+                  , text
+                  , unordered-containers
 
 executable             tft
     hs-source-dirs:    . src
     main-is:           tft.hs
     default-language: Haskell2010
     ghc-options:  -Wall
+  build-depends:    base
+                  , aeson
+                  , base16-bytestring
+                  , base64-bytestring
+                  , binary
+                  , bytestring
+                  , cipher-aes
+                  , containers
+                  , crypto-numbers
+                  , crypto-pubkey
+                  , crypto-pubkey-types
+                  , crypto-random
+                  , cryptohash
+                  , hslogger
+                  , iproute
+                  , mtl
+                  , network
+                  , old-time
+                  , split
+                  , text
+                  , unordered-containers
 
+
+executable             ping
+    hs-source-dirs:    . src
+    main-is:           pingNew.hs
+    default-language: Haskell2010
+    ghc-options:  -Wall
+  build-depends:    base
+                  , aeson
+                  , base16-bytestring
+                  , base64-bytestring
+                  , binary
+                  , bytestring
+                  , cipher-aes
+                  , containers
+                  , crypto-numbers
+                  , crypto-pubkey
+                  , crypto-pubkey-types
+                  , crypto-random
+                  , cryptohash
+                  , hslogger
+                  , iproute
+                  , mtl
+                  , network
+                  , old-time
+                  , text
+                  , unordered-containers
 
 test-suite doctests
   type:             exitcode-stdio-1.0
