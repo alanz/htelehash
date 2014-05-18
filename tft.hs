@@ -11,6 +11,7 @@ import System.Environment
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
+import System.Time
 
 import Network.TeleHash.Ext.Chat
 import Network.TeleHash.Ext.Connect
@@ -123,7 +124,8 @@ main = do
 
 app :: TeleHash ()
 app = do
-  logP "-------------------------------------starting new run---------------------------"
+  timeNow <- io $ getClockTime
+  logP $ "-------------------------------starting new run "++ show timeNow ++ "---------------------------"
 
   crypt_init
 

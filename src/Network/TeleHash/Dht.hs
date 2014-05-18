@@ -1,19 +1,28 @@
 module Network.TeleHash.Dht
   (
     dhtMaint
+  , insertIntoDht
+  , deleteFromDht
+  , getBucketContentsForHn
+  , dhtBucket
   , distanceTo
-
   ) where
 
--- | Manage the DHT
--- See https://github.com/telehash/telehash.org/blob/master/dht.md
 
 import Control.Exception
+import Control.Monad.State
 import Data.Bits
 import Data.Char
 
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
+
+import qualified Data.Map as Map
+import qualified Data.Set as Set
+
+
+-- | Manage the DHT
+-- See https://github.com/telehash/telehash.org/blob/master/dht.md
 
 -- ---------------------------------------------------------------------
 
@@ -22,6 +31,41 @@ import Network.TeleHash.Utils
 dhtMaint :: TeleHash ()
 dhtMaint = do
   assert False undefined
+
+-- ---------------------------------------------------------------------
+
+insertIntoDht :: HashName -> TeleHash ()
+insertIntoDht hn = do
+  (distance,bucket) <- getBucketContentsForHn hn
+  sw <- get
+  put $ sw { swDht = Map.insert distance (Set.insert hn bucket) (swDht sw) }
+
+-- ---------------------------------------------------------------------
+
+deleteFromDht :: HashName -> TeleHash ()
+deleteFromDht hn = do
+  (distance,bucket) <- getBucketContentsForHn hn
+  sw <- get
+  put $ sw { swDht = Map.insert distance (Set.delete hn bucket) (swDht sw) }
+
+-- ---------------------------------------------------------------------
+
+getBucketContentsForHn :: HashName -> TeleHash (HashDistance,Bucket)
+getBucketContentsForHn hn = do
+  distance <- dhtBucket hn
+  sw <- get
+  case Map.lookup distance (swDht sw) of
+    Nothing -> return (distance,Set.empty)
+    Just b  -> return (distance,b)
+
+-- ---------------------------------------------------------------------
+
+-- |Calculate the bucket as the hash distance between our hashname and
+-- the passed in one
+dhtBucket :: HashName -> TeleHash HashDistance
+dhtBucket hn = do
+  sw <- get
+  return $ distanceTo (swId sw) hn
 
 -- ---------------------------------------------------------------------
 

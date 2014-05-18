@@ -21,7 +21,7 @@ main = do
                      ++ mkIncludeOpts (includeDirs opts)
                      ++ mkPkgOpts (depPackages opts)
                      ++ filter (\l -> not (isPrefixOf "Paths_" l)) libs
-       putStrLn $ "final opts" ++ show docTestOpts
+       -- putStrLn $ "final opts" ++ show docTestOpts
        doctest docTestOpts
 
   return ()

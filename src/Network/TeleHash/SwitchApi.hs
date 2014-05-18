@@ -3,6 +3,7 @@ module Network.TeleHash.SwitchApi
    -- * Telehash-c api
     switch_send
   , switch_sending
+  , switch_sendingQ
   , switch_receive
   , switch_open
   , switch_pop

@@ -1,18 +1,24 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Network.TeleHash.Ext.Link
   (
     ext_link
   , link_hn
   ) where
 
+import Control.Exception
 import Control.Monad.State
+import Data.Maybe
 
-import Network.TeleHash.Types
-import Network.TeleHash.Utils
+import Network.TeleHash.Dht
+import Network.TeleHash.Hn
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.SwitchUtils
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 
 -- ---------------------------------------------------------------------
 
@@ -22,10 +28,27 @@ ext_link c = do
 
   let
     respFunc p = do
-      -- always respond/ack, except if there is an error
-      case packet_get_str p "err" of
-        Just _ -> return ()
-        Nothing -> do
+      -- always respond/ack, except if there is an error or end
+      let merr = packet_get_str p "err"
+          mend = packet_get_str p "end"
+      if any isJust [merr,mend]
+        then return ()
+        else do
+          let mlp = parseJs (rtJs p) :: Maybe LinkReply
+          case mlp of
+            Nothing -> do
+              logT $ "ext_link:unexpected packet:" ++ show p
+              return ()
+            Just (LinkReplyErr _err) -> do
+              logT $ "ext_link:got err:" ++ show p
+              return ()
+            Just LinkReplyEnd -> do
+              logT $ "ext_link:link ended"
+              return ()
+            Just lrp -> do
+              process_link_seed (chUid c) p lrp
+
+          -- always respond/ack
           reply <- chan_packet (chUid c) True
           chan_send (chUid c) (gfromJust "ext_link" reply)
 
@@ -43,6 +66,46 @@ void ext_link(chan_t c)
   chan_send(c,chan_packet(c));
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+-- |Process an incoming link ack, flagged as a seed, containing
+-- possible "see" values
+process_link_seed :: Uid -> RxTelex -> LinkReply -> TeleHash ()
+process_link_seed cid p lrp = do
+  let (isSeed,sees) = case lrp of
+        LinkReplyKeepAlive is -> (is,[])
+        LinkReplyNormal is sv -> (is,sv)
+        _                     -> (False,[])
+  c <- getChan cid
+  -- Check if we have the current hn in our dht
+  if isSeed
+    then insertIntoDht (chTo c)
+    else deleteFromDht (chTo c)
+
+  forM_ sees $ \see -> do
+    sw <- get
+    let fields = Text.splitOn "," (Text.pack see)
+    case fields of
+      (h:_) -> do
+        -- first make sure the switch has an entry for the hashname
+        hc <- hn_get (HN $ Text.unpack h)
+        if hIsLinked hc
+          then return () -- nothing to do
+          else do
+            -- create a link to the new bucket
+            (_distance,bucket) <- getBucketContentsForHn (hHashName hc)
+            if not (Set.member (hHashName hc) bucket) &&
+               Set.size bucket <= (swDhtK sw)
+                   -- TODO: use the hinted IP:Port if provided
+              then void $ link_hn (hHashName hc)
+              else return ()
+      _     -> do
+        logT $ "process_link_seed:got junk see:" ++ show see
+
+
+  -- TODO: check for and process bridges
+  return ()
 
 -- ---------------------------------------------------------------------
 

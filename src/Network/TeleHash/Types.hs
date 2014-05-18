@@ -29,7 +29,9 @@ module Network.TeleHash.Types
   , newHashContainer
   , HashDistance
 
+  -- * JSON holders
   , OpenizeInner(..)
+  , LinkReply(..)
 
   -- * Channel related types
   , TChan(..)
@@ -81,52 +83,32 @@ module Network.TeleHash.Types
 
 import Control.Applicative
 import Control.Concurrent
--- import Control.Exception
 import Control.Monad
--- import Control.Monad.Error
 import Control.Monad.State
 import Crypto.Random
--- import Data.Aeson (object,(.=), (.:), (.:?) )
--- import Data.Aeson.Encode
 import Data.Aeson.Types
--- import Data.Bits
--- import Data.Char
 import Data.IP
 import Data.List
 import Data.Maybe
--- import Data.String.Utils
--- import Data.Text.Lazy.Builder
 import Data.Typeable
 import Data.Word
--- import Network.BSD
 import Network.Socket
 import Prelude hiding (id, (.), head, either)
--- import System.IO
--- import System.Log.Handler.Simple
--- import System.Log.Logger
 import System.Time
 
--- import Network.TeleHash.Crypt
+import Network.TeleHash.Convert
 import Network.TeleHash.Packet
 import Network.TeleHash.Paths
 
--- import qualified Crypto.Hash.SHA256 as SHA256
--- import qualified Crypto.PubKey.DH as DH
 import qualified Crypto.Types.PubKey.ECDSA as ECDSA
 import qualified Data.Aeson as Aeson
--- import qualified Data.ByteString as B
--- import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
--- import qualified Data.ByteString.Lazy as BL
--- import qualified Data.Digest.Pure.SHA as SHA
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
--- import qualified Data.Text.Lazy as TL
 import qualified Network.Socket as NS
--- import qualified Network.Socket.ByteString as SB
--- import qualified Data.Digest.Murmur as Murmur
 import Text.Show.Functions
 
 -- ---------------------------------------------------------------------
@@ -232,7 +214,7 @@ data Switch = Switch
        -- The DHT
        , swDhtK        :: !Int -- max entries per bucket
        , swDhtLinkMax  :: !Int -- max number of concurrent links
-       , swDht         :: !(Map.Map HashDistance (Set.Set HashName))
+       , swDht         :: !(Map.Map HashDistance Bucket)
 
        -- definitive stores for various mutable things
        , swIndex       :: !(Map.Map HashName HashContainer)
@@ -303,7 +285,8 @@ data HashContainer = H
   , hChans    :: !(Map.Map ChannelId Uid)
   , hOnopen   :: !(Maybe TxTelex)
   , hParts    :: !(Maybe Parts)
-                                               -- communicating with this remote
+  , hIsSeed   :: !Bool
+  , hIsLinked :: !Bool
   } deriving (Show)
 
 {-
@@ -328,6 +311,8 @@ newHashContainer hn = H { hHashName = hn
                         , hChans = Map.empty
                         , hOnopen = Nothing
                         , hParts = Nothing
+                        , hIsSeed = False
+                        , hIsLinked = False
                         }
 type HashDistance = Int
 
@@ -597,6 +582,80 @@ data DeOpenizeResult = DeOpenizeVerifyFail
                                  , doCsid    :: !String
                                  }
                      deriving (Show)
+
+-- ---------------------------------------------------------------------
+
+-- |The information carried in a link reply
+data LinkReply = LinkReplyEnd
+               | LinkReplyErr String
+               | LinkReplyKeepAlive !Bool
+               | LinkReplyNormal
+                    { lrSeed :: !Bool
+                    , lrSee  :: ![String]
+                    } deriving Show
+
+-- | Test ToJSON LinkReply
+--
+-- >>> Aeson.encode (LinkReplyEnd)
+-- "{\"end\":true}"
+--
+-- >>> Aeson.encode (LinkReplyErr "we have an error")
+-- "{\"err\":\"we have an error\"}"
+--
+-- >>> Aeson.encode (LinkReplyKeepAlive True)
+-- "{\"seed\":true}"
+--
+-- >>> Aeson.encode (LinkReplyNormal False ["hasha","hashb"])
+-- "{\"seed\":false,\"see\":[\"hasha\",\"hashb\"]}"
+
+instance ToJSON LinkReply where
+  toJSON (LinkReplyEnd)
+    = object ["end" .= True
+             ]
+  toJSON (LinkReplyErr err)
+    = object ["err" .= err
+             ]
+  toJSON (LinkReplyKeepAlive isSeed)
+    = object ["seed" .= isSeed
+             ]
+  toJSON (LinkReplyNormal isSeed see)
+    = object ["seed" .= isSeed
+             ,"see"  .= see
+             ]
+
+-- | Test FromJSON LinkReply
+--
+-- >>> let test s = Aeson.decode $ cbsTolbs $ BC.pack s :: Maybe LinkReply
+--
+-- >>> test "{\"end\":\"problem\", \"c\":1,\"seed\":true,\"see\":[\"blah\",\"baz\"]}"
+-- Just LinkReplyEnd
+--
+-- >>> test "{\"err\":\"problem\", \"c\":1,\"seed\":true,\"see\":[\"blah\",\"baz\"]}"
+-- Just (LinkReplyErr "problem")
+--
+-- >>> test "{\"c\":1,\"seed\":false}"
+-- Just (LinkReplyKeepAlive False)
+--
+-- >>> test "{\"c\":1,\"seed\":true,\"see\":[\"blah\",\"baz\"]}"
+-- Just (LinkReplyNormal {lrSeed = True, lrSee = ["blah","baz"]})
+
+instance FromJSON LinkReply where
+  parseJSON (Aeson.Object v) = do
+    if HM.member "err" v
+      then do
+        errVal <- (v .: "err")
+        return $ LinkReplyErr errVal
+      else if HM.member "end" v
+        then return LinkReplyEnd
+        else do
+          seedVal <- v .: "seed"
+          if HM.member "see" v
+            then do
+              seeVal  <- v .: "see"
+              return $ LinkReplyNormal seedVal seeVal
+            else return $ LinkReplyKeepAlive seedVal
+  parseJSON _ = mzero
+
 
 -- ---------------------------------------------------------------------
 

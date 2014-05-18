@@ -76,6 +76,7 @@ util_sendall sock = do
     Just p -> do
       case tLp p of
         Nothing -> do
+          logT $ "util_sendall:no tLp for" ++ show p
           assert False undefined
         Just lp -> do
           case (tOut p) of
