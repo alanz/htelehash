@@ -2,6 +2,8 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverlappingInstances #-} -- For show of the function types
+
 
 module Network.TeleHash.Types
   (
@@ -25,6 +27,7 @@ module Network.TeleHash.Types
 
   , HashContainer(..)
   , newHashContainer
+  , HashDistance
 
   , OpenizeInner(..)
 
@@ -124,6 +127,7 @@ import qualified Data.Text as Text
 import qualified Network.Socket as NS
 -- import qualified Network.Socket.ByteString as SB
 -- import qualified Data.Digest.Murmur as Murmur
+import Text.Show.Functions
 
 -- ---------------------------------------------------------------------
 
@@ -213,7 +217,6 @@ data Switch = Switch
        , swSeeds       :: !Bucket
        , swOut         :: ![TxTelex] -- packets waiting to be delivered
        , swLast        :: !(Maybe TxTelex)
-       -- , swParts       :: !TxTelex
        , swParts       :: !Parts
        , swChans       :: !(Set.Set Uid) -- channels waiting to be processed
 
@@ -225,11 +228,19 @@ data Switch = Switch
        , swCap         :: !Int
        , swWindow      :: !Int
        , swIsSeed      :: !Bool
+
+       -- The DHT
+       , swDhtK        :: !Int -- max entries per bucket
+       , swDhtLinkMax  :: !Int -- max number of concurrent links
+       , swDht         :: !(Map.Map HashDistance (Set.Set HashName))
+
+       -- definitive stores for various mutable things
        , swIndex       :: !(Map.Map HashName HashContainer)
        , swIndexChans  :: !(Map.Map Uid TChan) -- all channels
        , swIndexCrypto :: !(Map.Map String Crypto)
        , swIndexLines  :: !(Map.Map String HashName)
        , swIndexSeeks  :: !(Map.Map HashName Seek)
+
        , swHandler     :: !(Maybe (HashName -> TeleHash ())) -- called w/ a hn that has no key info
 
        , swH      :: !(Maybe SocketHandle)
@@ -318,6 +329,7 @@ newHashContainer hn = H { hHashName = hn
                         , hOnopen = Nothing
                         , hParts = Nothing
                         }
+type HashDistance = Int
 
 type PathPriority = Int
 
@@ -898,6 +910,6 @@ data SocketHandle =
                  --, slAddress :: SockAddr
                  } deriving (Eq,Show)
 
-
 instance Show (LinePacket -> SockAddr -> TeleHash ()) where
   show _ = "(LinePacket -> SockAddr -> TeleHash ())"
+

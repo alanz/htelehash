@@ -6,14 +6,12 @@ import Control.Concurrent
 import Control.Exception
 import Control.Monad.State
 import Data.List
--- import Data.Maybe
 import Network.Socket
 import System.Environment
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
 
--- import Network.TeleHash.Bucket
 import Network.TeleHash.Ext.Chat
 import Network.TeleHash.Ext.Connect
 import Network.TeleHash.Ext.Link
@@ -22,7 +20,6 @@ import Network.TeleHash.Ext.Seek
 import Network.TeleHash.Ext.Thtp
 import Network.TeleHash.Ext.Path
 import Network.TeleHash.Crypt
--- import Network.TeleHash.Paths
 import Network.TeleHash.Switch
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.Types
@@ -113,7 +110,7 @@ main = do
     else do
       updateGlobalLogger mainLoggerName (setLevel DEBUG)
 
-  updateGlobalLogger lineLoggerName (setLevel WARNING)
+  updateGlobalLogger lineLoggerName (setLevel DEBUG)
   updateGlobalLogger rootLoggerName (setLevel ERROR)
 
   sock <- util_server 0 100
