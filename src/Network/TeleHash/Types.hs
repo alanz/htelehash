@@ -196,10 +196,11 @@ type TeleHash = StateT Switch IO
 
 data Switch = Switch
        { swId          :: !HashName
+       , swParts       :: !Parts
+       , swExternalIPP :: !(Maybe PathIPv4)
        , swSeeds       :: !Bucket
        , swOut         :: ![TxTelex] -- packets waiting to be delivered
        , swLast        :: !(Maybe TxTelex)
-       , swParts       :: !Parts
        , swChans       :: !(Set.Set Uid) -- channels waiting to be processed
 
        -- unique id sources
@@ -320,11 +321,15 @@ type PathPriority = Int
 
 -- TODO: provide custom Eq instance, checking core vals only
 data Path = Path
-      { pType   :: !PathType
-      , pJson   :: !PathJson -- NOTE: This is the primary key for the path
-      , pId     :: !(Maybe HashName) -- local
-      , pAtIn   :: !(Maybe ClockTime)
-      , pAtOut  :: !(Maybe ClockTime)
+      { pType       :: !PathType
+      , pJson       :: !PathJson -- NOTE: This is the primary key for the path
+      , pId         :: !(Maybe HashName) -- local
+      , pAtIn       :: !(Maybe ClockTime)
+      , pAtOut      :: !(Maybe ClockTime)
+      , pBridgeChan :: !(Maybe Uid) -- possibly bridge via the given
+                                    -- channel. This field perhaps
+                                    -- belongs on the switch, as per
+                                    -- thjs
       } deriving (Show,Eq)
 
 {-
@@ -338,6 +343,7 @@ typedef struct path_struct
   unsigned long atIn, atOut;
 } *path_t;
 -}
+
 
 instance Ord Path where
   compare p1 p2 = compare (pJson p1) (pJson p2)
@@ -354,6 +360,7 @@ pathFromPathJson pj
          , pId = Nothing
          , pAtIn = Nothing
          , pAtOut = Nothing
+         , pBridgeChan = Nothing
          }
 
 -- ---------------------------------------------------------------------
@@ -655,7 +662,6 @@ instance FromJSON LinkReply where
               return $ LinkReplyNormal seedVal seeVal
             else return $ LinkReplyKeepAlive seedVal
   parseJSON _ = mzero
-
 
 -- ---------------------------------------------------------------------
 

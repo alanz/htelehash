@@ -4,67 +4,50 @@ module Network.TeleHash.Ext.Path
   , path_free
   ) where
 
--- import Control.Applicative
--- import Control.Concurrent
--- import Control.Exception
--- import Control.Monad
--- import Control.Monad.Error
--- import Control.Monad.State
--- import Crypto.Random
--- import Data.Aeson (object,(.=), (.:), (.:?) )
--- import Data.Aeson.Encode
--- import Data.Aeson.Types
--- import Data.Bits
--- import Data.Char
--- import Data.IP
--- import Data.List
--- import Data.Maybe
--- import Data.String.Utils
--- import Data.Text.Lazy.Builder
--- import Data.Typeable
--- import Data.Word
--- import Network.BSD
--- import Network.Socket
--- import Prelude hiding (id, (.), head, either, catch)
--- import System.IO
--- import System.Log.Handler.Simple
--- import System.Log.Logger
--- import System.Time
 
--- import Network.TeleHash.Convert
--- import Network.TeleHash.Crypt
--- import Network.TeleHash.Hn
--- import Network.TeleHash.Packet
--- import Network.TeleHash.Path
+import Control.Exception
+import Control.Monad
+
 import Network.TeleHash.Paths
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
--- import Network.TeleHash.SwitchApi
+import Network.TeleHash.SwitchApi
 import Network.TeleHash.SwitchUtils
 
--- import qualified Crypto.Hash.SHA256 as SHA256
--- import qualified Crypto.PubKey.DH as DH
--- import qualified Crypto.Types.PubKey.ECDSA as ECDSA
--- import qualified Data.Aeson as Aeson
--- import qualified Data.ByteString as B
--- import qualified Data.ByteString.Base16 as B16
--- import qualified Data.ByteString.Char8 as BC
--- import qualified Data.ByteString.Lazy as BL
--- import qualified Data.Digest.Pure.SHA as SHA
--- import qualified Data.HashMap.Strict as HM
--- import qualified Data.Map as Map
--- import qualified Data.Set as Set
--- import qualified Data.Text as Text
--- import qualified Data.Text.Lazy as TL
--- import qualified Network.Socket as NS
--- import qualified Network.Socket.ByteString as SB
+import qualified Data.Aeson as Aeson
+
 
 -- ---------------------------------------------------------------------
 
 ext_path :: TChan -> TeleHash ()
 ext_path c = do
   logT $ "ext_path entered for:" ++ show (chId c, chUid c)
-  util_chan_popall c (Just (\p -> logT $ "TODO path packet:" ++ showJson (rtJs p)))
+  let
+    respFunc p = do
+      if packet_has_key p "err"
+        then do
+          logT $ "ext_path:err in path packet:" ++ showJson (rtJs p)
+        else do
+          logT $ "ext_path:TODO path packet:" ++ showJson (rtJs p)
+          let pathsJsValue = packet_get p "paths"
+              mps = parseJsVal (gfromJust "ext_path" pathsJsValue) :: Maybe [PathJson]
+          logT $ "ext_path:mps=" ++ show mps
+          case mps of
+            Nothing -> do
+              logT $ "exp_path:could not parse paths:" ++ showJson (rtJs p)
+            Just ps -> do
+              let ps1 = filter (\pa -> pjsonType pa == PtIPv4) ps
+              -- TODO: more detailed filtering of these paths
+              forM_ ps1 $ \ path -> do
+                let p1 = packet_new (chTo c)
+                    p2 = packet_set_int p1 "c" (unChannelId $ chId c)
+                    p3 = packet_set p2 "path" path
+                    p4 = p3 { tOut = path }
+                putPathIfNeeded (chTo c) (pathFromPathJson path)
+                logT $ "ext_path:p3=" ++ showJson (tJs p4)
+                chan_send (chUid c) p4
+
+  util_chan_popall c (Just respFunc)
 
 {-
 void ext_path(chan_t c)

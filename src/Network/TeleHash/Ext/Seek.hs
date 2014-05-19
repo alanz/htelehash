@@ -1,6 +1,7 @@
 module Network.TeleHash.Ext.Seek
   (
-  seek_auto
+    seek_auto
+  , peer_send
   ) where
 
 import Control.Exception
@@ -108,6 +109,19 @@ peer_handler cid = do
     _ -> return ()
 
   logT $ "peer_handler:" ++ show (chTo c)
+  rxs <- chan_pop_all cid
+  forM_ rxs $ \p -> do
+    -- logT $ "peer_handler:processing " ++ show p
+    let mrelayp = fromNetworkPacket (LP $ unBody $ paBody $ rtPacket p)
+    logT $ "peer_handler:tunneled packet " -- ++ show mrelayp
+    case mrelayp of
+      Nothing -> do
+        logT $ "peer_handler:discarding bad tunneled packet:" ++ show p
+      Just relayp -> do
+        logT $ "peer_handler:calling switch_receive for tunneled packet:" -- ++ show relayp
+        let path = (pathFromPathJson $ rtSender p)
+            path2 = path { pBridgeChan = Just cid }
+        switch_receive relayp path2 (rtAt p)
   -- TODO: process relayed packets
 
 {-
@@ -130,6 +144,7 @@ void peer_handler(chan_t c)
 -- csid may be address format
 peer_send :: HashName -> [String] -> TeleHash ()
 peer_send to address = do
+  logT $ "peer_send:" ++ show (to,address)
   if length address /= 2 && length address /= 4
     then do
       logT $ "peer_send: malformed address " ++ show address
@@ -167,7 +182,7 @@ peer_send to address = do
                       path = PathIPv4 (read ipStr) (read portStr)
                       punch2 = punch { tOut = PIPv4 path }
                       punch3 = punch2 { tLp = Just (toLinePacket newPacket) }
-                  putPath (HN hn) (Path PtIPv4 (PIPv4 path) Nothing Nothing Nothing)
+                  putPath (HN hn) (Path PtIPv4 (PIPv4 path) Nothing Nothing Nothing Nothing)
                   switch_sendingQ punch3
               chan_send (chUid c2) p3
 

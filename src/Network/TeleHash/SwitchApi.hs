@@ -87,8 +87,14 @@ packet_t switch_sending(switch_t s)
 
 -- ---------------------------------------------------------------------
 
+-- |Receive a `NetworkPacket` via a `Path`. This function is called
+-- from the driving code.
 switch_receive :: NetworkPacket -> Path -> ClockTime -> TeleHash ()
 switch_receive rxPacket path timeNow = do
+  logT $ "switch_receive:path=" ++ showPathJson (pJson path)
+  hnSelf <- getOwnHN
+  putPathIfNeeded hnSelf path
+
   -- counterVal <- incPCounter
   let packet = NetworkTelex
                 { ntSender = path
@@ -141,10 +147,15 @@ switch_receive rxPacket path timeNow = do
                         else return ()
                       -- xht_set(s->index, (const char*)from->c->lineHex, (void*)from);
                       putHexLine (cLineHex lineCrypto) (hHashName from)
+                      logT $ "switch_receive:openize:path=" ++ show (path)
+                      if isJust (pBridgeChan path)
+                        then putPath (hHashName from) path
+                        else return ()
                       -- logT $ "switch_receive:openize:calling hn_path for path" ++ showJson (pJson path)
                       inVal <- hn_path (hHashName from) (pJson path)
                       from3 <- getHN (hHashName from2)
                       -- logT $ "switch_receive:openize:hn_path returned" ++ showJson inVal
+                      logT $ "switch_receive:openize:hn_path returned" ++ show inVal
                       switch_open (hHashName from) inVal -- in case
                       case hOnopen from3 of
                         Nothing ->  do
@@ -158,16 +169,35 @@ switch_receive rxPacket path timeNow = do
 
     LinePacket pbody -> do
       -- its a line
-      -- logT $ "receive:got line msg"
+      logT $ "receive:got line msg"
       let lineID = BC.unpack $ B16.encode $ BC.take 16 pbody
       -- logT $ "receive:lineID=" ++ lineID
       mfrom <- getHexLineMaybe lineID
       case mfrom of
         Nothing -> do
-          logT $ "switch_receive: no line found for " ++ lineID ++ "," ++ show pbody
-          return ()
+          -- if(packet.length == 2) return; // empty packets are NAT pings
+          if BC.length pbody == 0
+            then return () --  empty packets are NAT pings
+            else do
+              logT $ "switch_receive: no line found for " ++ lineID ++ "," ++ show pbody
+              return ()
+{-
+-- From equivalent thjs code
+    // a matching line is required to decode the packet
+    if(!line) {
+      if(!self.bridgeLine[lineID]) return debug("unknown line received", lineID, packet.sender);
+      debug("BRIDGE",JSON.stringify(self.bridgeLine[lineID]),lineID);
+      var id = crypto.createHash("sha256").update(packet.body).digest("hex")
+      if(self.bridgeCache[id]) return; // drop duplicates
+      self.bridgeCache[id] = true;
+      // flat out raw retransmit any bridge packets
+      return self.send(self.bridgeLine[lineID],msg);
+    }
+
+-}
         Just fromHn -> do
           from <- getHN fromHn
+          -- putPathIfNeeded (hHashName from) path
           inVal <- hn_path (hHashName from) (pJson path)
           p <- crypt_delineize (gfromJust "switch_receive" $ hCrypto from) packet
           -- logT $ "crypt_delineize result:" ++ show p
@@ -190,6 +220,7 @@ switch_receive rxPacket path timeNow = do
                              then chan_reliable (chUid chan) (swWindow sw)
                              else return chan
                   putChan chan2
+                  logT $ "receive:sending to chan:" ++ showChan chan2
                   chan_receive (chUid chan2) rx
                 Nothing -> do
                   -- bounce it
@@ -493,11 +524,21 @@ switch_sendingQ p = do
     Just p3 -> do
       timeNow <- io getClockTime
       path <- getPath (tTo p3) (tOut p3)
-      putPath (tTo p3) (path { pAtOut = Just timeNow })
-      sw <- get
-      put $ sw { swOut = (swOut sw) ++ [p3]
-               , swLast = Just p3
-               }
+      logT $ "switch_sendingQ:path=" ++ show path
+      -- Tunnel if necessary
+      case pBridgeChan path of
+        Nothing -> do
+          putPath (tTo p3) (path { pAtOut = Just timeNow })
+          sw <- get
+          put $ sw { swOut = (swOut sw) ++ [p3]
+                   , swLast = Just p3
+                   }
+        Just cid -> do
+          c <- getChan cid
+          let pp1 = packet_new (chTo c)
+              pp2 = packet_body pp1 (unLP $ gfromJust "switch_sendingQ" $ tLp p3)
+              pp3 = packet_set_int pp2 "c" (unChannelId $ chId c)
+          chan_send cid pp3
       return ()
 
 {-
@@ -600,7 +641,7 @@ switch_loop = do
 
       -- give all channels a tick
       forM_ (Map.keys (swIndexChans sw)) $ \cid -> do
-        logT $ "switch_loop: processing : " ++ show cid
+        -- logT $ "switch_loop: processing : " ++ show cid
         chan_tick cid
       return ()
 
@@ -626,8 +667,10 @@ void switch_loop(switch_t s)
 
 chan_tick :: Uid -> TeleHash ()
 chan_tick cid = do
-  logT $ "chan_tick called for " ++ show cid
+  -- logT $ "chan_tick called for " ++ show cid
   -- assert False undefined
+  return ()
+
 {-
 void walktick(xht_t h, const char *key, void *val, void *arg)
 {

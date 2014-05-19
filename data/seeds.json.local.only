@@ -1,0 +1,50 @@
+{
+  "7766e761afb226d7b398379ea1bf12c53dc02580c683b173568b0c6cc3a09c00": {
+    "paths": [
+      {
+        "type": "http",
+        "http": "http://172.17.42.1:42424"
+      },
+      {
+        "type": "ipv4",
+        "ip": "10.0.0.30",
+        "port": 42424
+      },
+      {
+        "type": "ipv4",
+        "ip": "172.17.42.1",
+        "port": 42424
+      },
+      {
+        "type": "ipv6",
+        "ip": "fe80::b6b6:76ff:fe86:67cb",
+        "port": 42424
+      },
+      {
+        "type": "ipv6",
+        "ip": "fe80::7894:faff:fe32:647e",
+        "port": 42424
+      },
+      {
+        "type": "ipv6",
+        "ip": "fe80::6882:79ff:feeb:7e36",
+        "port": 42424
+      },
+      {
+        "type": "ipv6",
+        "ip": "fe80::509a:24ff:fe7d:2a77",
+        "port": 42424
+      }
+    ],
+    "parts": {
+      "3a": "d4b78855e6cee2d005753ef4abe8bd05cc014efdd2bdb9c7994d34c712020a8e",
+      "2a": "c216b2ccb1a832f0e893c847b0ef1f81d0a00f9fd0708b845299715226c87112",
+      "1a": "269c55851a2cc2a4a94fb4ce51dd1089b0a07d4edb94be19a39f3f49c8d60368"
+    },
+    "keys": {
+      "3a": "gmAn9WLUT6T5ug/X5n0RnQqagxSWvfV/8nMHnOA3DgQ=",
+      "2a": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAugcmAtr0Gsl5DdMSqfhQLfs8yzsgAJKITs7yQJfnuPO5SO+9bMWU4vNZQlxWjBDWMvx8XQbF4H4aHH61ZCuZyoTGC99nDztMRG5Rb/h7B0jh1plIC3yIyS2cLOzd40Qr7gg6viU7rp+w/QiTBp42jk0KvsEKT34VES5JhMqrwLVfGO7Rq4kla0s8Nmt9pwjMGNaPyKbLVt6BqqI1fO70BcbmvMAQcOp5t3rsrY4E1tBOKHIWaAR5T3H5dppwhwO5u0mBkdmvgzCtBNpwvFvuv8X3lXNGI23ppZFkgiKsjxsn52v4+88L/+YXObtQfG304wWrTO5eoBZdMU6dTt9H7QIDAQAB",
+      "1a": "KaOZRKU3ouxNLGBHQV4TFAGrwM8pF8PncWC9XLcx+7H+fHebOTdcyg=="
+    }
+  }
+}

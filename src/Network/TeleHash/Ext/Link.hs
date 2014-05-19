@@ -15,6 +15,7 @@ import Network.TeleHash.SwitchApi
 import Network.TeleHash.SwitchUtils
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
+import Network.TeleHash.Ext.Seek
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -28,6 +29,7 @@ ext_link c = do
 
   let
     respFunc p = do
+      logT $ "ext_link:respFunc:processing " ++ showJson (rtJs p)
       -- always respond/ack, except if there is an error or end
       let merr = packet_get_str p "err"
           mend = packet_get_str p "end"
@@ -48,9 +50,22 @@ ext_link c = do
             Just lrp -> do
               process_link_seed (chUid c) p lrp
 
-          -- always respond/ack
-          reply <- chan_packet (chUid c) True
-          chan_send (chUid c) (gfromJust "ext_link" reply)
+              -- always respond/ack
+              reply <- chan_packet (chUid c) True
+              sw <- get
+              let reply2 = packet_set (gfromJust "ext_link" reply) "seed" (swIsSeed sw)
+              chan_send (chUid c) reply2
+
+              -- if this is a new link, request a path
+              if packet_has_key p "type"
+                then do
+                  let p1 = packet_new (chTo c)
+                      p2 = packet_set_int p1 "c" (unChannelId $ chId c)
+                      p3 = packet_set_str p2 "type" "path"
+                  logT $ "ext_link:requesting path:" ++ showChan c ++ "," ++ show p3
+                  chan_send (chUid c) p3
+                else return ()
+
 
   util_chan_popall c (Just respFunc)
 {-
@@ -84,6 +99,7 @@ process_link_seed cid p lrp = do
     else deleteFromDht (chTo c)
 
   forM_ sees $ \see -> do
+    logT $ "process_link_seed:see=" ++ show see
     sw <- get
     let fields = Text.splitOn "," (Text.pack see)
     case fields of
@@ -98,7 +114,10 @@ process_link_seed cid p lrp = do
             if not (Set.member (hHashName hc) bucket) &&
                Set.size bucket <= (swDhtK sw)
                    -- TODO: use the hinted IP:Port if provided
-              then void $ link_hn (hHashName hc)
+              -- then void $ link_hn (hHashName hc)
+              then do
+                logT $ "process_link_seed:attempting peer to: " ++ show (hHashName hc,fields)
+                peer_send (hHashName hc) (map Text.unpack fields)
               else return ()
       _     -> do
         logT $ "process_link_seed:got junk see:" ++ show see

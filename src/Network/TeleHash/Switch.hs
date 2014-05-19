@@ -293,7 +293,7 @@ doNullSendDgram _msgJson _addr = do
 
 doSendDgram :: LinePacket -> NS.SockAddr -> TeleHash ()
 doSendDgram (LP msgJson) address = do
-  -- logT $ "doSendDgram to:" ++ show addr
+  logT $ "doSendDgram to:" ++ show address
   Just socketh <- gets swH
   io (sendDgram (slSocket socketh) msgJson address)
 
@@ -364,6 +364,7 @@ recvTelex msg rinfo = do
     --console.log(["RECV from ", remoteipp, ": ", JSON.stringify(telex)].join(""));
     logT ("RECV from " ++ (show remoteipp) ++ ":" -- ++ (show $ B16.encode msg)
                   ++ " at " ++ (show timeNow))
+    -- logT ("RECV msg " ++ (show $ B16.encode msg))
     let
       maybeRxTelex = fromNetworkPacket (LP msg)
     -- logT $ "recvTelex:maybeRxTelex:" ++ show maybeRxTelex
@@ -375,6 +376,7 @@ recvTelex msg rinfo = do
         , pId = Nothing
         , pAtIn = Just timeNow
         , pAtOut = Nothing
+        , pBridgeChan = Nothing
         }
 
     case maybeRxTelex of
@@ -599,10 +601,11 @@ switch_new = do
   rng <- initRNG
   return $ Switch
        { swId          = HN "foo"
+       , swParts       = []
+       , swExternalIPP = Nothing
        , swSeeds       = Set.empty
        , swOut         = [] -- packets waiting to be delivered
        , swLast        = Nothing
-       , swParts       = []
        , swChans       = Set.empty
        , swUid         = 0
        , swTxid        = 0

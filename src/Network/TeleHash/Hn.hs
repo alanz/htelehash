@@ -263,6 +263,7 @@ hn_t hn_getparts(xht_t index, packet_t p)
 hn_path :: HashName -> PathJson -> TeleHash (Maybe Path)
 hn_path hn p = do
   hc <- getHN hn
+  -- logT $ "hn_path:" ++ show (hn,p,hPaths hc)
   timeNow <- io getClockTime
 
   let pa = pathFromPathJson p

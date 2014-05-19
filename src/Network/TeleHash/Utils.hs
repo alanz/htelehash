@@ -43,12 +43,14 @@ module Network.TeleHash.Utils
   , putChatR
 
   -- * Hashcontainers
+  , getOwnHN
   , getHN
   , getHNMaybe
   , putHN
   , withHN
   , withHNM
   , putPath
+  , putPathIfNeeded
   , getPath
   , putHexLine
   , getHexLine
@@ -61,6 +63,10 @@ module Network.TeleHash.Utils
   , showAllChans
   , showChan
   , showChanShort
+  , showAllHashNames
+  , showHashName
+  , showAllDht
+  , showDhtBucket
 
   -- * Utility
   , logT
@@ -576,6 +582,13 @@ getHNMaybe hn = do
   sw <- get
   return $ (Map.lookup hn (swIndex sw))
 
+-- ---------------------------------------------------------------------
+
+-- |Return our own hashname
+getOwnHN :: TeleHash HashName
+getOwnHN = do
+  sw <- get
+  return $ swId sw
 
 -- ---------------------------------------------------------------------
 
@@ -608,6 +621,17 @@ putPath hn path = do
 
 -- ---------------------------------------------------------------------
 
+putPathIfNeeded :: HashName -> Path -> TeleHash ()
+putPathIfNeeded hn path = do
+  hc <- getHN hn
+  case Map.lookup (pJson path) (hPaths hc) of
+    Just _ -> return ()
+    Nothing -> do
+      logT $ "putPathIfNeeded:putting " ++ show (hn,pJson path)
+      putPath hn path
+
+-- ---------------------------------------------------------------------
+
 getPath :: HashName -> PathJson -> TeleHash Path
 getPath hn pj = do
   hc <- getHN hn
@@ -634,7 +658,9 @@ getHexLine lineHex = do
 getHexLineMaybe :: String -> TeleHash (Maybe HashName)
 getHexLineMaybe lineHex = do
   sw <- get
-  return $ Map.lookup lineHex (swIndexLines sw)
+  let r = Map.lookup lineHex (swIndexLines sw)
+  logT $ "getHexLineMaybe:(line,found):" ++ show (lineHex,isJust r)
+  return r
 
 -- ---------------------------------------------------------------------
 
@@ -659,6 +685,40 @@ showChan c = "(chan:" ++ show (chUid c,chId c,chTo c,chReliable c,chState c,chTy
 
 showChanShort :: TChan -> String
 showChanShort c = "(chan:" ++ show (chUid c,chId c,chReliable c,chState c,chType c) ++ ")"
+
+-- ---------------------------------------------------------------------
+
+showAllHashNames :: TeleHash String
+showAllHashNames = do
+  sw <- get
+  r <- forM (Map.elems $ swIndex sw) $ \hc -> do
+    showHashName hc
+  return $ unlines r
+
+-- ---------------------------------------------------------------------
+
+showHashName :: HashContainer -> TeleHash String
+showHashName hc = do
+  return $ "(hn:" ++ show (hHashName hc,hIsSeed hc,hIsLinked hc)
+          ++ "\n paths:" ++ (intercalate "\n    ," $ map showPathJson $ Map.keys (hPaths hc))
+          ++ ")"
+
+-- ---------------------------------------------------------------------
+
+showAllDht :: TeleHash String
+showAllDht = do
+  sw <- get
+  r <- forM (Map.assocs $ swDht sw) $ \b -> do
+    showDhtBucket b
+  return $ unlines r
+
+-- ---------------------------------------------------------------------
+
+showDhtBucket :: (HashDistance,Bucket) -> TeleHash String
+showDhtBucket (hd,b) = do
+  return $ ("Bucket " ++ show hd ++ " : " ++ show (Set.size b) ++ "\n"
+           ++ (intercalate "\n  " $ map show $ Set.elems b)
+           )
 
 -- ---------------------------------------------------------------------
 -- Logging

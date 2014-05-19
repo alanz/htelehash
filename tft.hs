@@ -313,9 +313,19 @@ app = do
                       io $ logg nick ("joining chat " ++ show (ecId chat3,packet_get_str p2d "id", ecRHash chat3))
 
            | isPrefixOf "/chans" l -> do
-              logT $ "Chans"
+              logR $ "Chans"
               chStr <- showAllChans
-              logT chStr
+              logR chStr
+
+           | isPrefixOf "/hns" l -> do
+              logR $ "HashNames"
+              chStr <- showAllHashNames
+              logR chStr
+
+           | isPrefixOf "/dht" l -> do
+              logR $ "DHT"
+              chStr <- showAllDht
+              logR chStr
 
            | otherwise -> do
               -- default send as message
