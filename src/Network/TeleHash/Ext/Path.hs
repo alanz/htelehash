@@ -8,12 +8,17 @@ module Network.TeleHash.Ext.Path
 
 import Control.Exception
 import Control.Monad
+import Control.Monad.State
 
+import Data.Maybe
+
+import Network.TeleHash.Dht
+import Network.TeleHash.Hn
 import Network.TeleHash.Paths
-import Network.TeleHash.Types
-import Network.TeleHash.Utils
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.SwitchUtils
+import Network.TeleHash.Types
+import Network.TeleHash.Utils
 
 import qualified Data.Aeson as Aeson
 
@@ -81,7 +86,39 @@ path_send to = do
 path_handler :: Uid -> TeleHash ()
 path_handler cid = do
   logT $ "path_handler entered for " ++ show cid
+  c <- getChan cid
 
+  let
+    -- TODO: make respFunc a first class func to be called from switch_receive
+    respFunc p = do
+      logT $ "ext_link:respFunc:processing " ++ showJson (rtJs p)
+      -- always respond/ack, except if there is an error or end
+      let merr = packet_get_str p "err"
+          mend = packet_get_str p "end"
+      if any isJust [merr,mend]
+        then return ()
+        else do
+          let mv = packet_get p "path"
+              mlp = case mv of
+                Just v  -> parseJsVal v :: Maybe PathJson
+                Nothing -> Nothing
+          case mlp of
+            Nothing -> return ()
+            Just lp@(PIPv4 pipv4) -> do
+              case pjsonIp lp of
+                Nothing -> return ()
+                Just ip -> do
+                  logT $ "path_handler:checking ip:" ++ show ip
+                  if isLocalIP ip
+                    then return ()
+                    else do
+                      logT $ "path_handler:got our remote ip:" ++ show ip
+                      sw <- get
+                      put $ sw {swExternalIPP = Just pipv4 }
+            Just lp -> do
+              logT $ "path_handler:unexpected path type :" ++ show lp
+
+  util_chan_popall c (Just respFunc)
 
 -- ---------------------------------------------------------------------
 

@@ -98,6 +98,7 @@ module Network.TeleHash.Utils
   , b16ToCbs
   , showJson
 
+  , isLocalIP
   ) where
 
 import Control.Exception
@@ -108,6 +109,7 @@ import Crypto.Number.Serialize
 import Data.Aeson.Encode
 import Data.Aeson.Types
 import Data.Char
+import Data.IP
 import Data.List
 import Data.Maybe
 import Data.Word
@@ -956,4 +958,45 @@ _tp = do
  return vv
 
 
+
+-- ---------------------------------------------------------------------
+
+isLocalIP :: IP -> Bool
+
+{-
+
+// return if an IP is local or public
+function isLocalIP(ip)
+{
+  // ipv6 ones
+  if(ip.indexOf(":") >= 0)
+  {
+    if(ip.indexOf("::") == 0) return true; // localhost
+    if(ip.indexOf("fc00") == 0) return true;
+    if(ip.indexOf("fe80") == 0) return true;
+    return false;
+  }
+
+  var parts = ip.split(".");
+  if(parts[0] == "0") return true;
+  if(parts[0] == "127") return true; // localhost
+  if(parts[0] == "10") return true;
+  if(parts[0] == "192" && parts[1] == "168") return true;
+  if(parts[0] == "172" && parts[1] >= 16 && parts[1] <= 31) return true;
+  if(parts[0] == "169" && parts[1] == "254") return true; // link local
+  return false;
+}
+-}
+
+isLocalIP ip@(IPv4 _) = r
+  where
+    r127 =  makeAddrRange ((read "127.0.0.0")::IPv4) 8
+    r10  =  makeAddrRange ((read "10.0.0.0")::IPv4) 8
+    r192 =  makeAddrRange ((read "192.168.0.0")::IPv4) 16
+    r172 =  makeAddrRange ((read "172.16.0.0")::IPv4) 9
+    r169 =  makeAddrRange ((read "169.254.0.0")::IPv4) 16
+
+    r = any (isMatchedTo (ipv4 ip)) [r127,r10,r192,r172,r169]
+
+-- ---------------------------------------------------------------------
 
