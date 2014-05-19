@@ -15,6 +15,7 @@ import Network.TeleHash.SwitchApi
 import Network.TeleHash.SwitchUtils
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
+import Network.TeleHash.Ext.Path
 import Network.TeleHash.Ext.Seek
 
 import qualified Data.Map as Map
@@ -59,11 +60,7 @@ ext_link c = do
               -- if this is a new link, request a path
               if packet_has_key p "type"
                 then do
-                  let p1 = packet_new (chTo c)
-                      p2 = packet_set_int p1 "c" (unChannelId $ chId c)
-                      p3 = packet_set_str p2 "type" "path"
-                  logT $ "ext_link:requesting path:" ++ showChan c ++ "," ++ show p3
-                  chan_send (chUid c) p3
+                  path_send (chTo c)
                 else return ()
 
 

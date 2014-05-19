@@ -1,6 +1,7 @@
 module Network.TeleHash.Ext.Path
   (
     ext_path
+  , path_send
   , path_free
   ) where
 
@@ -21,7 +22,7 @@ import qualified Data.Aeson as Aeson
 
 ext_path :: TChan -> TeleHash ()
 ext_path c = do
-  logT $ "ext_path entered for:" ++ show (chId c, chUid c)
+  logT $ "ext_path entered for:" ++ showChan c
   let
     respFunc p = do
       if packet_has_key p "err"
@@ -39,13 +40,11 @@ ext_path c = do
               let ps1 = filter (\pa -> pjsonType pa == PtIPv4) ps
               -- TODO: more detailed filtering of these paths
               forM_ ps1 $ \ path -> do
-                let p1 = packet_new (chTo c)
-                    p2 = packet_set_int p1 "c" (unChannelId $ chId c)
-                    p3 = packet_set p2 "path" path
-                    p4 = p3 { tOut = path }
+                mp1 <- chan_packet (chUid c) True
+                let p3 = packet_set (gfromJust "ext_path" mp1) "path" path
                 putPathIfNeeded (chTo c) (pathFromPathJson path)
-                logT $ "ext_path:p3=" ++ showJson (tJs p4)
-                chan_send (chUid c) p4
+                logT $ "ext_path:p3=" ++ showJson (tJs p3)
+                chan_send (chUid c) p3
 
   util_chan_popall c (Just respFunc)
 
@@ -60,6 +59,29 @@ void ext_path(chan_t c)
   }
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+path_send :: HashName -> TeleHash ()
+path_send to = do
+  logT $ "path_send " ++ show to
+  c <- chan_new to "path" Nothing
+  let c2 = c { chHandler = Just path_handler }
+  putChan c2
+  mp <- chan_packet (chUid c2) True
+  case mp of
+    Nothing -> do
+      logT $ "path_send:failed to make channel packet"
+      return ()
+    Just p -> do
+      chan_send (chUid c2) p
+
+-- ---------------------------------------------------------------------
+
+path_handler :: Uid -> TeleHash ()
+path_handler cid = do
+  logT $ "path_handler entered for " ++ show cid
+
 
 -- ---------------------------------------------------------------------
 
