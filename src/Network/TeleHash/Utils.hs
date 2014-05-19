@@ -702,7 +702,7 @@ showAllHashNames = do
 showHashName :: HashContainer -> TeleHash String
 showHashName hc = do
   return $ "(hn:" ++ show (hHashName hc,hIsSeed hc,hIsLinked hc)
-          ++ "\n paths:" ++ (intercalate "\n    ," $ map showPathJson $ Map.keys (hPaths hc))
+          ++ "\n paths:" ++ (intercalate "\n      ," $ map showPathJson $ Map.keys (hPaths hc))
           ++ ")"
 
 -- ---------------------------------------------------------------------

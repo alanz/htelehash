@@ -91,9 +91,7 @@ process_link_seed cid p lrp = do
         _                     -> (False,[])
   c <- getChan cid
   -- Check if we have the current hn in our dht
-  if isSeed
-    then insertIntoDht (chTo c)
-    else deleteFromDht (chTo c)
+  insertIntoDht (chTo c)
 
   forM_ sees $ \see -> do
     logT $ "process_link_seed:see=" ++ show see

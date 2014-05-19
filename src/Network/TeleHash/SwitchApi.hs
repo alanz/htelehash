@@ -92,8 +92,8 @@ packet_t switch_sending(switch_t s)
 switch_receive :: NetworkPacket -> Path -> ClockTime -> TeleHash ()
 switch_receive rxPacket path timeNow = do
   logT $ "switch_receive:path=" ++ showPathJson (pJson path)
-  hnSelf <- getOwnHN
-  putPathIfNeeded hnSelf path
+  -- hnSelf <- getOwnHN
+  -- putPathIfNeeded hnSelf path
 
   -- counterVal <- incPCounter
   let packet = NetworkTelex
@@ -128,6 +128,7 @@ switch_receive rxPacket path timeNow = do
                   return ()
                 Just from -> do
                   logT $ "switch_receive:openize:from=" ++ show (hHashName from)
+
                   mlineCrypto <- case hCrypto from of
                                    Nothing -> return Nothing
                                    Just c  -> crypt_line open c inner
@@ -197,7 +198,6 @@ switch_receive rxPacket path timeNow = do
 -}
         Just fromHn -> do
           from <- getHN fromHn
-          -- putPathIfNeeded (hHashName from) path
           inVal <- hn_path (hHashName from) (pJson path)
           p <- crypt_delineize (gfromJust "switch_receive" $ hCrypto from) packet
           -- logT $ "crypt_delineize result:" ++ show p
