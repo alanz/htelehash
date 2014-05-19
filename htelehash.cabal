@@ -175,6 +175,26 @@ test-suite tests
                   , tasty-hunit
                   , tasty-smallcheck
 
+                  , aeson
+                  , base16-bytestring
+                  , base64-bytestring
+                  , binary
+                  , bytestring
+                  , cipher-aes
+                  , containers
+                  , crypto-numbers
+                  , crypto-pubkey
+                  , crypto-pubkey-types
+                  , crypto-random
+                  , cryptohash
+                  , hslogger
+                  , iproute
+                  , mtl
+                  , network
+                  , old-time
+                  , split
+                  , text
+                  , unordered-containers
 
 
 source-repository head
