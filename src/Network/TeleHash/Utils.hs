@@ -26,6 +26,7 @@ module Network.TeleHash.Utils
   , queueChan
   , dequeueChan
   , rmChan
+  , putChanInHnIfNeeded
   , getChanFromHn
   , rmChanFromHn
 
@@ -67,6 +68,7 @@ module Network.TeleHash.Utils
   , showHashName
   , showAllDht
   , showDhtBucket
+  , showAllLines
 
   -- * Utility
   , logT
@@ -99,6 +101,7 @@ module Network.TeleHash.Utils
   , showJson
 
   , isLocalIP
+  , isTimeOut
   ) where
 
 import Control.Exception
@@ -115,6 +118,7 @@ import Data.Maybe
 import Data.Word
 import Prelude hiding (id, (.), head, either)
 import System.Log.Logger
+import System.Time
 
 import Network.TeleHash.Convert
 import Network.TeleHash.Paths
@@ -465,6 +469,17 @@ getChanMaybe chanUid = do
 
 -- ---------------------------------------------------------------------
 
+putChanInHnIfNeeded :: HashName -> Uid -> TeleHash ()
+putChanInHnIfNeeded hn cid = do
+  hc <- getHN hn
+  c <- getChan cid
+  case Map.lookup (chId c) (hChans hc) of
+    Nothing -> do
+      putHN $ hc { hChans = Map.insert (chId c) (chUid c) (hChans hc) }
+    Just _ -> return ()
+
+-- ---------------------------------------------------------------------
+
 getChanFromHn :: HashName -> ChannelId -> TeleHash (Maybe TChan)
 getChanFromHn hn cid = do
   hc <- getHN hn
@@ -693,15 +708,19 @@ showChanShort c = "(chan:" ++ show (chUid c,chId c,chReliable c,chState c,chType
 showAllHashNames :: TeleHash String
 showAllHashNames = do
   sw <- get
+  now <- io getClockTime
   r <- forM (Map.elems $ swIndex sw) $ \hc -> do
-    showHashName hc
+    showHashName now hc
   return $ unlines r
 
 -- ---------------------------------------------------------------------
 
-showHashName :: HashContainer -> TeleHash String
-showHashName hc = do
-  return $ "(hn:" ++ show (hHashName hc,hIsSeed hc,hIsLinked hc)
+showHashName :: ClockTime -> HashContainer -> TeleHash String
+showHashName (TOD now _) hc = do
+  let linkAgeStr = case hLinkAge hc of
+        Nothing -> " Nothing"
+        Just (TOD s _) -> " (Just " ++ show (now - s) ++ " secs)"
+  return $ "(hn:" ++ show (hHashName hc,hIsSeed hc) ++ linkAgeStr
           ++ "\n paths:" ++ (intercalate "\n      ," $ map showPathJson $ Map.keys (hPaths hc))
           ++ ")"
 
@@ -718,9 +737,17 @@ showAllDht = do
 
 showDhtBucket :: (HashDistance,Bucket) -> TeleHash String
 showDhtBucket (hd,b) = do
-  return $ ("Bucket " ++ show hd ++ " : " ++ show (Set.size b) ++ "\n"
+  return $ ("Bucket " ++ show hd ++ " : " ++ show (Set.size b) ++ "\n  "
            ++ (intercalate "\n  " $ map show $ Set.elems b)
            )
+
+-- ---------------------------------------------------------------------
+
+showAllLines :: TeleHash String
+showAllLines = do
+  sw <- get
+  let r = intercalate "\n   " $ map (\(l,hn) -> show (l,hn)) (Map.assocs $ swIndexLines sw)
+  return r
 
 -- ---------------------------------------------------------------------
 -- Logging
@@ -997,6 +1024,14 @@ isLocalIP ip@(IPv4 _) = r
     r169 =  makeAddrRange ((read "169.254.0.0")::IPv4) 16
 
     r = any (isMatchedTo (ipv4 ip)) [r127,r10,r192,r172,r169]
+
+-- ---------------------------------------------------------------------
+
+isTimeOut :: ClockTime -> Maybe ClockTime -> Int -> Bool
+isTimeOut (TOD secs _picos) mt secsVal
+ = case mt of
+     Nothing -> True
+     Just (TOD s _) -> (secs - s) < fromIntegral secsVal
 
 -- ---------------------------------------------------------------------
 

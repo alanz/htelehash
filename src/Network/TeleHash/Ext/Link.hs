@@ -2,12 +2,12 @@
 module Network.TeleHash.Ext.Link
   (
     ext_link
-  , link_hn
   ) where
 
 import Control.Exception
 import Control.Monad.State
 import Data.Maybe
+import System.Time
 
 import Network.TeleHash.Dht
 import Network.TeleHash.Hn
@@ -18,6 +18,7 @@ import Network.TeleHash.Utils
 import Network.TeleHash.Ext.Path
 import Network.TeleHash.Ext.Seek
 
+
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
@@ -26,16 +27,19 @@ import qualified Data.Text as Text
 
 ext_link :: TChan -> TeleHash ()
 ext_link c = do
-  logT $ "ext_link entered for:" ++ show (chId c, chUid c)
+  logT $ "ext_link entered for:" ++ showChan c
 
   let
     respFunc p = do
       logT $ "ext_link:respFunc:processing " ++ showJson (rtJs p)
+      c2 <- getChan (chUid c)
       -- always respond/ack, except if there is an error or end
       let merr = packet_get_str p "err"
           mend = packet_get_str p "end"
       if any isJust [merr,mend]
-        then return ()
+        then do
+          chan_fail (chUid c) Nothing
+          return ()
         else do
           let mlp = parseJs (rtJs p) :: Maybe LinkReply
           case mlp of
@@ -44,23 +48,47 @@ ext_link c = do
               return ()
             Just (LinkReplyErr _err) -> do
               logT $ "ext_link:got err:" ++ show p
+              deleteFromDht (chTo c)
               return ()
             Just LinkReplyEnd -> do
               logT $ "ext_link:link ended"
+              deleteFromDht (chTo c)
               return ()
             Just lrp -> do
-              process_link_seed (chUid c) p lrp
+              hc <- getHN (chTo c)
+              now <- io $ getClockTime
+              putHN $ hc { hLinkAge = Just now
+                         , hLinkChan = Just (chUid c)
+                         }
+              putChanInHnIfNeeded (chTo c) (chUid c)
 
-              -- always respond/ack
-              reply <- chan_packet (chUid c) True
-              sw <- get
-              let reply2 = packet_set (gfromJust "ext_link" reply) "seed" (swIsSeed sw)
-              chan_send (chUid c) reply2
+              -- send a response if this is a new incoming
+              -- if(!chan.sentAt) packet.from.link();
+              case chLast c2 of
+                Just _ -> do
+                  -- always respond/ack
+                  mreply <- chan_packet (chUid c2) True
+                  case mreply of
+                    Nothing -> do
+                      c3 <- getChan (chUid c)
+                      logT $ "ext_link:could not create a channel packet for " ++ show c3
+                      -- assert False undefined
+                    Just reply -> do
+                      sw <- get
+                      let reply2 = packet_set reply "seed" (swIsSeed sw)
+                      chan_send (chUid c2) reply2
+                Nothing -> do
+                  logT $ "ext_link:creating link to now hn:" ++ show (hHashName hc)
+                  -- TODO: this will creat a new channel, is this what we want?
+                  void $ link_hn (hHashName hc) (Just $ chUid c2)
+
+              process_link_seed (chUid c2) p lrp
+
 
               -- if this is a new link, request a path
               if packet_has_key p "type"
                 then do
-                  path_send (chTo c)
+                  path_send (chTo c2)
                 else return ()
 
 
@@ -93,15 +121,29 @@ process_link_seed cid p lrp = do
   -- Check if we have the current hn in our dht
   insertIntoDht (chTo c)
 
+{-
+-- js version does this
+
+  // look for any see and check to see if we should create a link
+  if(Array.isArray(packet.js.see)) packet.js.see.forEach(function(address){
+    var hn = packet.from.sees(address);
+    if(!hn || hn.linked) return;
+    if(self.buckets[hn.bucket].length < defaults.link_k) hn.link();
+  });
+
+-}
+
   forM_ sees $ \see -> do
     logT $ "process_link_seed:see=" ++ show see
     sw <- get
     let fields = Text.splitOn "," (Text.pack see)
     case fields of
       (h:_) -> do
+        let hn = (HN $ Text.unpack h)
+        mhc <- getHNMaybe hn -- have we seen this hashname before?
         -- first make sure the switch has an entry for the hashname
-        hc <- hn_get (HN $ Text.unpack h)
-        if hIsLinked hc
+        hc <- hn_get hn
+        if isJust (hLinkAge hc)
           then return () -- nothing to do
           else do
             -- create a link to the new bucket
@@ -112,7 +154,11 @@ process_link_seed cid p lrp = do
               -- then void $ link_hn (hHashName hc)
               then do
                 logT $ "process_link_seed:attempting peer to: " ++ show (hHashName hc,fields)
-                peer_send (hHashName hc) (map Text.unpack fields)
+                case mhc of
+                  Nothing -> do -- Not seen before, try to peer
+                    peer_send (hHashName hc) (map Text.unpack fields)
+                  Just _ -> return ()
+                void $ link_hn (hHashName hc) Nothing
               else return ()
       _     -> do
         logT $ "process_link_seed:got junk see:" ++ show see
@@ -120,66 +166,5 @@ process_link_seed cid p lrp = do
 
   -- TODO: check for and process bridges
   return ()
-
--- ---------------------------------------------------------------------
-
-link_get :: TeleHash Link
-link_get = do
-  sw <- get
-  case swLink sw of
-    Nothing -> do
-      let l = Link
-               { lMeshing = False
-               , lMeshed  = Set.empty
-               , lSeeding = False
-               , lLinks   = Map.empty
-               , lBuckets = []
-               }
-      put $ sw {swLink = Just l}
-      return l
-    Just l -> return l
-
-{-
-link_t link_get(switch_t s)
-{
-  link_t l;
-  l = xht_get(s->index,"link");
-  return l ? l : link_new(s);
-}
--}
-
--- ---------------------------------------------------------------------
-
--- |create/fetch/maintain a link to this hn
-link_hn :: HashName -> TeleHash (Maybe ChannelId)
-link_hn hn = do
-  l <- link_get
-  c <- chan_new hn "link" Nothing
-  mp <- chan_packet (chUid c) True
-  case mp of
-    Nothing -> return Nothing
-    Just p -> do
-      let p2 = if lSeeding l
-                 then packet_set p "seed" True
-                 else p
-      chan_send (chUid c) p2
-      return $ Just (chId c)
-
-{-
-// create/fetch/maintain a link to this hn
-chan_t link_hn(switch_t s, hn_t h)
-{
-  chan_t c;
-  packet_t p;
-  link_t l = link_get(s);
-  if(!s || !h) return NULL;
-
-  c = chan_new(s, h, "link", 0);
-  p = chan_packet(c);
-  if(l->seeding) packet_set(p,"seed","true",4);
-  chan_send(c, p);
-  return c;
-}
--}
 
 -- ---------------------------------------------------------------------

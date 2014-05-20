@@ -18,6 +18,8 @@ module Network.TeleHash.Packet
   , toLinePacket
   , fromLinePacket
 
+  , showPacketShort
+
   -- debug
   -- , p1, p2
   , myencode
@@ -126,6 +128,9 @@ data Packet = Packet { paHead :: Head
                      , paBody :: Body
                      }
             deriving (Eq,Show)
+
+showPacketShort :: Packet -> String
+showPacketShort p = "Packet " ++ show (paHead p) ++ " " ++ show (BC.length $ unBody $ paBody p) ++ " bytes"
 
 newPacket :: Packet
 newPacket = Packet { paHead = HeadEmpty

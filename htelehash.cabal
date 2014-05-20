@@ -61,6 +61,7 @@ Library
                        Network.TeleHash.Packet
                        Network.TeleHash.Path
                        Network.TeleHash.Paths
+                       Network.TeleHash.Periodic
                        Network.TeleHash.Switch
                        Network.TeleHash.SwitchApi
                        Network.TeleHash.Types

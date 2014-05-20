@@ -1,6 +1,7 @@
 module Network.TeleHash.Ext.Seek
   (
-    seek_auto
+    ext_seek
+  , seek_auto
   , peer_send
   ) where
 
@@ -21,6 +22,13 @@ import Network.TeleHash.Utils
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+
+-- ---------------------------------------------------------------------
+
+ext_seek :: TChan -> TeleHash ()
+ext_seek c = do
+  logT $ "ext_seek entered with for " ++ showChan c
+  assert False undefined
 
 -- ---------------------------------------------------------------------
 

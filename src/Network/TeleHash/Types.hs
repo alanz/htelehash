@@ -7,7 +7,14 @@
 
 module Network.TeleHash.Types
   (
-    HashName(..)
+  -- * Constants
+    param_k
+  , param_link_max
+  , param_link_ping_secs
+  , param_link_timeout_secs
+
+  -- * Types
+  , HashName(..)
   , unHN
   , Hash(..)
   , unHash
@@ -37,6 +44,7 @@ module Network.TeleHash.Types
   , TChan(..)
   , CArg(..)
   , ChannelId(..)
+  , nullChannelId
   , unChannelId
   , channelSlot
   , ChannelHandler
@@ -110,6 +118,24 @@ import qualified Data.Set as Set
 import qualified Data.Text as Text
 import qualified Network.Socket as NS
 import Text.Show.Functions
+
+-- ---------------------------------------------------------------------
+
+-- Parameters. See
+-- https://github.com/telehash/telehash.org/blob/master/implementers.md#default-configuration-values
+
+
+param_k :: Int
+param_k = 8
+
+param_link_max :: Int
+param_link_max = 256
+
+param_link_ping_secs :: Integer
+param_link_ping_secs = 29
+
+param_link_timeout_secs :: Int
+param_link_timeout_secs = 60
 
 -- ---------------------------------------------------------------------
 
@@ -197,7 +223,8 @@ type TeleHash = StateT Switch IO
 data Switch = Switch
        { swId          :: !HashName
        , swParts       :: !Parts
-       , swExternalIPP :: !(Maybe PathIPv4)
+       , swExternalIPP :: !(Maybe PathIPv4) -- TODO: should be in the
+                                            -- HC for swId
        , swSeeds       :: !Bucket
        , swOut         :: ![TxTelex] -- packets waiting to be delivered
        , swLast        :: !(Maybe TxTelex)
@@ -279,7 +306,7 @@ nullHandler _ = return ()
 data HashContainer = H
   { hHashName :: !HashName
   , hCsid     :: !String
-  , hChanOut  :: !ChannelId
+  , hChanOut  :: !ChannelId -- used to allocated next channel id
   , hCrypto   :: !(Maybe Crypto)
   , hPaths    :: !(Map.Map PathJson Path)
   , hLast     :: !(Maybe PathJson)
@@ -287,7 +314,8 @@ data HashContainer = H
   , hOnopen   :: !(Maybe TxTelex)
   , hParts    :: !(Maybe Parts)
   , hIsSeed   :: !Bool
-  , hIsLinked :: !Bool
+  , hLinkAge  :: !(Maybe ClockTime)
+  , hLinkChan :: !(Maybe Uid)
   } deriving (Show)
 
 {-
@@ -305,7 +333,7 @@ typedef struct hn_struct
 newHashContainer :: HashName -> HashContainer
 newHashContainer hn = H { hHashName = hn
                         , hCsid = ""
-                        , hChanOut = CID 0
+                        , hChanOut = nullChannelId
                         , hCrypto = Nothing
                         , hPaths = Map.empty
                         , hLast = Nothing
@@ -313,7 +341,8 @@ newHashContainer hn = H { hHashName = hn
                         , hOnopen = Nothing
                         , hParts = Nothing
                         , hIsSeed = False
-                        , hIsLinked = False
+                        , hLinkAge = Nothing
+                        , hLinkChan = Nothing
                         }
 type HashDistance = Int
 
@@ -499,6 +528,9 @@ typedef struct miss_struct
 
 -- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)
 data ChannelId = CID Int deriving (Eq,Show,Ord)
+
+nullChannelId :: ChannelId
+nullChannelId = CID 0
 
 unChannelId :: ChannelId -> Int
 unChannelId (CID c) = c

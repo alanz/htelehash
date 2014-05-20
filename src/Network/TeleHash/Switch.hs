@@ -612,7 +612,8 @@ switch_new = do
        , swCrid        = CR 0
        , swCap         = 256 -- default cap size
        , swWindow      = 32 -- default reliable window size
-       , swIsSeed      = False
+       -- , swIsSeed      = False
+       , swIsSeed      = True
 
        , swDhtK        = 8
        , swDhtLinkMax  = 256

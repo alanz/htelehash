@@ -21,6 +21,7 @@ import Network.TeleHash.Ext.Seek
 import Network.TeleHash.Ext.Thtp
 import Network.TeleHash.Ext.Path
 import Network.TeleHash.Crypt
+import Network.TeleHash.Periodic
 import Network.TeleHash.Switch
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.Types
@@ -152,8 +153,9 @@ app = do
   chInput <- io newChan
   threadConsole <- io $ forkIO (readConsole chInput)
   threadUdp     <- io $ forkIO (recvUdpMsg chInput sock)
-  threadTimer   <- io $ forkIO (timer (1000 * onesec) ITick chInput)
+  threadTimer   <- io $ forkIO (timer (1 * onesec) ITick chInput)
   logT $ "threads launched"
+
 
   logT $ "loaded hashname " ++ show (swId sw)
 
@@ -175,7 +177,7 @@ app = do
   sw2 <- get
   logT $ "seeds:" ++ show (swSeeds sw2)
   -- link_hn bucket_get(s->seeds, 0));
-  void $ link_hn $ head $ Set.toList (swSeeds sw2)
+  void $ link_hn (head $ Set.toList (swSeeds sw2)) Nothing
 
   util_sendall sock
 
@@ -212,7 +214,7 @@ app = do
                   "connect" -> ext_connect c
                   "thtp"    -> ext_thtp (chUid c)
                   "link"    -> ext_link c
-                  "seek"    -> ext_link c -- is this correct?
+                  "seek"    -> ext_seek c
                   "path"    -> ext_path c
                   "peer"    -> ext_peer c
                   "chat"    -> do
@@ -320,6 +322,11 @@ app = do
            | isPrefixOf "/hns" l -> do
               logR $ "HashNames"
               chStr <- showAllHashNames
+              logR chStr
+
+           | isPrefixOf "/lines" l -> do
+              logR $ "Lines"
+              chStr <- showAllLines
               logR chStr
 
            | isPrefixOf "/dht" l -> do

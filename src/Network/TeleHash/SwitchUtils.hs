@@ -25,9 +25,7 @@ import Network.TeleHash.Switch
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.Utils
 
--- import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
--- import qualified Data.ByteString.Lazy as BL
 import qualified Data.Set as Set
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB

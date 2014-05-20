@@ -8,7 +8,6 @@ module Network.TeleHash.SwitchApi
   , switch_open
   , switch_pop
   , switch_seed
-  , switch_loop
   , switch_note
 
   -- * chan api
@@ -32,7 +31,10 @@ module Network.TeleHash.SwitchApi
   , chan_ack
   , chan_queue
   , chan_dequeue
+  , chan_tick
 
+  -- * link api
+  , link_hn
   ) where
 
 import Control.Exception
@@ -209,7 +211,7 @@ switch_receive rxPacket path timeNow = do
               return ()
             Right rx -> do
               mchan <- chan_in (hHashName from) rx
-              logP $ "<<<:" ++ show (fmap showChanShort mchan,showPathJson $ rtSender rx,rtPacket rx)
+              logP $ "<<<:" ++ show (fmap showChanShort mchan,showPathJson $ rtSender rx,showPacketShort $ rtPacket rx)
               case mchan of
                 Just chan -> do
                   sw <- get
@@ -629,42 +631,6 @@ void switch_seed(switch_t s, hn_t hn)
 
 -- ---------------------------------------------------------------------
 
--- |give all channels a chance
-switch_loop :: TeleHash ()
-switch_loop = do
-  (TOD now _) <- io getClockTime
-  sw <- get
-  if swTick sw == now
-    then return ()
-    else do
-      put $ sw { swTick = now }
-
-      -- give all channels a tick
-      forM_ (Map.keys (swIndexChans sw)) $ \cid -> do
-        -- logT $ "switch_loop: processing : " ++ show cid
-        chan_tick cid
-      return ()
-
-{-
-// fire tick events no more than once a second
-void switch_loop(switch_t s)
-{
-  hn_t hn;
-  int i = 0;
-  uint32_t now = platform_seconds();
-  if(s->tick == now) return;
-  s->tick = now;
-
-  // give all channels a tick
-  while((hn = bucket_get(s->active,i)))
-  {
-    i++;
-    chan_tick(s,hn);
-  }
-}
--}
--- ---------------------------------------------------------------------
-
 chan_tick :: Uid -> TeleHash ()
 chan_tick cid = do
   -- logT $ "chan_tick called for " ++ show cid
@@ -768,9 +734,9 @@ chan_new toHn typ mcid = do
 
   logT $ "chan_new:(base,hChanOut)" ++ show (base,hChanOut to)
 
-  case hChanOut to of
-    CID 0 -> chan_reset toHn
-    CID _ -> return ()
+  if hChanOut to == nullChannelId
+    then chan_reset toHn
+    else return ()
 
   to2 <- getHN toHn
   -- use new id if none given
@@ -951,7 +917,7 @@ chan_reset toHn = do
 
   let base = if (swId sw) > (hHashName to1)
                then 1 else 2
-  withHN toHn $ \hc -> if (hChanOut hc == CID 0
+  withHN toHn $ \hc -> if (hChanOut hc == nullChannelId
                            || channelSlot (hChanOut hc) /= channelSlot (CID base))
                         then hc {hChanOut = CID base}
                         else hc
@@ -1046,7 +1012,7 @@ chan_packet cid incSeq = do
       -- logT $ "chan_packet:chSeq=" ++ show (chSeq chan2)
       case mp of
         Nothing -> do
-          -- logT $ "chan_packet:mp=Nothing"
+          logT $ "chan_packet:mp=Nothing"
           return Nothing
         Just p -> do
           let p1 = p { tTo = chTo chan2 }
@@ -1395,6 +1361,12 @@ chan_send cid p = do
                 putChan c2
             return p
           else return p
+  c3 <- getChan cid
+  case tOut p2 of
+    PNone -> return ()
+    _ -> do
+      putPathIfNeeded (chTo c3) (pathFromPathJson $ tOut p2)
+      putChan $ c3 { chLast = Just (tOut p2) }
   switch_send p2
 
 {-
@@ -1946,5 +1918,75 @@ void chan_miss_free(chan_t c)
 -}
 -- ---------------------------------------------------------------------
 
+-- =====================================================================
 
+-- link API
+
+-- ---------------------------------------------------------------------
+
+-- |create/fetch/maintain a link to this hn
+link_hn :: HashName -> Maybe Uid -> TeleHash (Maybe ChannelId)
+link_hn hn mcid = do
+  hc <- getHN hn
+  l <- link_get
+  c <- case mcid of
+    Nothing -> do
+      case hLinkChan hc of
+        Nothing -> chan_new hn "link" Nothing
+        Just cid -> getChan cid
+    Just cid -> getChan cid
+
+  mp <- chan_packet (chUid c) True
+  case mp of
+    Nothing -> return Nothing
+    Just p -> do
+      let p2 = if lSeeding l
+                 then packet_set p "seed" True
+                 else p
+      chan_send (chUid c) p2
+      return $ Just (chId c)
+
+{-
+// create/fetch/maintain a link to this hn
+chan_t link_hn(switch_t s, hn_t h)
+{
+  chan_t c;
+  packet_t p;
+  link_t l = link_get(s);
+  if(!s || !h) return NULL;
+
+  c = chan_new(s, h, "link", 0);
+  p = chan_packet(c);
+  if(l->seeding) packet_set(p,"seed","true",4);
+  chan_send(c, p);
+  return c;
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+link_get :: TeleHash Link
+link_get = do
+  sw <- get
+  case swLink sw of
+    Nothing -> do
+      let l = Link
+               { lMeshing = False
+               , lMeshed  = Set.empty
+               , lSeeding = False
+               , lLinks   = Map.empty
+               , lBuckets = []
+               }
+      put $ sw {swLink = Just l}
+      return l
+    Just l -> return l
+
+{-
+link_t link_get(switch_t s)
+{
+  link_t l;
+  l = xht_get(s->index,"link");
+  return l ? l : link_new(s);
+}
+-}
 
