@@ -21,6 +21,7 @@ import Network.TeleHash.Types
 import Network.TeleHash.Utils
 
 import qualified Data.Aeson as Aeson
+import qualified Data.Map as Map
 
 
 -- ---------------------------------------------------------------------
@@ -79,7 +80,12 @@ path_send to = do
       logT $ "path_send:failed to make channel packet"
       return ()
     Just p -> do
-      chan_send (chUid c2) p
+      ownHn <- getOwnHN
+      ownHc <- getHN ownHn
+      let p2 = if Map.size (hPaths ownHc) > 0
+                 then packet_set p "paths" (Map.keys (hPaths ownHc))
+                 else p
+      chan_send (chUid c2) p2
 
 -- ---------------------------------------------------------------------
 
@@ -112,9 +118,13 @@ path_handler cid = do
                   if isLocalIP ip
                     then return ()
                     else do
-                      logT $ "path_handler:got our remote ip:" ++ show ip
+                      logR $ "path_handler:got our remote ip:" ++ show ip
                       sw <- get
                       put $ sw {swExternalIPP = Just pipv4 }
+                      -- update our own HN to have the new path
+                      hnSelf <- getOwnHN
+                      putPath hnSelf (pathFromPathJson lp)
+                      return ()
             Just lp -> do
               logT $ "path_handler:unexpected path type :" ++ show lp
 

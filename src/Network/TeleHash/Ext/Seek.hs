@@ -103,6 +103,13 @@ seek_t seek_get(switch_t s, hn_t id)
 }
 -}
 
+put_seek :: Seek -> TeleHash ()
+put_seek sk = do
+  sks <- seeks_get
+  sw <- get
+  put $ sw {swIndexSeeks = Map.insert (seekId sk) sk sks }
+
+
 -- ---------------------------------------------------------------------
 
 peer_handler :: Uid -> TeleHash ()
@@ -116,7 +123,7 @@ peer_handler cid = do
       return ()
     _ -> return ()
 
-  logT $ "peer_handler:" ++ show (chTo c)
+  logT $ "seek:peer_handler:" ++ show (chTo c)
   rxs <- chan_pop_all cid
   forM_ rxs $ \p -> do
     -- logT $ "peer_handler:processing " ++ show p
@@ -152,7 +159,7 @@ void peer_handler(chan_t c)
 -- csid may be address format
 peer_send :: HashName -> [String] -> TeleHash ()
 peer_send to address = do
-  logT $ "peer_send:" ++ show (to,address)
+  logT $ "seek:peer_send:" ++ show (to,address)
   if length address /= 2 && length address /= 4
     then do
       logT $ "peer_send: malformed address " ++ show address
@@ -244,6 +251,7 @@ void peer_send(switch_t s, hn_t to, char *address)
 seek_handler :: Uid -> TeleHash ()
 seek_handler cid = do
   c <- getChan cid
+  logT $ "seek_handler entered for " ++ showChan c ++ "," ++ show (chArg c)
   case chArg c of
     CArgSeek sk -> do
       mp <- chan_pop (chUid c)
@@ -320,6 +328,7 @@ seek_send sk to = do
              , chArg = CArgSeek sk2
              }
   putChan c2
+  put_seek sk2
   mp <- chan_packet (chUid c2) True
   case mp of
     Nothing -> do
@@ -349,6 +358,7 @@ void seek_send(switch_t s, seek_t sk, hn_t to)
 -- create a seek to this hn and initiate connect
 _seek_auto :: HashName -> TeleHash ()
 _seek_auto hn = do
+  logT $ "_seek_auto entered for " ++ show hn
   sk <- seek_get hn
   logT $ "_seek_auto:seek connecting " ++ show sk
   -- TODO get near from somewhere

@@ -14,6 +14,7 @@ import Network.TeleHash.Ext.Link
 import Network.TeleHash.Ext.Path
 import Network.TeleHash.Crypt
 import Network.TeleHash.Paths
+import Network.TeleHash.Periodic
 import Network.TeleHash.Switch
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.Types

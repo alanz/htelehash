@@ -94,23 +94,6 @@ run ch1 ch2 = do
   h <- gets swH
   _ <- io (forkIO (dolisten h ch1))
 
-{-
-  c = chan_new(s, bucket_get(seeds, 0), "seek", 0);
-  p = chan_packet(c);
-  packet_set_str(p,"seek",s->id->hexname);
-  chan_send(c, p);
--}
-
-
-
-
-
-
-
-
-
-
-
 
 
 

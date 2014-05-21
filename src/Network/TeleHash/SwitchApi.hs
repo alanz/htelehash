@@ -141,7 +141,7 @@ switch_receive rxPacket path timeNow = do
                       return ()
                     Just lineCrypto -> do
                       -- line is open
-                      logT $ "line in " ++ show (cLined lineCrypto,(hHashName from),cLineHex lineCrypto)
+                      logR $ "line in " ++ show (cLined lineCrypto,(hHashName from),cLineHex lineCrypto)
                       -- DEBUG_PRINTF("line in %d %s %d %s",from->c->lined,from->hexname,from,from->c->lineHex);
                       let from2 = from { hCrypto = Just lineCrypto }
                       putHN from2

@@ -4,7 +4,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE OverlappingInstances #-} -- For show of the function types
 
-
 module Network.TeleHash.Types
   (
   -- * Constants

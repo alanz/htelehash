@@ -19,12 +19,14 @@ import Network.TeleHash.Ext.Path
 import Network.TeleHash.Ext.Seek
 
 
+import qualified Data.Aeson as Aeson
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 
 -- ---------------------------------------------------------------------
 
+-- |Accept a DHT link
 ext_link :: TChan -> TeleHash ()
 ext_link c = do
   logT $ "ext_link entered for:" ++ showChan c
@@ -34,78 +36,51 @@ ext_link c = do
       logT $ "ext_link:respFunc:processing " ++ showJson (rtJs p)
       c2 <- getChan (chUid c)
       -- always respond/ack, except if there is an error or end
-      let merr = packet_get_str p "err"
-          mend = packet_get_str p "end"
-      if any isJust [merr,mend]
-        then do
+      let mlp = parseJs (rtJs p) :: Maybe LinkReply
+      case mlp of
+        Nothing -> do
+          logT $ "ext_link:unexpected packet:" ++ show p
+          return ()
+        Just (LinkReplyErr _err) -> do
+          logT $ "ext_link:got err:" ++ show p
+          deleteFromDht (chTo c)
           chan_fail (chUid c) Nothing
           return ()
-        else do
-          let mlp = parseJs (rtJs p) :: Maybe LinkReply
-          case mlp of
+        Just LinkReplyEnd -> do
+          logT $ "ext_link:link ended"
+          deleteFromDht (chTo c)
+          chan_fail (chUid c) Nothing
+          return ()
+        Just lrp -> do
+          hc <- getHN (chTo c)
+          now <- io $ getClockTime
+          putHN $ hc { hLinkAge = Just now
+                     , hLinkChan = Just (chUid c)
+                     }
+          putChanInHnIfNeeded (chTo c) (chUid c)
+
+          -- send a response if this is a new incoming
+          -- if(!chan.sentAt) packet.from.link();
+          case chLast c2 of
+            Just _ -> do
+              -- always respond/ack
+              send_keepalive (chUid c2)
             Nothing -> do
-              logT $ "ext_link:unexpected packet:" ++ show p
-              return ()
-            Just (LinkReplyErr _err) -> do
-              logT $ "ext_link:got err:" ++ show p
-              deleteFromDht (chTo c)
-              return ()
-            Just LinkReplyEnd -> do
-              logT $ "ext_link:link ended"
-              deleteFromDht (chTo c)
-              return ()
-            Just lrp -> do
-              hc <- getHN (chTo c)
-              now <- io $ getClockTime
-              putHN $ hc { hLinkAge = Just now
-                         , hLinkChan = Just (chUid c)
-                         }
-              putChanInHnIfNeeded (chTo c) (chUid c)
+              logT $ "ext_link:creating new link to hn:" ++ show (hHashName hc)
+              -- TODO: this will creat a new channel, is this what we want?
+              void $ link_hn (hHashName hc) (Just $ chUid c2)
 
-              -- send a response if this is a new incoming
-              -- if(!chan.sentAt) packet.from.link();
-              case chLast c2 of
-                Just _ -> do
-                  -- always respond/ack
-                  mreply <- chan_packet (chUid c2) True
-                  case mreply of
-                    Nothing -> do
-                      c3 <- getChan (chUid c)
-                      logT $ "ext_link:could not create a channel packet for " ++ show c3
-                      -- assert False undefined
-                    Just reply -> do
-                      sw <- get
-                      let reply2 = packet_set reply "seed" (swIsSeed sw)
-                      chan_send (chUid c2) reply2
-                Nothing -> do
-                  logT $ "ext_link:creating link to now hn:" ++ show (hHashName hc)
-                  -- TODO: this will creat a new channel, is this what we want?
-                  void $ link_hn (hHashName hc) (Just $ chUid c2)
+          process_link_seed (chUid c2) p lrp
 
-              process_link_seed (chUid c2) p lrp
-
-
-              -- if this is a new link, request a path
-              if packet_has_key p "type"
-                then do
-                  path_send (chTo c2)
-                else return ()
+          -- this is a new link, request a path
+          logT $ "ext_link:request a path: " ++ show (chTo c2)
+          path_send (chTo c2)
 
 
   util_chan_popall c (Just respFunc)
-{-
-void ext_link(chan_t c)
-{
-  packet_t p;
-  while((p = chan_pop(c)))
-  {
-    DEBUG_PRINTF("TODO link packet %.*s\n", p->json_len, p->json);
-    packet_free(p);
-  }
-  // always respond/ack
-  chan_send(c,chan_packet(c));
-}
--}
+
+  c3 <- getChan (chUid c)
+  putChan $ c3 { chHandler = Just link_handler }
 
 -- ---------------------------------------------------------------------
 
@@ -168,3 +143,84 @@ process_link_seed cid p lrp = do
   return ()
 
 -- ---------------------------------------------------------------------
+
+-- |Set up during first message received on a link, will process all
+-- subsequent messages.
+link_handler :: Uid -> TeleHash ()
+link_handler cid = do
+  c <- getChan cid
+  logT $ "link_handler:processing " ++ showChan c
+
+  util_chan_popall c $ Just $ \p -> do
+    if packet_has_key p "err"
+      then do
+        logR $ "LINKDOWN " ++ showChanShort c ++ ": " ++ packet_get_str_always p "err"
+        deleteFromDht (chTo c)
+        -- if this channel was ever active, try to re-start it
+        void $ link_hn (chTo c) (Just $ chUid c)
+      else return ()
+
+    -- update seed status
+    case packet_get p "seed" of
+      Nothing -> return ()
+      Just (Aeson.Bool isSeed) -> do
+        hc <- getHN (chTo c)
+        putHN $ hc { hIsSeed = isSeed }
+      Just _ -> do
+        logT $ "link_handler:got strange seed value for:" ++ show p
+
+    -- only send a response if we've not sent one in a while
+    now <- io $ getClockTime
+    c2 <- getChan cid
+    mSentAt <- case chLast c2 of
+      Nothing -> return Nothing
+      Just pj -> do
+        path <- getPath (chTo c2) pj
+        return $ pAtOut path
+    if isTimeOut now mSentAt param_link_timeout_secs
+      then do
+        send_keepalive cid
+        return ()
+      else return ()
+
+    -- TODO: move this into its own timer thread
+    path_send (chTo c)
+
+{-
+function inMaintenance(err, packet, chan)
+{
+  // ignore if this isn't the main link
+  if(!packet.from || !packet.from.linked || packet.from.linked != chan) return;
+  var self = packet.from.self;
+  if(err)
+  {
+    debug("LINKDOWN",packet.from.hashname,err);
+    delete packet.from.linked;
+    var index = self.buckets[packet.from.bucket].indexOf(packet.from);
+    if(index > -1) self.buckets[packet.from.bucket].splice(index,1);
+    // if this channel was ever active, try to re-start it
+    if(chan.recvAt) packet.from.link();
+    return;
+  }
+
+  // update seed status
+  packet.from.seed = packet.js.seed;
+
+  // only send a response if we've not sent one in a while
+  if((Date.now() - chan.sentAt) > Math.ceil(defaults.link_timer/2)) chan.send({js:{seed:self.seed}});
+}
+-}
+-- ---------------------------------------------------------------------
+
+send_keepalive :: Uid -> TeleHash ()
+send_keepalive cid = do
+  c <- getChan cid
+  mreply <- chan_packet (chUid c) True
+  case mreply of
+    Nothing -> do
+      c3 <- getChan (chUid c)
+      logT $ "ext_link:send_keepalive:could not create a channel packet for " ++ show c3
+    Just reply -> do
+      sw <- get
+      let reply2 = packet_set reply "seed" (swIsSeed sw)
+      chan_send (chUid c) reply2
