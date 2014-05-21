@@ -11,7 +11,8 @@ import Control.Monad.State
 import Data.List
 import Data.List.Split
 import Data.Maybe
-import Prelude hiding (id, (.), head, either)
+-- import Prelude hiding (id, (.), head, either)
+import System.Time
 
 import Network.TeleHash.Ext.Path
 import Network.TeleHash.Packet
@@ -81,6 +82,7 @@ seek_get hn = do
       let sk = Seek { seekId = hn
                     , seekActive = 0
                     , seekNote = Nothing
+                    , seekSentAt = Nothing
                     }
           sks2 = Map.insert hn sk sks
       sw <- get
@@ -322,22 +324,31 @@ void seek_handler(chan_t c)
 seek_send :: Seek -> HashName -> TeleHash ()
 seek_send sk to = do
   logT $ "seek_send entered"
-  c <- chan_new to "seek" Nothing
-  let sk2 = sk { seekActive = (seekActive sk) + 1 }
-      c2 = c { chHandler = Just seek_handler
-             , chArg = CArgSeek sk2
-             }
-  putChan c2
-  put_seek sk2
-  mp <- chan_packet (chUid c2) True
-  case mp of
-    Nothing -> do
-      logT $ "seek_send:failed to make channel packet"
+  -- Do not retry the seek if it is inactive and too soon.
+  -- thjs uses 5000ms for the timeout
+  now <- io $ getClockTime
+  if seekActive sk > 0
+    || (isJust (seekSentAt sk) && isTimeOut now (seekSentAt sk) param_seek_wait_secs)
+    then do
+      logT $ "seek_send:seek already active or too soon:" ++ show (sk,now)
       return ()
-    Just p -> do
-      let p2 = packet_set_str p "seek" (unHN $ seekId sk2) -- TODO make a prefix
-      logT $ "seek_send about to send on " ++ show c2
-      chan_send (chUid c2) p2
+    else do
+      c <- chan_new to "seek" Nothing
+      let sk2 = sk { seekActive = (seekActive sk) + 1 }
+          c2 = c { chHandler = Just seek_handler
+                 , chArg = CArgSeek sk2
+                 }
+      putChan c2
+      put_seek sk2
+      mp <- chan_packet (chUid c2) True
+      case mp of
+        Nothing -> do
+          logT $ "seek_send:failed to make channel packet"
+          return ()
+        Just p -> do
+          let p2 = packet_set_str p "seek" (unHN $ seekId sk2) -- TODO make a prefix
+          logT $ "seek_send about to send on " ++ show c2
+          chan_send (chUid c2) p2
 {-
 void seek_send(switch_t s, seek_t sk, hn_t to)
 {

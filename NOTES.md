@@ -1,4 +1,49 @@
 
+Link Flow
+---------
+
+Calling `seek_auto` as part of the startup process in the app sets
+`swHandler` to point to `_seek_auto`.
+
+The initial mesh is booted by calling `link_hn` on each of the seeds
+loaded from a file. The seed info in this file includes crypto and
+path information, so nothing special is needed to establish the
+connection.
+
+Once a hashname is known, from whatever source, a message can be sent
+to it. The first step is to create a channel of an appropriate type by
+calling `chan_new`.
+
+The channel manages communication of the specific type between this
+node and the remote hashname.
+
+Calling `chan_packet` creates a message ready to be sent to the
+associated hashname. If it is an unreliable channel it will only have
+a `c` parameter identifying the channel, except for the first which
+will also populate the `type` parameter.
+
+Once any additional fields have been set in the packet, it is sent by
+calling `chan_send`.
+
+Within this, reliable channels will receive appropriate values for
+`seq`, `ack`, and `miss` as needed, and the amended packet is passed
+on to `switch_send`.
+
+This first tries to encrypt the packet. If it is the first time
+sending to a new hashname, there will be no known crypto for it. In
+this case the packet is stored in the `HashContainer` and
+`switch_open` is called for the hashname.
+
+When there is no crypto, and `seek_auto` has been set up, the
+`_seek_auto` function is called.
+
+This creates a new empty `Seek` structure and calls `seek_send` with
+it.
+
+
+
+
+
 
 crypto stuff - id hash
 ----------------------

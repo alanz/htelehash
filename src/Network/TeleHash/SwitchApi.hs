@@ -396,29 +396,6 @@ switch_send p = do
           -- no line, so generate open instead
           switch_open (tTo p2) Nothing
 
-{-
-void switch_send(switch_t s, packet_t p)
-{
-  packet_t lined;
-
-  if(!p) return;
-
-  // require recipient at least, and not us
-  if(!p->to || p->to == s->id) return (void)packet_free(p);
-
-  // encrypt the packet to the line, chains together
-  lined = crypt_lineize(p->to->c, p);
-  if(lined) return switch_sendingQ(s, lined);
-
-  // queue most recent packet to be sent after opened
-  if(p->to->onopen) packet_free(p->to->onopen);
-  p->to->onopen = p;
-
-  // no line, so generate open instead
-  switch_open(s, p->to, NULL);
-}
--}
-
 -- ---------------------------------------------------------------------
 
 switch_open :: HashName -> Maybe Path -> TeleHash ()
@@ -429,7 +406,7 @@ switch_open hn direct = do
       logT $ "switch_open: can't open, no key for " ++ (unHN (hHashName hc))
       sw <- get
       case (swHandler sw) of
-        Just handler -> handler hn
+        Just handler -> handler hn -- calls _seek_auto
         Nothing -> return ()
     Just crypto -> do
       -- actually send the open
@@ -1368,18 +1345,6 @@ chan_send cid p = do
       putPathIfNeeded (chTo c3) (pathFromPathJson $ tOut p2)
       putChan $ c3 { chLast = Just (tOut p2) }
   switch_send p2
-
-{-
-// smartly send based on what type of channel we are
-void chan_send(chan_t c, packet_t p)
-{
-  if(!p) return;
-  if(!c) return (void)packet_free(p);
-  DEBUG_PRINTF("channel out %d %.*s",c->id,p->json_len,p->json);
-  if(c->reliable) p = packet_copy(p); // miss tracks the original p = chan_packet()
-  switch_send(c->s,p);
-}
--}
 
 -- ---------------------------------------------------------------------
 

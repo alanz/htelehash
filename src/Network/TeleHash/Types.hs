@@ -11,6 +11,7 @@ module Network.TeleHash.Types
   , param_link_max
   , param_link_ping_secs
   , param_link_timeout_secs
+  , param_seek_wait_secs
 
   -- * Types
   , HashName(..)
@@ -135,6 +136,10 @@ param_link_ping_secs = 29
 
 param_link_timeout_secs :: Int
 param_link_timeout_secs = 60
+
+-- |How long to wait befor starting another seek
+param_seek_wait_secs :: Int
+param_seek_wait_secs = 5
 
 -- ---------------------------------------------------------------------
 
@@ -869,6 +874,7 @@ data Seek = Seek
   { seekId     :: !HashName
   , seekActive :: !Int
   , seekNote   :: !(Maybe RxTelex)
+  , seekSentAt :: !(Maybe ClockTime)
   } deriving Show
 
 {-
