@@ -875,16 +875,9 @@ data Seek = Seek
   , seekActive :: !Int
   , seekNote   :: !(Maybe RxTelex)
   , seekSentAt :: !(Maybe ClockTime)
+  , seekQueue  :: ![HashName]
   } deriving Show
 
-{-
-typedef struct seek_struct
-{
-  hn_t id;
-  int active;
-  packet_t note;
-} *seek_t;
--}
 
 -- =====================================================================
 -- ---------------------------------------------------------------------

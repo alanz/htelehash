@@ -83,6 +83,7 @@ seek_get hn = do
                     , seekActive = 0
                     , seekNote = Nothing
                     , seekSentAt = Nothing
+                    , seekQueue = [hn]
                     }
           sks2 = Map.insert hn sk sks
       sw <- get
@@ -366,7 +367,9 @@ void seek_send(switch_t s, seek_t sk, hn_t to)
 
 -- ---------------------------------------------------------------------
 
--- create a seek to this hn and initiate connect
+-- |Create a seek to this hn and initiate connect This is called as
+-- the default channel handler for when there is no crypto when trying
+-- to send to a hashname.
 _seek_auto :: HashName -> TeleHash ()
 _seek_auto hn = do
   logT $ "_seek_auto entered for " ++ show hn

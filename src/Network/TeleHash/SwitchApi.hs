@@ -35,6 +35,9 @@ module Network.TeleHash.SwitchApi
 
   -- * link api
   , link_hn
+
+  -- * hn api
+  , hn_fromaddress
   ) where
 
 import Control.Exception
@@ -1954,4 +1957,45 @@ link_t link_get(switch_t s)
   return l ? l : link_new(s);
 }
 -}
+
+-- =====================================================================
+-- hn api
+
+-- ---------------------------------------------------------------------
+
+-- |Unpack a see term and construct a HashContainer from it if there
+-- is not one already. In either case, capture any optional IP:port as
+-- a path.
+hn_fromaddress :: [String] -> TeleHash (Maybe HashName)
+hn_fromaddress address = do
+  let (hnStr,csid,mipp) = case address of
+        [hn1,csid1]         -> (hn1,csid1,Nothing)
+        [hn1,csid1,ip,port] -> (hn1,csid1,Just (ip,port))
+        xs                -> error $ "hn_fromaddress:invalid address:" ++ show xs
+      hn = HN hnStr
+
+  -- Send the NAT punch if ip,port given
+  case mipp of
+    Nothing -> return ()
+    Just (ipStr,portStr) -> do
+      logT $ "peer_send:must still send NAT punch to" ++ show mipp
+      let punch = packet_new hn
+          path = PathIPv4 (read ipStr) (read portStr)
+          punch2 = punch { tOut = PIPv4 path }
+          punch3 = punch2 { tLp = Just (toLinePacket newPacket) }
+      putPath hn (Path PtIPv4 (PIPv4 path) Nothing Nothing Nothing Nothing)
+      switch_sendingQ punch3
+
+  hc <- hn_get hn
+  case hCrypto hc of
+    Nothing -> do
+      putHN $ hc {hCsid = csid}
+    Just _ -> return ()
+  hc2 <- getHN hn
+  -- update path if required
+  -- see.pathGet({type:"ipv4",ip:parts[2],port:parseInt(parts[3])});
+  return (Just hn)
+
+-- EOF
+
 

@@ -16,9 +16,10 @@ import Prelude hiding (id, (.), head, either)
 import System.Time
 
 import Network.TeleHash.Crypt
+import Network.TeleHash.Packet
 import Network.TeleHash.Path
 import Network.TeleHash.Paths
-import Network.TeleHash.Packet
+-- import Network.TeleHash.SwitchApi
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
 

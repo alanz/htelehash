@@ -14,6 +14,7 @@ import Data.Maybe
 
 import Network.TeleHash.Dht
 import Network.TeleHash.Hn
+import Network.TeleHash.Path
 import Network.TeleHash.Paths
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.SwitchUtils
@@ -48,7 +49,7 @@ ext_path c = do
               forM_ ps1 $ \ path -> do
                 mp1 <- chan_packet (chUid c) True
                 let p3 = packet_set (gfromJust "ext_path" mp1) "path" path
-                putPathIfNeeded (chTo c) (pathFromPathJson path)
+                path_get (chTo c) path
                 logT $ "ext_path:p3=" ++ showJson (tJs p3)
                 chan_send (chUid c) p3
 

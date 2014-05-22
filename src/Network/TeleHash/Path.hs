@@ -2,17 +2,20 @@ module Network.TeleHash.Path
   (
     path_alive
   , path_match
+  , path_get
   ) where
 
+import Control.Exception
 import Control.Monad
 import Data.Maybe
 import Prelude hiding (id, (.), head, either)
 import System.Time
 
+import Network.TeleHash.Paths
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
 
--- import qualified Data.Map as Map
+import qualified Data.Map as Map
 -- import qualified Data.Set as Set
 -- import qualified Data.Text as Text
 
@@ -91,4 +94,55 @@ pathMatch path1 paths = r
     r = case catMaybes $ map (m path1) mtypes of
           [] -> Nothing
           xs -> Just $ head xs
+-}
+
+-- ---------------------------------------------------------------------
+
+path_get :: HashName -> PathJson -> TeleHash Path
+path_get hn pjson = do
+  hc <- getHN hn
+  mp <- getPathMaybe hn pjson
+  case mp of
+    Just path -> return path
+    Nothing -> do
+      logT $ "path_get:adding new path: " ++ show (Map.size (hPaths hc),showPathJson pjson)
+      let path = (pathFromPathJson pjson)
+      putPathIfNeeded hn path
+
+      -- track overall if they have public IP network
+      -- if(!isLocalPath(path)) hn.isPublic = true;
+
+      -- if possibly behind the same NAT (same public ip), set flag to allow/ask to share local paths
+      -- if(path.type == "ipv4") self.paths.forEach(function(path2){
+      --   if(path2.type == "ipv4" && path2.ip == path.ip) hn.isLocal = true;
+      -- })
+
+      return path
+
+{-
+  hn.pathGet = function(path)
+  {
+    if(typeof path != "object" || typeof path.type != "string") return false;
+
+    var match = pathMatch(path, hn.paths);
+    if(match) return match;
+
+    // preserve original
+    if(!path.json) path.json = JSON.parse(JSON.stringify(path));
+
+    debug("adding new path",hn.paths.length,JSON.stringify(path.json));
+    info(hn.hashname,path.type,JSON.stringify(path.json));
+    hn.paths.push(path);
+
+    // track overall if they have a public IP network
+    if(!isLocalPath(path)) hn.isPublic = true;
+
+    // if possibly behind the same NAT (same public ip), set flag to allow/ask to share local paths
+    if(path.type == "ipv4") self.paths.forEach(function(path2){
+      if(path2.type == "ipv4" && path2.ip == path.ip) hn.isLocal = true;
+    })
+
+    return path;
+  }
+
 -}

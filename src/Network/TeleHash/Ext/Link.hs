@@ -27,6 +27,8 @@ import qualified Data.Text as Text
 -- ---------------------------------------------------------------------
 
 -- |Accept a DHT link
+-- This should only be called for the first packet received on a given
+-- link channel.
 ext_link :: TChan -> TeleHash ()
 ext_link c = do
   logT $ "ext_link entered for:" ++ showChan c
@@ -35,7 +37,6 @@ ext_link c = do
     respFunc p = do
       logT $ "ext_link:respFunc:processing " ++ showJson (rtJs p)
       c2 <- getChan (chUid c)
-      -- always respond/ack, except if there is an error or end
       let mlp = parseJs (rtJs p) :: Maybe LinkReply
       case mlp of
         Nothing -> do
@@ -52,6 +53,8 @@ ext_link c = do
           chan_fail (chUid c) Nothing
           return ()
         Just lrp -> do
+
+          -- add in this link
           hc <- getHN (chTo c)
           now <- io $ getClockTime
           putHN $ hc { hLinkAge = Just now
@@ -63,18 +66,17 @@ ext_link c = do
           -- if(!chan.sentAt) packet.from.link();
           case chLast c2 of
             Just _ -> do
-              -- always respond/ack
-              send_keepalive (chUid c2)
+              -- send_keepalive (chUid c2)
+              return ()
             Nothing -> do
               logT $ "ext_link:creating new link to hn:" ++ show (hHashName hc)
-              -- TODO: this will creat a new channel, is this what we want?
               void $ link_hn (hHashName hc) (Just $ chUid c2)
 
           process_link_seed (chUid c2) p lrp
 
           -- this is a new link, request a path
-          logT $ "ext_link:request a path: " ++ show (chTo c2)
-          path_send (chTo c2)
+          -- logT $ "ext_link:request a path: " ++ show (chTo c2)
+          -- path_send (chTo c2)
 
 
   util_chan_popall c (Just respFunc)
@@ -141,6 +143,28 @@ process_link_seed cid p lrp = do
 
   -- TODO: check for and process bridges
   return ()
+
+-- ---------------------------------------------------------------------
+
+{-
+  // track other hashnames this one sees
+  hn.sees = function(address)
+  {
+    if(typeof address != "string") warn("invalid see address",address,hn.hashname);
+    if(typeof address != "string") return false;
+    var parts = address.split(",");
+    if(!self.isHashname(parts[0]) || parts[0] == self.hashname) return false;
+    var see = self.whois(parts[0]);
+    if(!see) return false;
+    // save suggested path if given/valid
+    if(parts.length >= 4 && parts[2].split(".").length == 4 && parseInt(parts[3]) > 0) see.pathGet({type:"ipv4",ip:parts[2],port:parseInt(parts[3])});
+    if(!see.vias) see.vias = {};
+    // save suggested csid if we don't know one yet
+    see.vias[hn.hashname] = see.cisd || parts[1];
+    return see;
+  }
+
+-}
 
 -- ---------------------------------------------------------------------
 

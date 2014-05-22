@@ -53,6 +53,7 @@ module Network.TeleHash.Utils
   , putPath
   , putPathIfNeeded
   , getPath
+  , getPathMaybe
   , putHexLine
   , getHexLine
   , getHexLineMaybe
@@ -653,6 +654,13 @@ getPath :: HashName -> PathJson -> TeleHash Path
 getPath hn pj = do
   hc <- getHN hn
   return $ gfromJust "getPath" $ Map.lookup pj (hPaths hc)
+
+-- ---------------------------------------------------------------------
+
+getPathMaybe :: HashName -> PathJson -> TeleHash (Maybe Path)
+getPathMaybe hn pj = do
+  hc <- getHN hn
+  return $ Map.lookup pj (hPaths hc)
 
 
 -- ---------------------------------------------------------------------
