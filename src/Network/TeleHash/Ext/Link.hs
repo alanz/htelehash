@@ -67,6 +67,8 @@ ext_link c = do
           case chLast c2 of
             Just _ -> do
               -- send_keepalive (chUid c2)
+              logT $ "ext_link:c2=" ++ show c2
+              assert False undefined
               return ()
             Nothing -> do
               logT $ "ext_link:creating new link to hn:" ++ show (hHashName hc)
@@ -76,7 +78,7 @@ ext_link c = do
 
           -- this is a new link, request a path
           -- logT $ "ext_link:request a path: " ++ show (chTo c2)
-          -- path_send (chTo c2)
+          path_send (chTo c2)
 
 
   util_chan_popall c (Just respFunc)
@@ -114,11 +116,9 @@ process_link_seed cid p lrp = do
     logT $ "process_link_seed:see=" ++ show see
     sw <- get
     let fields = Text.splitOn "," (Text.pack see)
-    case fields of
-      (h:_) -> do
-        let hn = (HN $ Text.unpack h)
-        mhc <- getHNMaybe hn -- have we seen this hashname before?
-        -- first make sure the switch has an entry for the hashname
+    mhn <- hn_fromaddress (map Text.unpack fields)
+    case mhn of
+      Just hn -> do
         hc <- hn_get hn
         if isJust (hLinkAge hc)
           then return () -- nothing to do
@@ -127,17 +127,10 @@ process_link_seed cid p lrp = do
             (_distance,bucket) <- getBucketContentsForHn (hHashName hc)
             if not (Set.member (hHashName hc) bucket) &&
                Set.size bucket <= (swDhtK sw)
-                   -- TODO: use the hinted IP:Port if provided
-              -- then void $ link_hn (hHashName hc)
               then do
-                logT $ "process_link_seed:attempting peer to: " ++ show (hHashName hc,fields)
-                case mhc of
-                  Nothing -> do -- Not seen before, try to peer
-                    peer_send (hHashName hc) (map Text.unpack fields)
-                  Just _ -> return ()
                 void $ link_hn (hHashName hc) Nothing
               else return ()
-      _     -> do
+      Nothing -> do
         logT $ "process_link_seed:got junk see:" ++ show see
 
 
@@ -208,7 +201,7 @@ link_handler cid = do
       else return ()
 
     -- TODO: move this into its own timer thread
-    path_send (chTo c)
+    -- path_send (chTo c)
 
 {-
 function inMaintenance(err, packet, chan)

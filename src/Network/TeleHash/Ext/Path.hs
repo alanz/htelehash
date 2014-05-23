@@ -3,6 +3,7 @@ module Network.TeleHash.Ext.Path
     ext_path
   , path_send
   , path_free
+  , path_sync
   ) where
 
 
@@ -55,18 +56,6 @@ ext_path c = do
 
   util_chan_popall c (Just respFunc)
 
-{-
-void ext_path(chan_t c)
-{
-  packet_t p;
-  while((p = chan_pop(c)))
-  {
-    DEBUG_PRINTF("TODO path packet %.*s\n", p->json_len, p->json);
-    packet_free(p);
-  }
-}
--}
-
 -- ---------------------------------------------------------------------
 
 path_send :: HashName -> TeleHash ()
@@ -86,6 +75,7 @@ path_send to = do
       let p2 = if Map.size (hPaths ownHc) > 0
                  then packet_set p "paths" (Map.keys (hPaths ownHc))
                  else p
+      logT $ "path_send:sending: " ++ show (to,showJson (tJs p2))
       chan_send (chUid c2) p2
 
 -- ---------------------------------------------------------------------
@@ -144,3 +134,76 @@ void path_free(path_t p)
   free(p);
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+path_sync :: HashName -> TeleHash ()
+path_sync hn = do
+  logT $ "path_sync:" ++ show hn
+  ownHn <- getOwnHN
+  if hn == ownHn
+    then do
+      logT $ "path_sync:cannot sync to ourselves"
+      return ()
+    else do
+      hc <- getHN hn
+      let ps = hPathSync hc
+      if psSyncing ps
+        then return ()
+        else do
+          logT $ "path_sync:starting new sync"
+          path_send hn
+          -- assert False undefined
+          putHN $ hc { hPathSync = (newPathSync hn) { psSyncing = True} }
+
+
+{-
+ // send a path sync
+  hn.pathSync = function()
+  {
+    if(hn.pathSyncing) return;
+    hn.pathSyncing = true;
+    debug("pathSync",hn.hashname);
+    var js = {};
+    var paths = hn.pathsOut();
+    if(paths.length > 0) js.paths = paths;
+    var alive = [];
+    hn.raw("path",{js:js, timeout:10*1000}, function(err, packet){
+      if(err)
+      {
+        hn.pathSyncing = false;
+        return;
+      }
+
+      // if path answer is from a seed, update our public ip/port in case we're behind a NAT
+      if(packet.from.isSeed && typeof packet.js.path == "object" && packet.js.path.type == "ipv4" && !isLocalIP(packet.js.path.ip))
+      {
+        debug("updating public ipv4",JSON.stringify(self.pub4),JSON.stringify(packet.js.path));
+        self.pathSet(self.pub4,true);
+        self.pub4 = {type:"ipv4", ip:packet.js.path.ip, port:parseInt(packet.js.path.port)};
+        self.pathSet(self.pub4);
+      }
+
+      if(!packet.sender) return; // no sender path is bad
+
+      // add to all answers and update best default from active ones
+      alive.push(packet.sender);
+      var best = packet.sender;
+      alive.forEach(function(path){
+        if(pathShareOrder.indexOf(path.type) > pathShareOrder.indexOf(path.type)) return;
+        if(isLocalPath(best)) return; // always prefer (the first) local paths
+        best = path;
+      });
+      debug("pathSync best",hn.hashname,JSON.stringify(best.json));
+      hn.to = best;
+    });
+  }
+
+// network preference order for paths
+var pathShareOrder = ["bluetooth","webrtc","ipv6","ipv4","http"];
+
+-}
+
+-- EOF
+
+

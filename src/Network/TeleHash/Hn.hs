@@ -264,26 +264,88 @@ hn_t hn_getparts(xht_t index, packet_t p)
 hn_path :: HashName -> PathJson -> TeleHash (Maybe Path)
 hn_path hn p = do
   hc <- getHN hn
-  logT $ "hn_path:" ++ show (hn,p,hPaths hc)
+  -- logT $ "hn_path:" ++ show (hn,p,hPaths hc)
+  logT $ "hn_path:" ++ show hn ++ "," ++ showPathJson p
   timeNow <- io getClockTime
 
-  let pa = pathFromPathJson p
+  path <- path_get hn p
 
-  let upd pp = pp { pAtIn = Just timeNow}
+  -- update public ip if found
+  case pJson path of
+    lp@(PIPv4 pipv4) -> do
+      case pjsonIp lp of
+        Nothing -> return ()
+        Just ip -> do
+          logT $ "hn_path:checking ip:" ++ show ip
+          if isLocalIP ip
+            then return ()
+            else do
+              logR $ "hn_path:got our remote ip:" ++ show ip
+              sw <- get
+              put $ sw {swExternalIPP = Just pipv4 }
+              -- update our own HN to have the new path
+              hnSelf <- getOwnHN
+              putPath hnSelf (pathFromPathJson lp)
+              return ()
+    _ -> return ()
 
-  -- find existing matching path
-  let mp = filter (path_match pa) (Map.elems (hPaths hc))
-  ret <- case mp of
-    [] -> do
-      return pa
-    [p1] -> return p1
-    _ps -> do
-      logT $ "hn_path got multiple path match.:" ++ show(hn,p,hPaths hc)
-      assert False undefined
-  putHN $ hc { hPaths = Map.insert (pJson ret) (upd ret) (hPaths hc)
-             , hLast = Just (pJson ret)
-             }
-  return (Just ret)
+  logT $ "TODO:hn_path:lots more stuff"
+  return (Just path)
+
+{- JS version
+
+This is called on a successful open received, and on every line packet received
+
+  // manage network information consistently, called on all validated incoming packets
+  hn.pathIn = function(path)
+  {
+    path = hn.pathGet(path);
+    if(!path) return false;
+
+    // first time we've seen em
+    if(!path.lastIn && !path.lastOut)
+    {
+      debug("PATH INNEW",isLocalPath(path)?"local":"public",JSON.stringify(path.json),hn.paths.map(function(p){return JSON.stringify(p.json)}));
+
+      // update public ipv4 info
+      if(path.type == "ipv4" && !isLocalIP(path.ip))
+      {
+        hn.ip = path.ip;
+        hn.port = path.port;
+      }
+
+      // cull any invalid paths of the same type
+      hn.paths.forEach(function(other){
+        if(other == path) return;
+        if(other.type != path.type) return;
+        if(!pathValid(other)) return hn.pathEnd(other);
+        // remove any previous path on the same IP
+        if(path.ip && other.ip == path.ip) return hn.pathEnd(other);
+        // remove any previous http path entirely
+        if(path.type == "http") return hn.pathEnd(other);
+      });
+
+      // any custom non-public paths, we must bridge for
+      if(pathShareOrder.indexOf(path.type) == -1) hn.bridging = true;
+
+      // track overall if we trust them as local
+      if(isLocalPath(path)) hn.isLocal = true;
+    }
+
+    path.lastIn = Date.now();
+    self.recvAt = Date.now();
+
+    // always update default to newest
+    hn.to = path;
+    hn.alive = pathValid(hn.to);
+
+    // always remove any relay once there's a path
+    hn.relayChan = false;
+
+    return path;
+  }
+
+-}
 
 {-
 path_t hn_path(hn_t hn, path_t p)

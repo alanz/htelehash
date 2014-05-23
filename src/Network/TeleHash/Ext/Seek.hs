@@ -375,6 +375,7 @@ _seek_auto hn = do
   logT $ "_seek_auto entered for " ++ show hn
   sk <- seek_get hn
   logT $ "_seek_auto:seek connecting " ++ show sk
+
   -- TODO get near from somewhere
   sw <- get
   let seed = ghead "seek_auto" $ Set.toList (swSeeds sw)

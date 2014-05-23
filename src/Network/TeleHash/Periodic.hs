@@ -14,6 +14,7 @@ import System.Time
 import Network.TeleHash.Convert
 import Network.TeleHash.Crypt
 import Network.TeleHash.Dht
+import Network.TeleHash.Ext.Path
 import Network.TeleHash.Hn
 import Network.TeleHash.Packet
 import Network.TeleHash.Path
@@ -54,23 +55,11 @@ switch_loop = do
       if now `mod` param_link_ping_secs == 0
         then dhtMaint
         else return ()
+
+      if now `mod` param_path_sync_secs == 0
+        then do
+          sw2 <- get
+          forM_ (Map.keys (swIndex sw2)) $ \hn ->do
+            path_sync hn
+        else return ()
       return ()
-
-{-
-// fire tick events no more than once a second
-void switch_loop(switch_t s)
-{
-  hn_t hn;
-  int i = 0;
-  uint32_t now = platform_seconds();
-  if(s->tick == now) return;
-  s->tick = now;
-
-  // give all channels a tick
-  while((hn = bucket_get(s->active,i)))
-  {
-    i++;
-    chan_tick(s,hn);
-  }
-}
--}

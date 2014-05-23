@@ -12,6 +12,7 @@ module Network.TeleHash.Types
   , param_link_ping_secs
   , param_link_timeout_secs
   , param_seek_wait_secs
+  , param_path_sync_secs
 
   -- * Types
   , HashName(..)
@@ -71,6 +72,8 @@ module Network.TeleHash.Types
   , pathPort
   , pathHttp
   , showPath
+  , PathSync(..)
+  , newPathSync
 
   -- * Extensions types
   , Thtp(..)
@@ -140,6 +143,9 @@ param_link_timeout_secs = 60
 -- |How long to wait befor starting another seek
 param_seek_wait_secs :: Int
 param_seek_wait_secs = 5
+
+param_path_sync_secs :: Integer
+param_path_sync_secs = 23 -- should be 10
 
 -- ---------------------------------------------------------------------
 
@@ -320,6 +326,7 @@ data HashContainer = H
   , hIsSeed   :: !Bool
   , hLinkAge  :: !(Maybe ClockTime)
   , hLinkChan :: !(Maybe Uid)
+  , hPathSync :: !PathSync
   } deriving (Show)
 
 {-
@@ -347,6 +354,7 @@ newHashContainer hn = H { hHashName = hn
                         , hIsSeed = False
                         , hLinkAge = Nothing
                         , hLinkChan = Nothing
+                        , hPathSync = newPathSync hn
                         }
 type HashDistance = Int
 
@@ -427,6 +435,23 @@ showPath p = showPathJson (pJson p)
 -- nullPathId = PId (-1) -- horrible, need better way of doing this
 nullPathJson :: PathJson
 nullPathJson = PNone
+
+-- ---------------------------------------------------------------------
+
+-- |Keep track of the path synchronisation process for a HashContainer
+data PathSync = PathSync
+  { psHashName :: !HashName
+  , psSyncing  :: !Bool
+  , psAlive    :: ![PathJson]
+  } deriving (Show)
+
+
+newPathSync :: HashName -> PathSync
+newPathSync hn = PathSync
+  { psHashName = hn
+  , psSyncing = False
+  , psAlive = []
+  }
 
 -- ---------------------------------------------------------------------
 -- Channel related types

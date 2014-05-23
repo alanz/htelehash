@@ -38,6 +38,7 @@ module Network.TeleHash.SwitchApi
 
   -- * hn api
   , hn_fromaddress
+
   ) where
 
 import Control.Exception
@@ -1895,6 +1896,7 @@ void chan_miss_free(chan_t c)
 -- |create/fetch/maintain a link to this hn
 link_hn :: HashName -> Maybe Uid -> TeleHash (Maybe ChannelId)
 link_hn hn mcid = do
+  logR $ "LINKUP:" ++ show hn
   hc <- getHN hn
   l <- link_get
   c <- case mcid of
@@ -1915,20 +1917,40 @@ link_hn hn mcid = do
       return $ Just (chId c)
 
 {-
-// create/fetch/maintain a link to this hn
-chan_t link_hn(switch_t s, hn_t h)
-{
-  chan_t c;
-  packet_t p;
-  link_t l = link_get(s);
-  if(!s || !h) return NULL;
+-- JS version
 
-  c = chan_new(s, h, "link", 0);
-  p = chan_packet(c);
-  if(l->seeding) packet_set(p,"seed","true",4);
-  chan_send(c, p);
-  return c;
-}
+  // request a new link to them
+  hn.link = function(callback)
+  {
+    if(!callback) callback = function(){}
+
+    debug("LINKUP",hn.hashname);
+    var js = {seed:self.seed};
+    js.see = self.buckets[hn.bucket].sort(function(a,b){ return a.age - b.age }).filter(function(a){ return a.seed }).map(function(seed){ return seed.address(hn) }).slice(0,8);
+    // add some distant ones if none
+    if(js.see.length < 8) Object.keys(self.buckets).forEach(function(bucket){
+      if(js.see.length >= 8) return;
+      self.buckets[bucket].sort(function(a,b){ return a.age - b.age }).forEach(function(seed){
+        if(js.see.length >= 8 || !seed.seed || js.see.indexOf(seed.address(hn)) != -1) return;
+        js.see.push(seed.address(hn));
+      });
+    });
+
+    if(self.isBridge(hn)) js.bridges = self.paths.filter(function(path){return !isLocalPath(path)}).map(function(path){return path.type});
+
+    if(hn.linked)
+    {
+      hn.linked.send({js:js});
+      return callback();
+    }
+
+    hn.linked = hn.raw("link", {retry:3, js:js}, function(err, packet, chan){
+      inLink(err, packet, chan);
+      callback(packet.js.err);
+    });
+  }
+
+
 -}
 
 -- ---------------------------------------------------------------------
@@ -1968,11 +1990,18 @@ link_t link_get(switch_t s)
 -- a path.
 hn_fromaddress :: [String] -> TeleHash (Maybe HashName)
 hn_fromaddress address = do
+  logT $ "hn_fromaddress:" ++ show address
   let (hnStr,csid,mipp) = case address of
         [hn1,csid1]         -> (hn1,csid1,Nothing)
         [hn1,csid1,ip,port] -> (hn1,csid1,Just (ip,port))
         xs                -> error $ "hn_fromaddress:invalid address:" ++ show xs
       hn = HN hnStr
+
+  hc <- hn_get hn
+  case hCrypto hc of
+    Nothing -> do
+      putHN $ hc {hCsid = csid}
+    Just _ -> return ()
 
   -- Send the NAT punch if ip,port given
   case mipp of
@@ -1983,19 +2012,14 @@ hn_fromaddress address = do
           path = PathIPv4 (read ipStr) (read portStr)
           punch2 = punch { tOut = PIPv4 path }
           punch3 = punch2 { tLp = Just (toLinePacket newPacket) }
-      putPath hn (Path PtIPv4 (PIPv4 path) Nothing Nothing Nothing Nothing)
+      -- putPath hn (Path PtIPv4 (PIPv4 path) Nothing Nothing Nothing Nothing)
+      void $ path_get hn (PIPv4 path)
       switch_sendingQ punch3
 
-  hc <- hn_get hn
-  case hCrypto hc of
-    Nothing -> do
-      putHN $ hc {hCsid = csid}
-    Just _ -> return ()
-  hc2 <- getHN hn
   -- update path if required
   -- see.pathGet({type:"ipv4",ip:parts[2],port:parseInt(parts[3])});
   return (Just hn)
 
--- EOF
-
+-- =====================================================================
+-- path api
 
