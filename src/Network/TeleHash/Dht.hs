@@ -4,8 +4,10 @@ module Network.TeleHash.Dht
   , insertIntoDht
   , deleteFromDht
   , getBucketContentsForHn
+  , getBucketContents
   , dhtBucket
   , distanceTo
+  , sortBucketByAge
   ) where
 
 
@@ -42,8 +44,7 @@ dhtMaint = do
   forM_ (Map.assocs dht) $ \(d,_b) -> do
     -- sort by age and send maintenance to only k links
     bucket <- getBucketContents d
-    let sorted = sortBy sf bucket
-        sf a b = compare (hLinkAge a) (hLinkAge b)
+    let sorted = sortBucketByAge bucket
     if length sorted > 0
       then logR $ "dhtMaint:processing bucket " ++ show d
       else return ()
@@ -101,6 +102,14 @@ linkSeeds = do
   sw <- get
   forM_ (Set.toList (swSeeds sw)) $ \seed -> do
     void $ link_hn seed Nothing
+
+-- ---------------------------------------------------------------------
+
+-- |Sort a hash bucket by descending age
+sortBucketByAge :: [HashContainer] -> [HashContainer]
+sortBucketByAge bucket = sortBy sf bucket
+  where
+    sf a b = compare (hLinkAge a) (hLinkAge b)
 
 -- ---------------------------------------------------------------------
 

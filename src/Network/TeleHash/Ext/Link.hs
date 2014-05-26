@@ -176,7 +176,7 @@ link_handler cid = do
         logR $ "LINKDOWN:" ++ showChanShort c ++ ": " ++ packet_get_str_always p "err"
         deleteFromDht (chTo c)
         -- if this channel was ever active, try to re-start it
-        -- void $ link_hn (chTo c) (Just $ chUid c)
+        void $ link_hn (chTo c) (Just $ chUid c)
       else do
         -- update seed status
         case packet_get p "seed" of
@@ -201,10 +201,8 @@ link_handler cid = do
             return ()
           else return ()
 
-    -- TODO: move this into its own timer thread
-    -- path_send (chTo c)
-
 {-
+
 function inMaintenance(err, packet, chan)
 {
   // ignore if this isn't the main link
@@ -227,7 +225,9 @@ function inMaintenance(err, packet, chan)
   // only send a response if we've not sent one in a while
   if((Date.now() - chan.sentAt) > Math.ceil(defaults.link_timer/2)) chan.send({js:{seed:self.seed}});
 }
+
 -}
+
 -- ---------------------------------------------------------------------
 
 send_keepalive :: Uid -> TeleHash ()

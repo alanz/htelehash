@@ -8,16 +8,18 @@ module Network.TeleHash.Ext.Seek
 import Control.Exception
 import Control.Monad
 import Control.Monad.State
+import Data.Char
 import Data.List
 import Data.List.Split
 import Data.Maybe
--- import Prelude hiding (id, (.), head, either)
 import System.Time
 
+import Network.TeleHash.Dht
 import Network.TeleHash.Ext.Path
 import Network.TeleHash.Packet
 import Network.TeleHash.Paths
 import Network.TeleHash.SwitchApi
+import Network.TeleHash.SwitchUtils
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
 
@@ -29,11 +31,74 @@ import qualified Data.Set as Set
 ext_seek :: TChan -> TeleHash ()
 ext_seek c = do
   logT $ "ext_seek entered with for " ++ showChan c
-  assert False undefined
+
+  let
+    respFunc p = do
+      logT $ "ext_seek:respFunc:processing " ++ showJson (rtJs p)
+      c2 <- getChan (chUid c)
+      if packet_has_key p "err"
+        then do
+          logT $ "ext_seek:err: " ++ showJson (rtJs p)
+          return ()
+        else do
+          let seeVal = packet_get_str_always p "see"
+          if length seeVal == 0 || not (all isHexDigit seeVal)
+            then do
+              logT $ "ext_seek:invalid seek of :" ++ seeVal
+            else do
+              distance <- dhtBucket (HN seeVal)
+              bucket <- getBucketContents distance
+              let sorted = sortBucketByAge bucket
+              logT $ "ext_seek:sorted=" ++ show (map hHashName sorted)
+              assert False undefined
+              return ()
+
+  util_chan_popall c (Just respFunc)
 
 -- Seek for node 7766e761afb226d7b398379ea1bf12c53dc02580c683b173568b0c6cc3a09c00
 -- >>>>:(Just "(chan:(31,CID 168,0,ChanStarting,\"seek\"))","{ type: 'ipv4', ip: '71.171.17.108', port: 50461}","Packet HeadJson {\"seek\":\"776\",\"type\":\"seek\",\"c\":168} 0 bytes")
 
+{-
+-- javascript version
+
+// return a see to anyone closer
+function inSeek(err, packet, chan)
+{
+  if(err) return;
+  if(!isHEX(packet.js.seek)) return warn("invalid seek of ", packet.js.seek, "from:", packet.from.hashname);
+  var self = packet.from.self;
+  var seek = packet.js.seek;
+
+  var see = [];
+  var seen = {};
+
+  // see if we have any seeds to add
+  var bucket = dhash(self.hashname, packet.js.seek);
+  var links = self.buckets[bucket] ? self.buckets[bucket] : [];
+
+  // first, sort by age and add the most wise one
+  links.sort(function(a,b){ return a.age - b.age}).forEach(function(seed){
+    if(see.length) return;
+    if(!seed.seed) return;
+    see.push(seed.address(packet.from));
+    seen[seed.hashname] = true;
+  });
+
+  // sort by distance for more
+  links.sort(function(a,b){ return dhash(seek,a.hashname) - dhash(seek,b.hashname)}).forEach(function(link){
+    if(seen[link.hashname]) return;
+    if(link.seed || link.hashname.substr(0,seek.length) == seek)
+    {
+      see.push(link.address(packet.from));
+      seen[link.hashname] = true;
+    }
+  });
+
+  var answer = {end:true, see:see.filter(function(x){return x}).slice(0,8)};
+  chan.send({js:answer});
+}
+
+-}
 
 -- ---------------------------------------------------------------------
 
