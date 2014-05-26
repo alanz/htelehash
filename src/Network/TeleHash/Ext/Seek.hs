@@ -31,6 +31,10 @@ ext_seek c = do
   logT $ "ext_seek entered with for " ++ showChan c
   assert False undefined
 
+-- Seek for node 7766e761afb226d7b398379ea1bf12c53dc02580c683b173568b0c6cc3a09c00
+-- >>>>:(Just "(chan:(31,CID 168,0,ChanStarting,\"seek\"))","{ type: 'ipv4', ip: '71.171.17.108', port: 50461}","Packet HeadJson {\"seek\":\"776\",\"type\":\"seek\",\"c\":168} 0 bytes")
+
+
 -- ---------------------------------------------------------------------
 
 {-

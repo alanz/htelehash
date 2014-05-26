@@ -280,13 +280,16 @@ hn_path hn p = do
           if isLocalIP ip
             then return ()
             else do
-              logR $ "hn_path:got our remote ip:" ++ show ip
-              sw <- get
-              put $ sw {swExternalIPP = Just pipv4 }
-              -- update our own HN to have the new path
-              hnSelf <- getOwnHN
-              putPath hnSelf (pathFromPathJson lp)
-              return ()
+              hnOwn <- getOwnHN
+              if hn == hnOwn
+                then do
+                  logR $ "hn_path:got our remote ip:" ++ show ip
+                  sw <- get
+                  put $ sw {swExternalIPP = Just pipv4 }
+                  -- update our own HN to have the new path
+                  hnSelf <- getOwnHN
+                  putPath hnSelf (pathFromPathJson lp)
+                else return ()
     _ -> return ()
 
   logT $ "TODO:hn_path:lots more stuff"

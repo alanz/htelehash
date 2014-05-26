@@ -10,9 +10,11 @@ module Network.TeleHash.Types
     param_k
   , param_link_max
   , param_link_ping_secs
+  , param_nat_timeout_secs
   , param_link_timeout_secs
   , param_seek_wait_secs
   , param_path_sync_secs
+  , param_path_sync_timeout_secs
 
   -- * Types
   , HashName(..)
@@ -138,7 +140,10 @@ param_link_ping_secs :: Integer
 param_link_ping_secs = 29
 
 param_link_timeout_secs :: Int
-param_link_timeout_secs = 60
+param_link_timeout_secs = param_nat_timeout_secs - 5
+
+param_nat_timeout_secs :: Int
+param_nat_timeout_secs = 30
 
 -- |How long to wait befor starting another seek
 param_seek_wait_secs :: Int
@@ -146,6 +151,23 @@ param_seek_wait_secs = 5
 
 param_path_sync_secs :: Integer
 param_path_sync_secs = 23 -- should be 10
+
+param_path_sync_timeout_secs :: Int
+param_path_sync_timeout_secs = 10
+
+{-
+defaults.chan_timeout = 10000; // how long before for ending durable channels w/ no acks
+defaults.seek_timeout = 3000; // shorter tolerance for seeks, is far more lossy
+defaults.chan_autoack = 1000; // is how often we auto ack if the app isn't generating responses in a durable channel
+defaults.chan_resend = 2000; // resend the last packet after this long if it wasn't acked in a durable channel
+defaults.chan_outbuf = 100; // max size of outgoing buffer before applying backpressure
+defaults.chan_inbuf = 50; // how many incoming packets to cache during processing/misses
+defaults.nat_timeout = 30*1000; // nat timeout for inactivity
+defaults.idle_timeout = 5*defaults.nat_timeout; // overall inactivity timeout
+defaults.link_timer = defaults.nat_timeout - (5*1000); // how often the DHT link maintenance runs
+defaults.link_max = 256; // maximum number of links to maintain overall (minimum one packet per link timer)
+defaults.link_k = 8; // maximum number of links to maintain per bucket
+-}
 
 -- ---------------------------------------------------------------------
 
@@ -442,6 +464,7 @@ nullPathJson = PNone
 data PathSync = PathSync
   { psHashName :: !HashName
   , psSyncing  :: !Bool
+  , psLastAt   :: !(Maybe ClockTime)
   , psAlive    :: ![PathJson]
   } deriving (Show)
 
@@ -450,6 +473,7 @@ newPathSync :: HashName -> PathSync
 newPathSync hn = PathSync
   { psHashName = hn
   , psSyncing = False
+  , psLastAt = Nothing
   , psAlive = []
   }
 

@@ -53,7 +53,9 @@ switch_loop = do
       -- perform link maintenance every 29 secs
       -- logT $ "switch_loop:checking for dht maint :" ++ show (now,now `mod` param_link_ping_secs)
       if now `mod` param_link_ping_secs == 0
-        then dhtMaint
+        then do
+          dhtMaint
+        
         else return ()
 
       if now `mod` param_path_sync_secs == 0

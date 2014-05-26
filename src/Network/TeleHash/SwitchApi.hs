@@ -116,6 +116,7 @@ switch_receive rxPacket path timeNow = do
       logT $ "DEOPEN " ++ showJson (doJs open)
       case open of
         DeOpenizeVerifyFail -> do
+          logT $ "DEOPEN fail for " ++ show rxPacket
           return ()
         deOpenizeResult -> do
           logT $ "receive.deopenize verified ok " -- ++ show open
@@ -147,6 +148,7 @@ switch_receive rxPacket path timeNow = do
                       -- line is open
                       logR $ "line in " ++ show (cLined lineCrypto,(hHashName from),cLineHex lineCrypto)
                       -- DEBUG_PRINTF("line in %d %s %d %s",from->c->lined,from->hexname,from,from->c->lineHex);
+                      logP $ ">>>>:LINE IN " ++ show (cLined lineCrypto,(hHashName from),cLineHex lineCrypto)
                       let from2 = from { hCrypto = Just lineCrypto }
                       putHN from2
                       if cLined lineCrypto == LineReset
@@ -215,7 +217,7 @@ switch_receive rxPacket path timeNow = do
               return ()
             Right rx -> do
               mchan <- chan_in (hHashName from) rx
-              logP $ "<<<:" ++ show (fmap showChanShort mchan,showPathJson $ rtSender rx,showPacketShort $ rtPacket rx)
+              logP $ ">>>>:" ++ show (fmap showChanShort mchan,showPathJson $ rtSender rx,showPacketShort $ rtPacket rx)
               case mchan of
                 Just chan -> do
                   sw <- get

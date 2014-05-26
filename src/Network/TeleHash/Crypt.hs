@@ -10,54 +10,19 @@ module Network.TeleHash.Crypt
   , crypt_delineize
   ) where
 
--- import Control.Applicative
--- import Control.Concurrent
--- import Control.Exception
 import Control.Monad
--- import Control.Monad.Error
 import Control.Monad.State
--- import Crypto.Random
--- import Data.Aeson (object,(.=), (.:), (.:?) )
--- import Data.Aeson.Encode
--- import Data.Aeson.Types
--- import Data.Bits
--- import Data.Char
--- import Data.IP
 import Data.List
 import Data.Maybe
--- import Data.String.Utils
--- import Data.Text.Lazy.Builder
--- import Data.Typeable
--- import Data.Word
--- import Network.BSD
--- import Network.Socket
-import Prelude hiding (id, (.), head, either)
--- import System.IO
--- import System.Log.Handler.Simple
--- import System.Log.Logger
--- import System.Time
 
 import Network.TeleHash.Crypto1a
 import Network.TeleHash.Packet
+import Network.TeleHash.Paths
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
 
--- import qualified Crypto.Hash.SHA256 as SHA256
--- import qualified Crypto.PubKey.DH as DH
--- import qualified Crypto.Types.PubKey.ECDSA as ECDSA
--- import qualified Data.Aeson as Aeson
--- import qualified Data.ByteString as B
--- import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
--- import qualified Data.ByteString.Lazy as BL
--- import qualified Data.Digest.Pure.SHA as SHA
--- import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
--- import qualified Data.Set as Set
--- import qualified Data.Text as Text
--- import qualified Data.Text.Lazy as TL
--- import qualified Network.Socket as NS
--- import qualified Network.Socket.ByteString as SB
 
 
 -- ---------------------------------------------------------------------
@@ -279,7 +244,7 @@ crypt_lineize mc p = do
     Just c -> do
       if cLined c /= LineNone
         then do
-          logP $ ">>>:" ++ show (tTo p,tOut p,showPacketShort $ tPacket p)
+          logP $ "<<<<:" ++ show (tTo p,showPathJson $ tOut p,showPacketShort $ tPacket p)
           (c2,mlp) <- crypt_lineize_1a c p
           return (Just c2,mlp)
         else return (Just c,Nothing)

@@ -11,6 +11,7 @@ import System.Environment
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
+import System.Remote.Monitoring
 import System.Time
 
 import Network.TeleHash.Ext.Chat
@@ -85,6 +86,8 @@ recvUdpMsg ch sock = forever $ do
 
 main :: IO ()
 main = do
+  forkServer (BC.pack "localhost") 8000
+
   s <- streamHandler stdout DEBUG
   updateGlobalLogger rootLoggerName (setHandlers [s])
 
@@ -177,7 +180,10 @@ app = do
   sw2 <- get
   logT $ "seeds:" ++ show (swSeeds sw2)
   -- link_hn bucket_get(s->seeds, 0));
-  void $ link_hn (head $ Set.toList (swSeeds sw2)) Nothing
+  -- void $ link_hn (head $ Set.toList (swSeeds sw2)) Nothing
+  forM_ (Set.toList (swSeeds sw2)) $ \seed -> do
+    void $ link_hn seed Nothing
+
 
   util_sendall sock
 

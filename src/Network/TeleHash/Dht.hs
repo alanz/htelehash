@@ -48,13 +48,16 @@ dhtMaint = do
       then logR $ "dhtMaint:processing bucket " ++ show d
       else return ()
     forM_ (take k sorted) $ \hc -> do
+      hstr <- showHashName now hc
       if isNothing (hLinkAge hc) || hChanOut hc == nullChannelId
-        then return ()
+        then do
+          logT $ "dhtMaint:not considering " ++ hstr ++ "," ++ show (hLinkAge hc,hChanOut hc)
+          return ()
         else do
-          hstr <- showHashName now hc
           logR $ "dhtMaint:considering " ++ hstr
           if isTimeOut now (hLinkAge hc) param_link_timeout_secs
             then do
+              logT $ "dhtMaint:time for maintenance"
               case hLinkChan hc of
                 Nothing -> do
                   logR $ "dhtMaint:expected a valid hLinkChan for " ++ show hc
@@ -66,8 +69,11 @@ dhtMaint = do
                       logR $ "dhtMaint: bad hLinkChan, cannot to refresh link for " ++ show hc
                     Just _ -> return ()
                   void $ link_hn (hHashName hc) (Just cid)
-            else return ()
+            else do
+              logT $ "dhtMaint:not for maintenance " ++ show (now,hLinkAge hc,param_link_timeout_secs)
+              return ()
 
+  linkSeeds
 
 {-
 js equivalent
@@ -90,6 +96,12 @@ function linkMaint(self)
 
 -}
 
+linkSeeds :: TeleHash ()
+linkSeeds = do
+  sw <- get
+  forM_ (Set.toList (swSeeds sw)) $ \seed -> do
+    void $ link_hn seed Nothing
+
 -- ---------------------------------------------------------------------
 
 -- |Get the relevant bucket, and dereference all the HashNames
@@ -105,6 +117,7 @@ getBucketContents hd = do
 insertIntoDht :: HashName -> TeleHash ()
 insertIntoDht hn = do
   (distance,bucket) <- getBucketContentsForHn hn
+  logR $ "insertIntoDht:inserting " ++ show (distance,hn)
   sw <- get
   put $ sw { swDht = Map.insert distance (Set.insert hn bucket) (swDht sw) }
 
@@ -113,6 +126,7 @@ insertIntoDht hn = do
 deleteFromDht :: HashName -> TeleHash ()
 deleteFromDht hn = do
   (distance,bucket) <- getBucketContentsForHn hn
+  logR $ "deleteFromDht:deleting " ++ show (distance,hn)
   sw <- get
   put $ sw { swDht = Map.insert distance (Set.delete hn bucket) (swDht sw) }
 

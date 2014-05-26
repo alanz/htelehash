@@ -112,6 +112,8 @@ process_link_seed cid p lrp = do
 
 -}
 
+  -- let sees1 = []
+  -- logP $ "process_link_seed:NOT PROCESSING SEES:" ++ show sees
   forM_ sees $ \see -> do
     logT $ "process_link_seed:see=" ++ show see
     sw <- get
@@ -171,34 +173,33 @@ link_handler cid = do
   util_chan_popall c $ Just $ \p -> do
     if packet_has_key p "err"
       then do
-        logR $ "LINKDOWN " ++ showChanShort c ++ ": " ++ packet_get_str_always p "err"
+        logR $ "LINKDOWN:" ++ showChanShort c ++ ": " ++ packet_get_str_always p "err"
         deleteFromDht (chTo c)
         -- if this channel was ever active, try to re-start it
-        void $ link_hn (chTo c) (Just $ chUid c)
-      else return ()
+        -- void $ link_hn (chTo c) (Just $ chUid c)
+      else do
+        -- update seed status
+        case packet_get p "seed" of
+          Nothing -> return ()
+          Just (Aeson.Bool isSeed) -> do
+            hc <- getHN (chTo c)
+            putHN $ hc { hIsSeed = isSeed }
+          Just _ -> do
+            logT $ "link_handler:got strange seed value for:" ++ show p
 
-    -- update seed status
-    case packet_get p "seed" of
-      Nothing -> return ()
-      Just (Aeson.Bool isSeed) -> do
-        hc <- getHN (chTo c)
-        putHN $ hc { hIsSeed = isSeed }
-      Just _ -> do
-        logT $ "link_handler:got strange seed value for:" ++ show p
-
-    -- only send a response if we've not sent one in a while
-    now <- io $ getClockTime
-    c2 <- getChan cid
-    mSentAt <- case chLast c2 of
-      Nothing -> return Nothing
-      Just pj -> do
-        path <- getPath (chTo c2) pj
-        return $ pAtOut path
-    if isTimeOut now mSentAt param_link_timeout_secs
-      then do
-        send_keepalive cid
-        return ()
-      else return ()
+        -- only send a response if we've not sent one in a while
+        now <- io $ getClockTime
+        c2 <- getChan cid
+        mSentAt <- case chLast c2 of
+          Nothing -> return Nothing
+          Just pj -> do
+            path <- getPath (chTo c2) pj
+            return $ pAtOut path
+        if isTimeOut now mSentAt param_link_timeout_secs
+          then do
+            send_keepalive cid
+            return ()
+          else return ()
 
     -- TODO: move this into its own timer thread
     -- path_send (chTo c)

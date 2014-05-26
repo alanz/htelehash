@@ -102,6 +102,7 @@ module Network.TeleHash.Utils
   , showJson
 
   , isLocalIP
+  , isLocalPath
   , isTimeOut
   ) where
 
@@ -1035,11 +1036,18 @@ isLocalIP ip@(IPv4 _) = r
 
 -- ---------------------------------------------------------------------
 
+isLocalPath :: PathJson -> Bool
+isLocalPath (PIPv4 (PathIPv4 ip _port)) = isLocalIP ip
+isLocalPath (PIPv6 (PathIPv6 ip _port)) = isLocalIP ip
+isLocalPath _ = False
+
+-- ---------------------------------------------------------------------
+
 isTimeOut :: ClockTime -> Maybe ClockTime -> Int -> Bool
 isTimeOut (TOD secs _picos) mt secsVal
  = case mt of
      Nothing -> True
-     Just (TOD s _) -> (secs - s) < fromIntegral secsVal
+     Just (TOD s _) -> (secs - s) > fromIntegral secsVal
 
 -- ---------------------------------------------------------------------
 
