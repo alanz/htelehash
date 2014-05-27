@@ -81,7 +81,8 @@ util_sendall sock = do
         Just lp -> do
           case (tOut p) of
             (PIPv4 _) -> do
-              logT $ "sendall:sending " ++ show (tOut p)
+              logT $ "util_sendall:sending " ++ showPathJson (tOut p)
+              logP $ "<<<<: " ++ showPathJson (tOut p) ++ ",len " ++ show (BC.length $ unLP lp)
               ipv4Send (tOut p) lp Nothing
             _ -> do
               -- logT $ "sendall:not sending " ++ show (tOut p)

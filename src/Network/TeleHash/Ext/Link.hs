@@ -32,17 +32,18 @@ import qualified Data.Text as Text
 ext_link :: TChan -> TeleHash ()
 ext_link c = do
   logR $ "ext_link entered for:" ++ showChan c
-
   let
     respFunc p = do
       logR $ "ext_link:respFunc:processing " ++ showJson (rtJs p)
       c2 <- getChan (chUid c)
+
       let mlp = parseJs (rtJs p) :: Maybe LinkReply
       case mlp of
         Nothing -> do
           logR $ "ext_link:unexpected packet:" ++ show p
           return ()
         Just (LinkReplyErr _err) -> do
+
           logR $ "ext_link:got err:" ++ show p
           deleteFromDht (chTo c)
           chan_fail (chUid c) Nothing
@@ -178,37 +179,45 @@ link_handler cid = do
   logT $ "link_handler:processing " ++ showChan c
 
   util_chan_popall c $ Just $ \p -> do
-    if packet_has_key p "err"
-      then do
-        logR $ "LINKDOWN:" ++ showChanShort c ++ ": " ++ packet_get_str_always p "err"
-        deleteFromDht (chTo c)
-        -- if this HN was ever active, try to re-start it on a new
-        -- channel
-        void $ link_hn (chTo c) Nothing
+    -- ignore if this isn't the main link
+    -- if(!packet.from || !packet.from.linked || packet.from.linked != chan) return;
+    from <- getHN (chTo c)
+    if not (isJust (hLinkChan from) && fromJust (hLinkChan from) == (chUid c))
+      then do return ()
       else do
-        -- update seed status
-        case packet_get p "seed" of
-          Nothing -> return ()
-          Just (Aeson.Bool isSeed) -> do
-            logT $ "link_handler:updating hIsSeed for " ++ (show (chTo c,isSeed))
-            hc <- getHN (chTo c)
-            putHN $ hc { hIsSeed = isSeed }
-          Just _ -> do
-            logT $ "link_handler:got strange seed value for:" ++ show p
-
-        -- only send a response if we've not sent one in a while
-        now <- io $ getClockTime
-        c2 <- getChan cid
-        mSentAt <- case chLast c2 of
-          Nothing -> return Nothing
-          Just pj -> do
-            path <- getPath (chTo c2) pj
-            return $ pAtOut path
-        if isTimeOut now mSentAt param_link_timeout_secs
+        if packet_has_key p "err"
           then do
-            send_keepalive cid
-            return ()
-          else return ()
+            logR $ "LINKDOWN:" ++ showChanShort c ++ ": " ++ packet_get_str_always p "err"
+            deleteFromDht (chTo c)
+            -- if this HN was ever active, try to re-start it on a new
+            -- channel
+            hc <- getHN (chTo c)
+            putHN $ hc { hLinkChan = Nothing }
+            void $ link_hn (chTo c) Nothing
+          else do
+            -- update seed status
+            case packet_get p "seed" of
+              Nothing -> return ()
+              Just (Aeson.Bool isSeed) -> do
+                logT $ "link_handler:updating hIsSeed for " ++ (show (chTo c,isSeed))
+                hc <- getHN (chTo c)
+                putHN $ hc { hIsSeed = isSeed }
+              Just _ -> do
+                logT $ "link_handler:got strange seed value for:" ++ show p
+
+            -- only send a response if we've not sent one in a while
+            now <- io $ getClockTime
+            c2 <- getChan cid
+            mSentAt <- case chLast c2 of
+              Nothing -> return Nothing
+              Just pj -> do
+                path <- getPath (chTo c2) pj
+                return $ pAtOut path
+            if isTimeOut now mSentAt param_link_timeout_secs
+              then do
+                send_keepalive cid
+                return ()
+              else return ()
 
 {-
 

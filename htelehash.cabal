@@ -38,6 +38,7 @@ Library
                   , mtl
                   , network
                   , old-time
+                  , old-locale
                   , split
                   , text
                   , unordered-containers
@@ -95,6 +96,7 @@ executable             seed
                   , mtl
                   , network
                   , old-time
+                  , old-locale
                   , split
                   , text
                   , unordered-containers
@@ -122,6 +124,7 @@ executable             tft
                   , mtl
                   , network
                   , old-time
+                  , old-locale
                   , split
                   , text
                   , unordered-containers
@@ -151,6 +154,7 @@ executable             ping
                   , mtl
                   , network
                   , old-time
+                  , old-locale
                   , text
                   , unordered-containers
 
@@ -194,6 +198,7 @@ test-suite tests
                   , mtl
                   , network
                   , old-time
+                  , old-locale
                   , split
                   , text
                   , unordered-containers

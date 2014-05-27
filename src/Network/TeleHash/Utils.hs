@@ -121,6 +121,7 @@ import Data.Word
 import Prelude hiding (id, (.), head, either)
 import System.Log.Logger
 import System.Time
+import System.Locale
 
 import Network.TeleHash.Convert
 import Network.TeleHash.Paths
@@ -788,9 +789,14 @@ lineLoggerName = "Network.TeleHash.Line"
 
 -- |line traffic
 logP :: String -> TeleHash ()
-logP str = io (noticeM lineLoggerName str)
+logP str = do
+  now <- io $ getClockTime
+  let timeStr = formatCalendarTime defaultTimeLocale "%H:%M:%S" (toUTCTime now)
+  io (noticeM lineLoggerName (timeStr ++ ":" ++ str))
 
+-- formatCalendarTime :: TimeLocale -> String -> CalendarTime -> String
 
+-- strftime
 
 -- ---------------------------------------------------------------------
 -- Convenience.

@@ -115,7 +115,7 @@ switch_receive rxPacket path timeNow = do
     OpenPacket _b _bs -> do
       -- process open packet
       open <- crypt_deopenize rxPacket
-      logT $ "DEOPEN " ++ showJson (doJs open)
+      logP $ "DEOPEN " ++ showJson (doJs open)
       case open of
         DeOpenizeVerifyFail -> do
           logT $ "DEOPEN fail for " ++ show rxPacket
@@ -1938,6 +1938,8 @@ link_hn hn mcid = do
         Nothing -> chan_new hn "link" Nothing
         Just cid -> getChan cid
     Just cid -> getChan cid
+
+  putHN $ hc { hLinkChan = Just (chUid c) }
 
   mp <- chan_packet (chUid c) True
   case mp of
