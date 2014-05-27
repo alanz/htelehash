@@ -306,14 +306,20 @@ void seek_send(switch_t s, seek_t sk, hn_t to)
 _seek_auto :: HashName -> TeleHash ()
 _seek_auto hn = do
   logT $ "_seek_auto entered for " ++ show hn
-  sk <- seek_get hn
-  logT $ "_seek_auto:seek connecting " ++ show sk
 
-  -- TODO get near from somewhere
-  sw <- get
-  let seed = ghead "seek_auto" $ Set.toList (swSeeds sw)
+  hc <- getHN hn
+  case Map.lookup hn (hVias hc) of
+    Just see -> do
+     logT $ "_seek_auto:already have a see:" ++ show see
+    Nothing -> do
+      sk <- seek_get hn
+      logT $ "_seek_auto:seek connecting " ++ show sk
 
-  seek_send sk seed
+      -- TODO get near from somewhere
+      sw <- get
+      let seed = ghead "seek_auto" $ Set.toList (swSeeds sw)
+
+      seek_send sk seed
 
 
 {-

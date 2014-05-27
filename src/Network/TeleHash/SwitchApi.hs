@@ -2048,7 +2048,7 @@ hn_fromaddress address hnPeer = do
       case mipp of
         Nothing -> return ()
         Just (ipStr,portStr) -> do
-          logT $ "hn_fromaddress:must still send NAT punch to" ++ show mipp
+          logT $ "hn_fromaddress:sending NAT punch to" ++ show mipp
           let punch = packet_new hn
               path = PathIPv4 (read ipStr) (read portStr)
               punch2 = punch { tOut = PIPv4 path }

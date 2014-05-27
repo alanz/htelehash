@@ -11,7 +11,7 @@ import System.Environment
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
-import System.Remote.Monitoring
+-- import System.Remote.Monitoring
 import System.Time
 
 import Network.TeleHash.Ext.Chat
@@ -86,7 +86,7 @@ recvUdpMsg ch sock = forever $ do
 
 main :: IO ()
 main = do
-  forkServer (BC.pack "localhost") 8000
+  -- forkServer (BC.pack "localhost") 8000
 
   s <- streamHandler stdout DEBUG
   updateGlobalLogger rootLoggerName (setHandlers [s])

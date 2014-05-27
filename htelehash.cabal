@@ -125,7 +125,7 @@ executable             tft
                   , split
                   , text
                   , unordered-containers
-                  , ekg
+                  -- , ekg
 
 
 executable             ping
