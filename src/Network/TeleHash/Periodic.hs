@@ -55,7 +55,6 @@ switch_loop = do
       if now `mod` param_link_ping_secs == 0
         then do
           dhtMaint
-        
         else return ()
 
       if now `mod` param_path_sync_secs == 0

@@ -31,24 +31,24 @@ import qualified Data.Text as Text
 -- link channel.
 ext_link :: TChan -> TeleHash ()
 ext_link c = do
-  logT $ "ext_link entered for:" ++ showChan c
+  logR $ "ext_link entered for:" ++ showChan c
 
   let
     respFunc p = do
-      logT $ "ext_link:respFunc:processing " ++ showJson (rtJs p)
+      logR $ "ext_link:respFunc:processing " ++ showJson (rtJs p)
       c2 <- getChan (chUid c)
       let mlp = parseJs (rtJs p) :: Maybe LinkReply
       case mlp of
         Nothing -> do
-          logT $ "ext_link:unexpected packet:" ++ show p
+          logR $ "ext_link:unexpected packet:" ++ show p
           return ()
         Just (LinkReplyErr _err) -> do
-          logT $ "ext_link:got err:" ++ show p
+          logR $ "ext_link:got err:" ++ show p
           deleteFromDht (chTo c)
           chan_fail (chUid c) Nothing
           return ()
         Just LinkReplyEnd -> do
-          logT $ "ext_link:link ended"
+          logR $ "ext_link:link ended"
           deleteFromDht (chTo c)
           chan_fail (chUid c) Nothing
           return ()
@@ -61,6 +61,10 @@ ext_link c = do
                      , hLinkChan = Just (chUid c)
                      }
           putChanInHnIfNeeded (chTo c) (chUid c)
+
+          logT $ "ext_link:inserting into dht:" ++ show (chTo c)
+          -- Check if we have the current hn in our dht
+          insertIntoDht (chTo c)
 
           -- send a response if this is a new incoming
           -- if(!chan.sentAt) packet.from.link();
@@ -97,8 +101,6 @@ process_link_seed cid p lrp = do
         LinkReplyNormal is sv -> (is,sv)
         _                     -> (False,[])
   c <- getChan cid
-  -- Check if we have the current hn in our dht
-  insertIntoDht (chTo c)
 
 {-
 -- js version does this
@@ -113,25 +115,30 @@ process_link_seed cid p lrp = do
 -}
 
   -- let sees1 = []
-  -- logP $ "process_link_seed:NOT PROCESSING SEES:" ++ show sees
+  logT $ "process_link_seed:PROCESSING SEES:" ++ show sees
   forM_ sees $ \see -> do
     logT $ "process_link_seed:see=" ++ show see
     sw <- get
     let fields = Text.splitOn "," (Text.pack see)
-    mhn <- hn_fromaddress (map Text.unpack fields)
+    mhn <- hn_fromaddress (map Text.unpack fields) (chTo c)
     case mhn of
       Just hn -> do
         hc <- hn_get hn
         if isJust (hLinkAge hc)
-          then return () -- nothing to do
+          then do
+            logT $ "process_link_seed:isJust hLinkAge for" ++ show (hHashName hc)
+            return () -- nothing to do
           else do
             -- create a link to the new bucket
             (_distance,bucket) <- getBucketContentsForHn (hHashName hc)
             if not (Set.member (hHashName hc) bucket) &&
                Set.size bucket <= (swDhtK sw)
               then do
+                logT $ "process_link_seed:creating new link to:" ++ show (hHashName hc)
                 void $ link_hn (hHashName hc) Nothing
-              else return ()
+              else do
+                logT $ "process_link_seed:NOT creating new link to:" ++ show (hHashName hc,_distance,bucket,swDhtK sw)
+                return ()
       Nothing -> do
         logT $ "process_link_seed:got junk see:" ++ show see
 
@@ -175,13 +182,15 @@ link_handler cid = do
       then do
         logR $ "LINKDOWN:" ++ showChanShort c ++ ": " ++ packet_get_str_always p "err"
         deleteFromDht (chTo c)
-        -- if this channel was ever active, try to re-start it
-        void $ link_hn (chTo c) (Just $ chUid c)
+        -- if this HN was ever active, try to re-start it on a new
+        -- channel
+        void $ link_hn (chTo c) Nothing
       else do
         -- update seed status
         case packet_get p "seed" of
           Nothing -> return ()
           Just (Aeson.Bool isSeed) -> do
+            logT $ "link_handler:updating hIsSeed for " ++ (show (chTo c,isSeed))
             hc <- getHN (chTo c)
             putHN $ hc { hIsSeed = isSeed }
           Just _ -> do

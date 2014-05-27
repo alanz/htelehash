@@ -39,6 +39,8 @@ module Network.TeleHash.SwitchApi
   -- * hn api
   , hn_fromaddress
 
+  -- * seek api
+  , peer_send
   ) where
 
 import Control.Exception
@@ -402,6 +404,17 @@ switch_send p = do
           -- no line, so generate open instead
           switch_open (tTo p2) Nothing
 
+          -- send a peer request if required
+          logT $ "switch_send:hVias=" ++ show (hVias hc)
+          if hVias hc == Map.empty
+            then return ()
+            else do
+              let vias = Map.toList (hVias hc)
+              putHN $ hc { hVias = Map.empty }
+              forM_ vias $ \(hn,see) -> do
+                peer_send hn see
+                return ()
+
 -- ---------------------------------------------------------------------
 
 switch_open :: HashName -> Maybe Path -> TeleHash ()
@@ -437,11 +450,29 @@ switch_open hn direct = do
               logT $ "switch_open: could not openize, discarding"
               return ()
             Just open -> do
+              -- TODO: send this via all known paths
               let inner4 = case direct of
                              Just path -> inner3 {tOut = pJson path}
                              Nothing   -> inner3
               logT $ "switch_open:sending " ++ show inner4
               switch_sendingQ $ inner4 { tLp = Just open }
+
+{-
+    // todo change all .see processing to add via info, and change inConnect
+    function vias()
+    {
+      if(!hn.vias) return;
+      var todo = hn.vias;
+      delete hn.vias; // never use more than once so we re-seek
+      // send a peer request to all of them
+      Object.keys(todo).forEach(function(via){
+        self.whois(via).peer(hn.hashname,todo[via]);
+      });
+    }
+
+    // if there's via information, just try that
+    if(hn.vias) return vias();
+-}
 
 {-
 // tries to send an open if we haven't
@@ -1989,39 +2020,212 @@ link_t link_get(switch_t s)
 
 -- |Unpack a see term and construct a HashContainer from it if there
 -- is not one already. In either case, capture any optional IP:port as
--- a path.
-hn_fromaddress :: [String] -> TeleHash (Maybe HashName)
-hn_fromaddress address = do
+-- a path. The hn is of the peer returning the see
+hn_fromaddress :: [String] -> HashName -> TeleHash (Maybe HashName)
+hn_fromaddress address hnPeer = do
   logT $ "hn_fromaddress:" ++ show address
-  let (hnStr,csid,mipp) = case address of
-        [hn1,csid1]         -> (hn1,csid1,Nothing)
-        [hn1,csid1,ip,port] -> (hn1,csid1,Just (ip,port))
-        xs                -> error $ "hn_fromaddress:invalid address:" ++ show xs
-      hn = HN hnStr
+  let mdetails = case address of
+        [hn1,csid1]         -> Just (hn1,csid1,Nothing)
+        [hn1,csid1,ip,port] -> Just (hn1,csid1,Just (ip,port))
+        _xs                 -> Nothing -- error $ "hn_fromaddress:invalid address:" ++ show xs
 
-  hc <- hn_get hn
-  case hCrypto hc of
+  case mdetails of
     Nothing -> do
-      putHN $ hc {hCsid = csid}
-    Just _ -> return ()
+      logT $ "hn_fromaddress:invalid address:" ++ show address
+      return Nothing
+    Just (hnStr,csid,mipp) -> do
+      let hn = HN hnStr
 
-  -- Send the NAT punch if ip,port given
-  case mipp of
-    Nothing -> return ()
-    Just (ipStr,portStr) -> do
-      logT $ "peer_send:must still send NAT punch to" ++ show mipp
-      let punch = packet_new hn
-          path = PathIPv4 (read ipStr) (read portStr)
-          punch2 = punch { tOut = PIPv4 path }
-          punch3 = punch2 { tLp = Just (toLinePacket newPacket) }
-      -- putPath hn (Path PtIPv4 (PIPv4 path) Nothing Nothing Nothing Nothing)
-      void $ path_get hn (PIPv4 path)
-      switch_sendingQ punch3
+      hc <- hn_get hn
+      putHN $ hc { hVias = Map.insert hnPeer address (hVias hc) }
+      hc2 <- getHN hn
+      case hCrypto hc2 of
+        Nothing -> do
+          putHN $ hc2 {hCsid = csid}
+        Just _ -> return ()
 
-  -- update path if required
-  -- see.pathGet({type:"ipv4",ip:parts[2],port:parseInt(parts[3])});
-  return (Just hn)
+      -- Send the NAT punch if ip,port given
+      case mipp of
+        Nothing -> return ()
+        Just (ipStr,portStr) -> do
+          logT $ "hn_fromaddress:must still send NAT punch to" ++ show mipp
+          let punch = packet_new hn
+              path = PathIPv4 (read ipStr) (read portStr)
+              punch2 = punch { tOut = PIPv4 path }
+              punch3 = punch2 { tLp = Just (toLinePacket newPacket) }
+          -- putPath hn (Path PtIPv4 (PIPv4 path) Nothing Nothing Nothing Nothing)
+          void $ path_get hn (PIPv4 path)
+          switch_sendingQ punch3
+
+      -- update path if required
+      -- see.pathGet({type:"ipv4",ip:parts[2],port:parseInt(parts[3])});
+      return (Just hn)
+
+-- ---------------------------------------------------------------------
+
+-- |Send a NAT punch to the given ip,port
+hn_nat_punch :: HashName -> String -> String -> TeleHash ()
+hn_nat_punch hn ipStr portStr = do
+  logT $ "peer_send:must still send NAT punch to" ++ show (ipStr,portStr)
+  let punch = packet_new hn
+      path = PathIPv4 (read ipStr) (read portStr)
+      punch2 = punch { tOut = PIPv4 path }
+      punch3 = punch2 { tLp = Just (toLinePacket newPacket) }
+  void $ path_get hn (PIPv4 path)
+  switch_sendingQ punch3
+
 
 -- =====================================================================
--- path api
+-- peer api
+
+-- ---------------------------------------------------------------------
+
+-- csid may be address format
+peer_send :: HashName -> [String] -> TeleHash ()
+peer_send to address = do
+  logT $ "seek:peer_send:" ++ show (to,address)
+  if length address /= 2 && length address /= 4
+    then do
+      logT $ "peer_send: malformed address " ++ show address
+      return ()
+    else do
+      let (hn,csid,mipp) = case address of
+            [hn1,csid1]         -> (hn1,csid1,Nothing)
+            [hn1,csid1,ip,port] -> (hn1,csid1,Just (ip,port))
+            xs                -> error $ "peer_send:invalid address:" ++ show xs
+      mcrypto <- getCrypto csid
+      case mcrypto of
+        Nothing -> do
+          logT $ "peer_send:no cipher set for " ++ csid
+          return ()
+        Just cs -> do
+          -- new peer channel
+          c <- chan_new to "peer" Nothing
+          let c2 = c {chHandler = Just peer_handler }
+          putChan c2
+          mp <- chan_packet (chUid c2) True
+          case mp of
+            Nothing -> do
+              logT $ "peer_send:cannot create packet for " ++ show c2
+              return ()
+            Just p -> do
+              let p2 = packet_set_str p "peer" hn
+                  p3 = packet_body p2 (cKey cs)
+
+              -- Send the NAT punch if ip,port given
+              case mipp of
+                Nothing -> return ()
+                Just (ipStr,portStr) -> do
+                  logT $ "peer_send:must still send NAT punch to" ++ show mipp
+                  let punch = packet_new (HN hn)
+                      path = PathIPv4 (read ipStr) (read portStr)
+                      punch2 = punch { tOut = PIPv4 path }
+                      punch3 = punch2 { tLp = Just (toLinePacket newPacket) }
+                  putPath (HN hn) (Path PtIPv4 (PIPv4 path) Nothing Nothing Nothing Nothing)
+                  switch_sendingQ punch3
+              chan_send (chUid c2) p3
+
+{-
+// csid may be address format
+void peer_send(switch_t s, hn_t to, char *address)
+{
+  char *csid, *ip = NULL, *port;
+  packet_t punch = NULL;
+  crypt_t cs;
+  chan_t c;
+  packet_t p;
+
+  if(!address) return;
+  if(!(csid = strchr(address,','))) return;
+  *csid = 0;
+  csid++;
+  // optional address ,ip,port for punch
+  if((ip = strchr(csid,',')))
+  {
+    *ip = 0;
+    ip++;
+  }
+  if(!(cs = xht_get(s->index,csid))) return;
+
+  // new peer channel
+  c = chan_new(s, to, "peer", 0);
+  c->handler = peer_handler;
+  p = chan_packet(c);
+  packet_set_str(p,"peer",address);
+  packet_body(p,cs->key,cs->keylen);
+
+  // send the nat punch packet if ip,port is given
+  if(ip && (port = strchr(ip,',')))
+  {
+    *port = 0;
+    port++;
+    punch = packet_new();
+    c->arg = punch->out = path_new("ipv4"); // free path w/ peer channel cleanup
+    path_ip(punch->out,ip);
+    path_port(punch->out,atoi(port));
+    switch_sendingQ(s,punch);
+  }
+
+  chan_send(c, p);
+}
+-}
+
+
+-- ---------------------------------------------------------------------
+
+peer_handler :: Uid -> TeleHash ()
+peer_handler cid = do
+  c <- getChan cid
+  -- remove the NAT punch path if any
+  case chArg c of
+    CArgPath path -> do
+      path_free path
+      putChan $ c { chArg = CArgNone }
+      return ()
+    _ -> return ()
+
+  logT $ "seek:peer_handler:" ++ show (chTo c)
+  rxs <- chan_pop_all cid
+  forM_ rxs $ \p -> do
+    -- logT $ "peer_handler:processing " ++ show p
+    let mrelayp = fromNetworkPacket (LP $ unBody $ paBody $ rtPacket p)
+    logT $ "peer_handler:tunneled packet " -- ++ show mrelayp
+    case mrelayp of
+      Nothing -> do
+        logT $ "peer_handler:discarding bad tunneled packet:" ++ show p
+      Just relayp -> do
+        logT $ "peer_handler:calling switch_receive for tunneled packet:" -- ++ show relayp
+        let path = (pathFromPathJson $ rtSender p)
+            path2 = path { pBridgeChan = Just cid }
+        switch_receive relayp path2 (rtAt p)
+  -- TODO: process relayed packets
+
+{-
+void peer_handler(chan_t c)
+{
+  // remove the nat punch path if any
+  if(c->arg)
+  {
+    path_free((path_t)c->arg);
+    c->arg = NULL;
+  }
+
+  DEBUG_PRINTF("peer handler %s",c->to->hexname);
+  // TODO process relay'd packets
+}
+-}
+
+-- ---------------------------------------------------------------------
+
+path_free :: PathJson -> TeleHash ()
+path_free _path = return ()
+
+{-
+void path_free(path_t p)
+{
+  if(p->id) free(p->id);
+  if(p->json) free(p->json);
+  free(p);
+}
+-}
 

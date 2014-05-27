@@ -343,6 +343,8 @@ data HashContainer = H
   , hPaths    :: !(Map.Map PathJson Path)
   , hLast     :: !(Maybe PathJson)
   , hChans    :: !(Map.Map ChannelId Uid)
+  , hVias     :: !(Map.Map HashName [String]) -- hn's that returned a see for
+                                     -- this hn
   , hOnopen   :: !(Maybe TxTelex)
   , hParts    :: !(Maybe Parts)
   , hIsSeed   :: !Bool
@@ -371,6 +373,7 @@ newHashContainer hn = H { hHashName = hn
                         , hPaths = Map.empty
                         , hLast = Nothing
                         , hChans = Map.empty
+                        , hVias = Map.empty
                         , hOnopen = Nothing
                         , hParts = Nothing
                         , hIsSeed = False

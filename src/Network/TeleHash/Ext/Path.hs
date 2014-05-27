@@ -2,7 +2,6 @@ module Network.TeleHash.Ext.Path
   (
     ext_path
   , path_send
-  , path_free
   , path_sync
   ) where
 
@@ -72,6 +71,7 @@ ext_path cin = do
 
 -- ---------------------------------------------------------------------
 
+-- |Send a path request message to the given HashName
 path_send :: HashName -> TeleHash ()
 path_send to = do
   logT $ "path_send " ++ show to
@@ -90,7 +90,28 @@ path_send to = do
                  then packet_set p "paths" (Map.keys (hPaths ownHc))
                  else p
       logT $ "path_send:sending: " ++ show (to,showJson (tJs p2))
-      chan_send (chUid c2) p2
+      -- sw <- get
+      if False
+      -- if tOut p2 == PNone && isNothing (swExternalIPP sw)
+        then do
+          -- if no default route, and our external IP is not known
+          -- yet, send to all known external ones
+          -- TODO: should not just copy the packet?
+          hc <- getHN to
+          forM_ (Map.keys (hPaths hc)) $ \path -> do
+            cp <- chan_new to "path" Nothing
+            let cp2 = cp { chHandler = Just path_handler }
+            putChan cp2
+            mp3 <- chan_packet (chUid cp2) True
+            case mp3 of
+              Nothing -> return ()
+              Just p3 -> do
+                let p4 = if Map.size (hPaths ownHc) > 0
+                           then packet_set p3 "paths" (Map.keys (hPaths ownHc))
+                           else p3
+                logT $ "path_send:sending to path " ++ showPathJson path
+                chan_send (chUid cp) (p4 { tOut = path })
+        else chan_send (chUid c2) p2
 
 -- ---------------------------------------------------------------------
 
@@ -127,7 +148,9 @@ path_handler cid = do
                 Just ip -> do
                   logT $ "path_handler:checking ip:" ++ show ip
                   if isLocalIP ip || not (hIsSeed hc)
-                    then return ()
+                    then do
+                      logT $ "path_handler:(isLocalIP ip,not (hIsSeed hc))=" ++ show (isLocalIP ip,not (hIsSeed hc))
+                      return ()
                     else do
                       logR $ "path_handler:got our remote ip:" ++ show ip
                       sw <- get
@@ -168,20 +191,6 @@ getPathShareOrder path
 pathShareOrder :: Map.Map PathType Integer
 pathShareOrder = Map.fromList [(PtBlueTooth,1),(PtWebRtc,2),(PtIPv6,3),(PtIPv4,4),(PtHttp,5)];
 -- pathShareOrder = Map.fromList [("bluetooth",1),("webrtc",2),("ipv6",3),("ipv4",4),("http",5)];
-
--- ---------------------------------------------------------------------
-
-path_free :: PathJson -> TeleHash ()
-path_free _path = return ()
-
-{-
-void path_free(path_t p)
-{
-  if(p->id) free(p->id);
-  if(p->json) free(p->json);
-  free(p);
-}
--}
 
 -- ---------------------------------------------------------------------
 
