@@ -67,6 +67,7 @@ ext_link c = do
           -- Check if we have the current hn in our dht
           insertIntoDht (chTo c)
 
+
           -- send a response if this is a new incoming
           -- if(!chan.sentAt) packet.from.link();
           case chLast c2 of
@@ -78,6 +79,8 @@ ext_link c = do
             Nothing -> do
               logT $ "ext_link:creating new link to hn:" ++ show (hHashName hc)
               void $ link_hn (hHashName hc) (Just $ chUid c2)
+              send_keepalive (chUid c2)
+
 
           process_link_seed (chUid c2) p lrp
 
@@ -188,6 +191,7 @@ link_handler cid = do
         if packet_has_key p "err"
           then do
             logR $ "LINKDOWN:" ++ showChanShort c ++ ": " ++ packet_get_str_always p "err"
+            logT $ "link_handler:(hLinkChan from, chUid c):" ++ show (hLinkChan from, chUid c)
             deleteFromDht (chTo c)
             -- if this HN was ever active, try to re-start it on a new
             -- channel

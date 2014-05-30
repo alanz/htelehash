@@ -180,7 +180,7 @@ switch_receive rxPacket path timeNow = do
 
     LinePacket pbody -> do
       -- its a line
-      logT $ "receive:got line msg"
+      logT $ "switch_receive:got line msg:length=" ++ show (BC.length pbody)
       let lineID = BC.unpack $ B16.encode $ BC.take 16 pbody
       -- logT $ "receive:lineID=" ++ lineID
       mfrom <- getHexLineMaybe lineID

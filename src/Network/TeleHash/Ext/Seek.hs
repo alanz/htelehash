@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Network.TeleHash.Ext.Seek
   (
     ext_seek
@@ -25,6 +26,7 @@ import Network.TeleHash.Utils
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import qualified Data.Text as Text
 
 -- ---------------------------------------------------------------------
 
@@ -214,11 +216,12 @@ seek_handler cid = do
                 Just see2 -> do
                   sw <- get
                   forM_ see2 $ \see -> do
-                    let address = splitOn "," see
-                    case address of
-                      (hn:_) -> do
-                        if (HN hn /= swId sw)
-                          then peer_send (chTo c) address
+                    let fields = Text.splitOn "," (Text.pack see)
+                    mhn <- hn_fromaddress (map Text.unpack fields) (chTo c)
+                    case mhn of
+                      Just hn -> do
+                        if (hn /= swId sw)
+                          then peer_send (chTo c) (map Text.unpack fields)
                           else return ()
                       _ -> do
                         logT $ "seek_handler:cannot process see " ++ see
