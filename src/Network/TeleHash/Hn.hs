@@ -69,7 +69,8 @@ hn_fromjson p = do
                           if (BC.length (unBody $ paBody $ rtPacket p) /= 0)
                             then do
                               c <- crypt_new (hCsid hc) Nothing (Just (unBody $ paBody $ rtPacket p))
-                              putHN $ hc { hCrypto = c}
+                              -- putHN $ hc { hCrypto = c}
+                              withHN hn $ \hc -> hc { hCrypto = c}
                               return ()
                             else do
                               let mpp = packet_get_packet p "keys"
@@ -83,7 +84,8 @@ hn_fromjson p = do
                                     Nothing -> return ()
                                     Just key -> do
                                       c <- crypt_new (hCsid hc) (Just key) Nothing
-                                      putHN $ hc { hCrypto = c}
+                                      -- putHN $ hc { hCrypto = c}
+                                      withHN hn $ \hc -> hc { hCrypto = c}
                                       return ()
               hcFinal <- getHN hn
               if isNothing (hCrypto hcFinal)
@@ -153,8 +155,9 @@ hn_frompacket inner deopen = do
       hc2 <- if isNothing (hCrypto hc)
               then do
                 mcrypt <- crypt_new (doCsid deopen) Nothing (Just $ doKey deopen)
-                let hc1 = hc { hCrypto = mcrypt }
-                putHN hc1
+                -- let hc1 = hc { hCrypto = mcrypt }
+                -- putHN hc1
+                hc1 <- withHN hn $ \hc -> hc { hCrypto = mcrypt }
                 return hc1
               else return hc
       return (Just hc2)
@@ -188,13 +191,18 @@ hn_getparts parts = do
   mhc <- getHNMaybe hashName
   case mhc of
     Nothing -> do
-      putHN $ newHashContainer hashName
+      -- putHN $ newHashContainer hashName
+      void $ newHN hashName
       return ()
     Just _ -> return ()
-  hc <- getHN hashName
-  putHN $ hc { hCsid = "1a"
-             , hParts = Just parts
-             }
+  -- hc <- getHN hashName
+  -- putHN $ hc { hCsid = "1a"
+  --            , hParts = Just parts
+  --            }
+  hc <- withHN hashName $ \hc
+     -> hc { hCsid = "1a"
+           , hParts = Just parts
+           }
   return (Just (hHashName hc))
 
 {-
@@ -392,8 +400,9 @@ hn_get hn = do
   case Map.lookup hn (swIndex sw) of
     Just hc -> return hc
     Nothing -> do
-      let hc = newHashContainer hn
-      putHN hc
+      -- let hc = newHashContainer hn
+      -- putHN hc
+      hc <- newHN hn
       return hc
 
 {-

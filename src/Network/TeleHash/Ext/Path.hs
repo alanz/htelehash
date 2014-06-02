@@ -133,7 +133,8 @@ path_handler cid = do
       if any isJust [merr,mend]
         then do
           logT $ "path_handler:err or end in path packet:" ++ showJson (rtJs p)
-          putHN $ hc { hPathSync = ps { psSyncing = False }}
+          -- putHN $ hc { hPathSync = ps { psSyncing = False }}
+          withHN (chTo c) $ \hc -> hc { hPathSync = ps { psSyncing = False }}
           return ()
         else do
           let mv = packet_get p "path"
@@ -175,7 +176,11 @@ path_handler cid = do
           logT $ "path_handler:" ++ showChan c ++ ",best=" ++ showPathJson bestPath
           hc2 <- getHN (hHashName hc)
           now <- io $ getClockTime
-          putHN $ hc2 { hPathSync = ps2 { psLastAt = Just now }
+          -- putHN $ hc2 { hPathSync = ps2 { psLastAt = Just now }
+          --             , hLast = Just bestPath
+          --             }
+          withHN (hHashName hc) $ \hc ->
+                   hc { hPathSync = ps2 { psLastAt = Just now }
                       , hLast = Just bestPath
                       }
           return ()
@@ -210,16 +215,22 @@ path_sync hn = do
           now <- io $ getClockTime
           if isTimeOut now (psLastAt ps) param_path_sync_timeout_secs
             then do
-              putHN $ hc { hPathSync = ps { psSyncing = False }}
+              -- putHN $ hc { hPathSync = ps { psSyncing = False }}
+              void $ withHN hn $ \hc -> hc { hPathSync = ps { psSyncing = False }}
             else return ()
         else do
           logT $ "path_sync:starting new sync"
           path_send hn
           now <- io $ getClockTime
-          putHN $ hc { hPathSync = (newPathSync hn) { psSyncing = True
-                                                    , psLastAt = Just now
-                                                    }
-                     }
+          -- putHN $ hc { hPathSync = (newPathSync hn) { psSyncing = True
+          --                                           , psLastAt = Just now
+          --                                           }
+          --            }
+          void $ withHN hn $ \hc ->
+              hc { hPathSync = (newPathSync hn) { psSyncing = True
+                                                , psLastAt = Just now
+                                                }
+                 }
 
 
 {-

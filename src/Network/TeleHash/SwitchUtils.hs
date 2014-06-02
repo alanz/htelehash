@@ -38,8 +38,9 @@ util_loadjson = do
   seeds <- bucket_load "./data/seeds.json.local"
 
   forM_ (Set.elems seeds) $ \seed -> do
-    hc <- getHN seed
-    putHN $ hc { hIsSeed = True }
+    -- hc <- getHN seed
+    -- putHN $ hc { hIsSeed = True }
+    void $ withHN seed $ \hc -> hc { hIsSeed = True }
     switch_seed seed
 
 {-

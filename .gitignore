@@ -34,3 +34,5 @@
 /data/seeds.json.official
 /line.log
 /src/line.log
+/.cabal-sandbox/
+/cabal.sandbox.config

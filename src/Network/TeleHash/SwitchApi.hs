@@ -151,8 +151,9 @@ switch_receive rxPacket path timeNow = do
                       logR $ "line in " ++ show (cLined lineCrypto,(hHashName from),cLineHex lineCrypto)
                       -- DEBUG_PRINTF("line in %d %s %d %s",from->c->lined,from->hexname,from,from->c->lineHex);
                       logP $ ">>>>:LINE IN " ++ show (cLined lineCrypto,(hHashName from),cLineHex lineCrypto)
-                      let from2 = from { hCrypto = Just lineCrypto }
-                      putHN from2
+                      -- let from2 = from { hCrypto = Just lineCrypto }
+                      -- putHN from2
+                      from2 <- withHN (hHashName from) $ \from -> from { hCrypto = Just lineCrypto }
                       if cLined lineCrypto == LineReset
                         then chan_reset (hHashName from2)
                         else return ()
@@ -174,7 +175,8 @@ switch_receive rxPacket path timeNow = do
                           return ()
                         Just onopen -> do
                           logT $ "switch_receive:openize:processing onopen:" ++ show onopen
-                          putHN $ from3 { hOnopen = Nothing }
+                          -- putHN $ from3 { hOnopen = Nothing }
+                          withHN (hHashName from) $ \from -> from { hOnopen = Nothing }
                           switch_send (onopen { tOut = pJson (gfromJust "onopen" inVal) })
                           return ()
 
@@ -391,7 +393,8 @@ switch_send p = do
       p2 <- telexToPacket p
       logT $ "switch_send:p2=" ++ show p2
       (mcrypto1,mlined) <- crypt_lineize (hCrypto hc) p2
-      putHN $ hc { hCrypto = mcrypto1 }
+      -- putHN $ hc { hCrypto = mcrypto1 }
+      withHN (tTo p) $ \hc -> hc { hCrypto = mcrypto1 }
       case mlined of
         Just lined -> do
           switch_sendingQ $ p2 { tLp = Just lined}
@@ -399,7 +402,8 @@ switch_send p = do
           -- queue most recent packet to be sent after opened
           logT $ "switch_send:queueing packet until line:" ++ show (tTo p2) ++ "," ++ showJson (tJs p2)
           hc2 <- getHN (tTo p2)
-          putHN $ hc2 { hOnopen = Just p2 }
+          -- putHN $ hc2 { hOnopen = Just p2 }
+          withHN (tTo p2) $ \hc -> hc { hOnopen = Just p2 }
 
           -- no line, so generate open instead
           switch_open (tTo p2) Nothing
@@ -410,7 +414,8 @@ switch_send p = do
             then return ()
             else do
               let vias = Map.toList (hVias hc)
-              putHN $ hc { hVias = Map.empty }
+              -- putHN $ hc { hVias = Map.empty }
+              withHN (hHashName hc) $ \hc -> hc { hVias = Map.empty }
               forM_ vias $ \(hn,see) -> do
                 peer_send hn see
                 return ()
@@ -719,7 +724,6 @@ int switch_note(switch_t s, packet_t note)
 chan_start :: HashName -> String -> TeleHash TChan
 chan_start hn typ = do
   c <- chan_new hn typ Nothing
-  putChan c
   window <- gets swWindow
   chan_reliable (chUid c) window
 
@@ -783,8 +787,9 @@ chan_new toHn typ mcid = do
               , chMiss     = Nothing
               }
   withHN toHn (\hc -> hc { hChans = Map.insert cid (chUid chan) (hChans hc) })
-
   putChan chan
+
+  logT $ "chan_new:created " ++ showChan chan
   return chan
 
 
@@ -936,7 +941,7 @@ chan_reset toHn = do
                         then hc {hChanOut = CID base}
                         else hc
   -- fail any existing chans from them
-  withHNM toHn $ \hc -> do
+  void $ withHNM toHn $ \hc -> do
     forM_ (Map.elems $ hChans hc) $ \cid -> do
       ch <- getChan cid
       if channelSlot (chId ch) == channelSlot (CID base)
@@ -983,7 +988,9 @@ chan_in hn p = do
           -- logT $ "chan_in:cid,hChanout from=" ++ show (cid,hChanOut from)
           if (mtyp == Nothing
              || channelSlot cid == channelSlot (hChanOut from))
-            then return Nothing
+            then do
+              logT $ "chan_in:can't make channel " ++ show (hn,mtyp,cid,hChanOut from)
+              return Nothing
             else do
               logT $ "chan_in:making new chan"
               chan <- chan_new hn (gfromJust "chan_in" mtyp) (Just cid)
@@ -1163,7 +1170,8 @@ chan_fail cid merr = do
   let c2 = c { chState = ChanEnded }
   putChan c2
   to <- getHN $ chTo c2
-  putHN $ to { hChans = Map.delete (chId c2) (hChans to) }
+  -- putHN $ to { hChans = Map.delete (chId c2) (hChans to) }
+  withHN (chTo c2) $ \to -> to { hChans = Map.delete (chId c2) (hChans to) }
   chan_queue c2
   return ()
 
@@ -1939,7 +1947,9 @@ link_hn hn mcid = do
         Just cid -> getChan cid
     Just cid -> getChan cid
 
-  putHN $ hc { hLinkChan = Just (chUid c) }
+  -- hc2 <- getHN hn
+  -- putHN $ hc2 { hLinkChan = Just (chUid c) }
+  withHN hn $ \hc2 -> hc2 { hLinkChan = Just (chUid c) }
 
   mp <- chan_packet (chUid c) True
   case mp of
@@ -2039,11 +2049,13 @@ hn_fromaddress address hnPeer = do
       let hn = HN hnStr
 
       hc <- hn_get hn
-      putHN $ hc { hVias = Map.insert hnPeer address (hVias hc) }
-      hc2 <- getHN hn
+      -- putHN $ hc { hVias = Map.insert hnPeer address (hVias hc) }
+      hc2 <- withHN hn $ \hc -> hc { hVias = Map.insert hnPeer address (hVias hc) }
+      -- hc2 <- getHN hn
       case hCrypto hc2 of
         Nothing -> do
-          putHN $ hc2 {hCsid = csid}
+          -- putHN $ hc2 {hCsid = csid}
+          void $ withHN hn $ \hc2 -> hc2 {hCsid = csid}
         Just _ -> return ()
 
       -- Send the NAT punch if ip,port given

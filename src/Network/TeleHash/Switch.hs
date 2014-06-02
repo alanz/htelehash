@@ -592,11 +592,16 @@ switch_init anId = do
   put sw2
 
   -- Make sure our own id is a known hashname
-  putHN $ (newHashContainer (swId sw2)) { hCrypto = Just c
-                                        , hCsid = "1a" -- hardcoded for now
-                                        , hParts = Just parts
-                                        }
-
+  newHN (swId sw2)
+  -- putHN $ (newHashContainer (swId sw2)) { hCrypto = Just c
+  --                                       , hCsid = "1a" -- hardcoded for now
+  --                                       , hParts = Just parts
+  --                                       }
+  withHN (swId sw2) $ \hc -> hc { hCrypto = Just c
+                                , hCsid = "1a" -- hardcoded for now
+                                , hParts = Just parts
+                                }
+  return ()
 {-
 
 int switch_init(switch_t s, packet_t keys)

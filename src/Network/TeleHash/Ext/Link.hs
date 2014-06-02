@@ -58,9 +58,13 @@ ext_link c = do
           -- add in this link
           hc <- getHN (chTo c)
           now <- io $ getClockTime
-          putHN $ hc { hLinkAge = Just now
-                     , hLinkChan = Just (chUid c)
-                     }
+          -- putHN $ hc { hLinkAge = Just now
+          --            , hLinkChan = Just (chUid c)
+          --            }
+          withHN (chTo c) $ \hc ->
+            hc { hLinkAge = Just now
+               , hLinkChan = Just (chUid c)
+               }
           putChanInHnIfNeeded (chTo c) (chUid c)
 
           logT $ "ext_link:inserting into dht:" ++ show (chTo c)
@@ -196,7 +200,8 @@ link_handler cid = do
             -- if this HN was ever active, try to re-start it on a new
             -- channel
             hc <- getHN (chTo c)
-            putHN $ hc { hLinkChan = Nothing }
+            -- putHN $ hc { hLinkChan = Nothing }
+            withHN (chTo c) $ \hc -> hc { hLinkChan = Nothing }
             void $ link_hn (chTo c) Nothing
           else do
             -- update seed status
@@ -205,7 +210,8 @@ link_handler cid = do
               Just (Aeson.Bool isSeed) -> do
                 logT $ "link_handler:updating hIsSeed for " ++ (show (chTo c,isSeed))
                 hc <- getHN (chTo c)
-                putHN $ hc { hIsSeed = isSeed }
+                -- putHN $ hc { hIsSeed = isSeed }
+                void $ withHN (chTo c) $ \hc -> hc { hIsSeed = isSeed }
               Just _ -> do
                 logT $ "link_handler:got strange seed value for:" ++ show p
 

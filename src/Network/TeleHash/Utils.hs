@@ -47,7 +47,8 @@ module Network.TeleHash.Utils
   , getOwnHN
   , getHN
   , getHNMaybe
-  , putHN
+  -- , putHN
+  , newHN
   , withHN
   , withHNM
   , putPath
@@ -503,7 +504,7 @@ rmChan uid = do
 
 rmChanFromHn :: HashName -> ChannelId -> TeleHash ()
 rmChanFromHn hn cid = do
-  withHN hn $ \hc ->
+  void $ withHN hn $ \hc ->
     hc { hChans = Map.delete cid (hChans hc) }
 
 -- ---------------------------------------------------------------------
@@ -612,6 +613,13 @@ getOwnHN = do
 
 -- ---------------------------------------------------------------------
 
+newHN :: HashName -> TeleHash HashContainer
+newHN hn = do
+  let hc = newHashContainer hn
+  putHN hc
+  return hc
+
+-- ---------------------------------------------------------------------
 putHN :: HashContainer -> TeleHash ()
 putHN hc = do
   sw <- get
@@ -619,18 +627,21 @@ putHN hc = do
 
 -- ---------------------------------------------------------------------
 
-withHN :: HashName -> (HashContainer -> HashContainer) -> TeleHash ()
+withHN :: HashName -> (HashContainer -> HashContainer) -> TeleHash HashContainer
 withHN hn fn = do
   hc <- getHN hn
-  putHN (fn hc)
+  let hc' = (fn hc)
+  putHN hc'
+  return hc'
 
 -- ---------------------------------------------------------------------
 
-withHNM :: HashName -> (HashContainer -> TeleHash HashContainer) -> TeleHash ()
+withHNM :: HashName -> (HashContainer -> TeleHash HashContainer) -> TeleHash HashContainer
 withHNM hn fn = do
   hc <- getHN hn
   hc' <- fn hc
   putHN hc'
+  return hc'
 
 -- ---------------------------------------------------------------------
 
