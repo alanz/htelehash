@@ -19,7 +19,6 @@ import Network.TeleHash.Crypt
 import Network.TeleHash.Packet
 import Network.TeleHash.Path
 import Network.TeleHash.Paths
--- import Network.TeleHash.SwitchApi
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
 
@@ -405,27 +404,5 @@ hn_get hn = do
       hc <- newHN hn
       return hc
 
-{-
-hn_t hn_get(xht_t index, unsigned char *bin)
-{
-  hn_t hn;
-  unsigned char hex[65];
-  
-  if(!bin) return NULL;
-  util_hex(bin,32,hex);
-  hn = xht_get(index, (const char*)hex);
-  if(hn) return hn;
-
-  // init new hashname container
-  if(!(hn = malloc(sizeof (struct hn_struct)))) return NULL;
-  memset(hn,0,sizeof (struct hn_struct));
-  memcpy(hn->hashname, bin, 32);
-  memcpy(hn->hexname, hex, 65);
-  xht_set(index, (const char*)hn->hexname, (void*)hn);
-  if(!(hn->paths = malloc(sizeof (path_t)))) return hn_free(hn);
-  hn->paths[0] = NULL;
-  return hn;
-}
--}
 
 -- ---------------------------------------------------------------------

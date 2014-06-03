@@ -115,12 +115,12 @@ switch_receive rxPacket path timeNow = do
     OpenPacket _b _bs -> do
       -- process open packet
       open <- crypt_deopenize rxPacket
-      logP $ "DEOPEN " ++ showJson (doJs open)
       case open of
         DeOpenizeVerifyFail -> do
           logT $ "DEOPEN fail for " ++ show rxPacket
           return ()
         deOpenizeResult -> do
+          logP $ "DEOPEN " ++ showJson (doJs open)
           logT $ "receive.deopenize verified ok " -- ++ show open
           let minner = parseJsVal (doJs open) :: Maybe OpenizeInner
           case minner of

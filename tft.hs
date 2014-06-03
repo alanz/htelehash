@@ -340,6 +340,10 @@ app = do
               chStr <- showAllDht
               logR chStr
 
+           | isPrefixOf "/seek" l -> do
+              logR $ "Seeking all seeds"
+              manual_seek
+
            | otherwise -> do
               -- default send as message
               cid <- getChatCurrent

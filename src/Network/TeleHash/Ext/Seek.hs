@@ -4,6 +4,8 @@ module Network.TeleHash.Ext.Seek
     ext_seek
   , seek_auto
   , peer_send
+
+  , manual_seek
   ) where
 
 import Control.Exception
@@ -17,6 +19,7 @@ import System.Time
 
 import Network.TeleHash.Dht
 import Network.TeleHash.Ext.Path
+import Network.TeleHash.Hn
 import Network.TeleHash.Packet
 import Network.TeleHash.Paths
 import Network.TeleHash.SwitchApi
@@ -300,6 +303,24 @@ void seek_send(switch_t s, seek_t sk, hn_t to)
   chan_send(c, p);
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+arbitrary_hashname :: TeleHash HashName
+arbitrary_hashname = do
+  hn <- randomHEX 32
+  return (HN hn)
+
+-- |Manually initiate a seek to each seed for itself, purely for experimentation from the UI
+manual_seek :: TeleHash ()
+manual_seek = do
+  sw <- get
+  forM_ (Set.toList $ swSeeds sw) $ \seed -> do
+    rhn <- arbitrary_hashname
+    void $ hn_get rhn -- Make sure we have a record for it
+    sk <- seek_get rhn
+    seek_send sk seed
+
 
 -- ---------------------------------------------------------------------
 
