@@ -63,4 +63,12 @@ switch_loop = do
           forM_ (Map.keys (swIndex sw2)) $ \hn ->do
             path_sync hn
         else return ()
+
+      if now `mod` param_reseed_secs == 0
+        then do
+          sw2 <- get
+          forM_ (Set.toList (swSeeds sw2)) $ \seed -> do
+            void $ link_hn seed Nothing
+        else return ()
+
       return ()

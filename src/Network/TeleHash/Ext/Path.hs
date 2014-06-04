@@ -118,13 +118,13 @@ path_send to = do
 -- |Process responses from the remote node to our path validation request
 path_handler :: Uid -> TeleHash ()
 path_handler cid = do
-  logT $ "path_handler entered for " ++ show cid
   c <- getChan cid
+  logT $ "path_handler entered for " ++ showChan c
 
   let
     -- TODO: make respFunc a first class func to be called from switch_receive
     respFunc p = do
-      logT $ "ext_link:respFunc:processing " ++ showJson (rtJs p)
+      logT $ "path_handler:respFunc:processing " ++ showJson (rtJs p)
       hc <- getHN (chTo c)
       let ps = hPathSync hc
       -- always respond/ack, except if there is an error or end

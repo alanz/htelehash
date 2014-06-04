@@ -14,62 +14,34 @@ module Network.TeleHash.Ext.Chat
 
   ) where
 
--- import Control.Applicative
--- import Control.Concurrent
 import Control.Exception
 import Control.Monad
--- import Control.Monad.Error
 import Control.Monad.State
--- import Crypto.Random
--- import Data.Aeson (object,(.=), (.:), (.:?) )
--- import Data.Aeson.Encode
 import Data.Aeson.Types
 import Data.Bits
 import Data.Char
--- import Data.IP
 import Data.List
 import Data.List.Split
 import Data.Maybe
--- import Data.String.Utils
--- import Data.Text.Lazy.Builder
--- import Data.Typeable
 import Data.Word
--- import Network.BSD
--- import Network.Socket
 import Prelude hiding (id, (.), head, either)
--- import System.IO
--- import System.Log.Handler.Simple
--- import System.Log.Logger
 import System.Time
 
 import Network.TeleHash.Convert
--- import Network.TeleHash.Crypt
 import Network.TeleHash.Ext.Thtp
 import Network.TeleHash.Hn
 import Network.TeleHash.Packet
--- import Network.TeleHash.Path
--- import Network.TeleHash.Paths
 import Network.TeleHash.SwitchApi
 import Network.TeleHash.SwitchUtils
 import Network.TeleHash.Types
 import Network.TeleHash.Utils
 
--- import qualified Crypto.Hash.SHA256 as SHA256
--- import qualified Crypto.PubKey.DH as DH
--- import qualified Crypto.Types.PubKey.ECDSA as ECDSA
 import qualified Data.Aeson as Aeson
--- import qualified Data.ByteString as B
--- import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
--- import qualified Data.Digest.Pure.SHA as SHA
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
--- import qualified Data.Set as Set
 import qualified Data.Text as Text
--- import qualified Data.Text.Lazy as TL
--- import qualified Network.Socket as NS
--- import qualified Network.Socket.ByteString as SB
 
 -- ---------------------------------------------------------------------
 
@@ -1368,72 +1340,76 @@ ext_chat cid = do
           chan_fail cid (Just "500")
           return ()
         Just p -> do
-          mchat <- chat_get (packet_get_str p "to")
-          case mchat of
-            Nothing -> do
-              chan_fail cid (Just "500")
-              return ()
-            Just chat -> do
-              logT $ "ext_chat: got chat " ++ show chat
-              perm <- chat_perm (ecId chat) (chTo c)
-              let idVal = packet_get_str_always p "from"
-              -- logT $ "ext_chat:chat from is:" ++ show (idVal,chatIdToString $ ecId chat,chTo c,perm)
-              continue <- case perm of
-                PermBlocked -> do
-                  chan_fail cid (Just "blocked")
-                  return False
-                PermReadOnly -> do
-                  if idVal /= ""
-                    then do
-                      chan_fail cid (Just "read-only")
-                      return False
-                    else return True
-                PermAllowed -> do
-                  return True
-              if not continue
-                then return ()
-                else do
-                  -- legit new chat conn
-                  logT $ "ext_chat:legit new chat conn"
-                  cr <- chatr_new chat (chUid c)
-                  let r     = cr { ecrOnline = True }
-                      c2    = c { chArg = CArgChatR (ecrId r) }
-                      chat2 = chat { ecConn = Map.insert (chTo c) (chUid c2) (ecConn chat) }
-                  putChatR r
-                  putChan c2
-                  putChat chat2
-
-                  -- response
-                  mp2 <- chan_packet (chUid c2) True
-                  let p1 = gfromJust "ext_chat" mp2
-                  p2 <- case ecJoin chat2 of
-                    Nothing -> return p1
-                    Just j -> do
-                      let r2' = r { ecrJoined = True }
-                          p2' = packet_set_str p1 "from" j
-                      putChatR r2'
-                      return p2'
-
-                  -- add to roster if given
-                  if idVal /= ""
-                    then do
-                      void $ chat_add (ecId chat2) (unHN $ chTo c) idVal
-                    else return ()
-                  chat3 <- getChat (ecId chat2)
-                  -- logT $ "ext_chat:chat3=" ++ show chat3
-
-                  -- re-fetch roster if hashes don't match
-                  if packet_get_str_always p2 "roster" /= (unCH $ ecRHash chat3)
-                    then do
-                      chat_cache (ecId chat3) (ecOrigin chat3) Nothing
-                    else return ()
-
-                  let p3 = packet_set_str p2 "roster" (unCH $ ecRHash chat3)
-
-                  logT $ "ext_chat:p3=" ++ show p3
-
-                  void $ chan_send (chUid c2) p3
+          if packet_has_key p "err"
+            then do
+              logT $ "ext_chat:got err packet:" ++ (showJson $ rtJs p)
+            else do
+              mchat <- chat_get (packet_get_str p "to")
+              case mchat of
+                Nothing -> do
+                  chan_fail cid (Just "500")
                   return ()
+                Just chat -> do
+                  logT $ "ext_chat: got chat " ++ show chat
+                  perm <- chat_perm (ecId chat) (chTo c)
+                  let idVal = packet_get_str_always p "from"
+                  -- logT $ "ext_chat:chat from is:" ++ show (idVal,chatIdToString $ ecId chat,chTo c,perm)
+                  continue <- case perm of
+                    PermBlocked -> do
+                      chan_fail cid (Just "blocked")
+                      return False
+                    PermReadOnly -> do
+                      if idVal /= ""
+                        then do
+                          chan_fail cid (Just "read-only")
+                          return False
+                        else return True
+                    PermAllowed -> do
+                      return True
+                  if not continue
+                    then return ()
+                    else do
+                      -- legit new chat conn
+                      logT $ "ext_chat:legit new chat conn"
+                      cr <- chatr_new chat (chUid c)
+                      let r     = cr { ecrOnline = True }
+                          c2    = c { chArg = CArgChatR (ecrId r) }
+                          chat2 = chat { ecConn = Map.insert (chTo c) (chUid c2) (ecConn chat) }
+                      putChatR r
+                      putChan c2
+                      putChat chat2
+
+                      -- response
+                      mp2 <- chan_packet (chUid c2) True
+                      let p1 = gfromJust "ext_chat" mp2
+                      p2 <- case ecJoin chat2 of
+                        Nothing -> return p1
+                        Just j -> do
+                          let r2' = r { ecrJoined = True }
+                              p2' = packet_set_str p1 "from" j
+                          putChatR r2'
+                          return p2'
+
+                      -- add to roster if given
+                      if idVal /= ""
+                        then do
+                          void $ chat_add (ecId chat2) (unHN $ chTo c) idVal
+                        else return ()
+                      chat3 <- getChat (ecId chat2)
+                      -- logT $ "ext_chat:chat3=" ++ show chat3
+
+                      -- re-fetch roster if hashes don't match
+                      if packet_get_str_always p2 "roster" /= (unCH $ ecRHash chat3)
+                        then do
+                          chat_cache (ecId chat3) (ecOrigin chat3) Nothing
+                        else return ()
+
+                      let p3 = packet_set_str p2 "roster" (unCH $ ecRHash chat3)
+
+                      logT $ "ext_chat:p3=" ++ show p3
+
+                      void $ chan_send (chUid c2) p3
+                      return ()
 
   rxs <- chan_pop_all cid
   forM_ rxs $ \p -> do

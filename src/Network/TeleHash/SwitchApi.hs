@@ -117,10 +117,10 @@ switch_receive rxPacket path timeNow = do
       open <- crypt_deopenize rxPacket
       case open of
         DeOpenizeVerifyFail -> do
-          logT $ "DEOPEN fail for " ++ show rxPacket
+          logT $ ">>>>:DEOPEN fail for " ++ show rxPacket
           return ()
         deOpenizeResult -> do
-          logP $ "DEOPEN " ++ showJson (doJs open)
+          logP $ ">>>>:DEOPEN " ++ showJson (doJs open)
           logT $ "receive.deopenize verified ok " -- ++ show open
           let minner = parseJsVal (doJs open) :: Maybe OpenizeInner
           case minner of
@@ -650,23 +650,55 @@ void switch_seed(switch_t s, hn_t hn)
 
 -- ---------------------------------------------------------------------
 
+-- |Periodic processing for a channel
 chan_tick :: Uid -> TeleHash ()
 chan_tick cid = do
+  c <- getChan cid
   -- logT $ "chan_tick called for " ++ show cid
   -- assert False undefined
+  case chTimeout c of
+    Nothing -> return ()
+    Just timeout -> do
+      now <- io getClockTime
+      -- isTimeOut
+      if isJust (chRecvAt c) && isTimeOut now (chRecvAt c) timeout
+        then do
+          logT $ "chan_tick:got timeout " ++ show (showChan c,now,chRecvAt c,timeout)
+          if chState c /= ChanEnded
+            then do
+              -- signal incoming error if still open, restarts timer
+              let p1 = packet_new (chTo c)
+                  p2 = packet_set_str p1 "err" "timeout"
+                  p3 = packet_set_int p2 "c" (unChannelId $ chId c)
+              chan_receive cid (txTelexToRxTelex p3)
+            else do
+              -- clean up references if needed
+              void $ chan_end cid Nothing
+              return ()
+        else return ()
   return ()
 
 {-
-void walktick(xht_t h, const char *key, void *val, void *arg)
-{
-  chan_t c = (chan_t)val;
-  // TODO check packet resend timers
-  if(c->tick) c->tick(c);
-}
-void chan_tick(switch_t s, hn_t hn)
-{
-  xht_walk(hn->chans, &walktick, NULL);
-}
+-- JS timeout processing
+
+  // raw channels always timeout/expire after the last received packet
+  function timer()
+  {
+    if(chan.timer) clearTimeout(chan.timer);
+    chan.timer = setTimeout(function(){
+      // signal incoming error if still open, restarts timer
+      if(!chan.ended) return hn.receive({js:{err:"timeout",c:chan.id}});
+      // clean up references if ended
+      hn.chanEnded(chan.id);
+    }, arg.timeout);
+  }
+  chan.timeout = function(timeout)
+  {
+    arg.timeout = timeout;
+    timer();
+  }
+  chan.timeout(arg.timeout || defaults.chan_timeout);
+
 -}
 
 -- ---------------------------------------------------------------------
@@ -782,6 +814,8 @@ chan_new toHn typ mcid = do
               , chIn       = []
               , chNotes    = []
               , chHandler  = Nothing
+              , chTimeout  = Just param_chan_timeout_secs
+              , chRecvAt   = Nothing
               , chArg      = CArgNone
               , chSeq      = Nothing
               , chMiss     = Nothing
@@ -835,7 +869,7 @@ chan_free chan = do
   -- remove references
   chan_dequeue (chUid chan)
 
-  rmChanFromHn (chTo chan) (chId chan)
+  rmChanFromHn (chTo chan) (chUid chan)
 
   if (chReliable chan /= 0)
     then do
@@ -1123,17 +1157,23 @@ chan_pop_all uid = do
 -- ---------------------------------------------------------------------
 
 -- flags channel as gracefully ended, optionally adds end to packet
-chan_end :: TChan -> Maybe TxTelex -> TeleHash (TChan,Maybe TxTelex)
-chan_end chan p = do
-  logT $ "channel end " ++ show (chId chan)
+chan_end :: Uid -> Maybe TxTelex -> TeleHash (Maybe TxTelex)
+chan_end chanId p = do
+  logT $ "channel end " ++ show (chanId)
+  chan <- getChan chanId
   let
     pret = case p of
              Nothing -> Nothing
              Just pkt -> Just (packet_set pkt "end" True)
+{-
     c2 = chan {chState = ChanEnded }
   putChan c2
   chan_queue c2
-  return (c2,pret)
+-}
+  chan_dequeue chanId
+  rmChanFromHn (chTo chan) (chUid chan)
+  rmChan chanId
+  return pret
 
 {-
 chan_t chan_end(chan_t c, packet_t p)
@@ -1290,6 +1330,7 @@ chan_receive cid p = do
   if chState c == ChanEnded
     then return ()
     else do
+      now <- io getClockTime
       let
         c2 = if chState c == ChanStarting
                then c {chState = ChanOpen}
@@ -1300,22 +1341,23 @@ chan_receive cid p = do
         c4 = case packet_get_str p "err" of
                Nothing -> c3
                Just _  -> c3 {chState = ChanEnding }
-      putChan c4
-      if (chReliable c4 /= 0)
+        c5 = c4 { chRecvAt = Just now }
+      putChan c5
+      if (chReliable c5 /= 0)
         then do
-          chan_miss_check (chUid c4) p
+          chan_miss_check (chUid c5) p
 
-          r <- chan_seq_receive (chUid c4) p
+          r <- chan_seq_receive (chUid c5) p
           logT $ "chan_receive:chan_seq_receive returned " ++ show (cid,r)
           if not r
             then return () -- queued, nothing more to do
-            else chan_queue c4
+            else chan_queue c5
         else do
           -- add to the end of the raw packet queue
-          let c5 = c4 { chIn = (chIn c4) ++ [p]}
-          putChan c5
+          let c6 = c5 { chIn = (chIn c5) ++ [p]}
+          putChan c6
           -- queue for processing
-          chan_queue c5
+          chan_queue c6
 {-
 // internal, receives/processes incoming packet
 void chan_receive(chan_t c, packet_t p)
@@ -1721,7 +1763,7 @@ chan_seq_init cIn = do
              , seAcked  = 0
              , seIn     = Map.empty
              }
-      c2 = c { chSeq = Just seqVal }
+      c2 = c { chSeq = Just seqVal, chTimeout = Nothing }
   putChan c2
 
 {-
@@ -1937,27 +1979,28 @@ void chan_miss_free(chan_t c)
 -- |create/fetch/maintain a link to this hn
 link_hn :: HashName -> Maybe Uid -> TeleHash (Maybe ChannelId)
 link_hn hn mcid = do
-  logR $ "LINKUP:" ++ show hn
+  logR $ "LINKTRY:" ++ show hn
   hc <- getHN hn
-  l <- link_get
   c <- case mcid of
     Nothing -> do
       case hLinkChan hc of
-        Nothing -> chan_new hn "link" Nothing
+        Nothing -> do
+          c <- chan_new hn "link" Nothing
+          let c2 = c { chTimeout = Just param_link_dead_secs }
+          putChan c2
+          return c2
         Just cid -> getChan cid
     Just cid -> getChan cid
 
-  -- hc2 <- getHN hn
-  -- putHN $ hc2 { hLinkChan = Just (chUid c) }
-  withHN hn $ \hc2 -> hc2 { hLinkChan = Just (chUid c) }
+  void $ withHN hn $ \hc2 -> hc2 { hLinkChan = Just (chUid c) }
 
   mp <- chan_packet (chUid c) True
   case mp of
     Nothing -> return Nothing
     Just p -> do
-      let p2 = if lSeeding l
-                 then packet_set p "seed" True
-                 else p
+      -- TODO: populate "see" and "bridge" values
+      sw <- get
+      let p2 = packet_set p "seed" (swIsSeed sw)
       chan_send (chUid c) p2
       return $ Just (chId c)
 
@@ -1969,7 +2012,7 @@ link_hn hn mcid = do
   {
     if(!callback) callback = function(){}
 
-    debug("LINKUP",hn.hashname);
+    debug("LINKTRY",hn.hashname);
     var js = {seed:self.seed};
     js.see = self.buckets[hn.bucket].sort(function(a,b){ return a.age - b.age }).filter(function(a){ return a.seed }).map(function(seed){ return seed.address(hn) }).slice(0,8);
     // add some distant ones if none
@@ -1995,11 +2038,11 @@ link_hn hn mcid = do
     });
   }
 
-
 -}
 
 -- ---------------------------------------------------------------------
 
+{-
 link_get :: TeleHash Link
 link_get = do
   sw <- get
@@ -2015,6 +2058,7 @@ link_get = do
       put $ sw {swLink = Just l}
       return l
     Just l -> return l
+-}
 
 {-
 link_t link_get(switch_t s)

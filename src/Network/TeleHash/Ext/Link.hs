@@ -83,7 +83,7 @@ ext_link c = do
             Nothing -> do
               logT $ "ext_link:creating new link to hn:" ++ show (hHashName hc)
               void $ link_hn (hHashName hc) (Just $ chUid c2)
-              send_keepalive (chUid c2)
+              -- send_keepalive (chUid c2)
 
 
           process_link_seed (chUid c2) p lrp
@@ -197,6 +197,7 @@ link_handler cid = do
             logR $ "LINKDOWN:" ++ showChanShort c ++ ": " ++ packet_get_str_always p "err"
             logT $ "link_handler:(hLinkChan from, chUid c):" ++ show (hLinkChan from, chUid c)
             deleteFromDht (chTo c)
+            void $ chan_end cid Nothing
             -- if this HN was ever active, try to re-start it on a new
             -- channel
             hc <- getHN (chTo c)

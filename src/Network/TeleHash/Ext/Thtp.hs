@@ -456,7 +456,7 @@ ext_thtp cid = do
                           let note2 = note { tPacket = lp }
                               note3 = packet_set_str note2 "thtp" "resp"
                           void $ chan_reply (chUid c) note3
-                          void $ chan_end c Nothing
+                          void $ chan_end (chUid c) Nothing
                           return True
 
                         Nothing -> do

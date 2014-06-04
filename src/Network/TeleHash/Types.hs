@@ -12,9 +12,12 @@ module Network.TeleHash.Types
   , param_link_ping_secs
   , param_nat_timeout_secs
   , param_link_timeout_secs
+  , param_link_dead_secs
   , param_seek_wait_secs
   , param_path_sync_secs
   , param_path_sync_timeout_secs
+  , param_reseed_secs
+  , param_chan_timeout_secs
 
   -- * Types
   , HashName(..)
@@ -90,7 +93,7 @@ module Network.TeleHash.Types
   , ChatRId(..)
   , ChatR(..)
 
-  , Link(..)
+  -- , Link(..)
   , Seek(..)
   ) where
 
@@ -103,6 +106,7 @@ import Data.Aeson.Types
 import Data.IP
 import Data.List
 import Data.Maybe
+-- import Data.Time.Clock
 import Data.Typeable
 import Data.Word
 import Network.Socket
@@ -142,6 +146,9 @@ param_link_ping_secs = 29
 param_link_timeout_secs :: Int
 param_link_timeout_secs = param_nat_timeout_secs - 5
 
+param_link_dead_secs :: Int
+param_link_dead_secs = param_nat_timeout_secs + 5
+
 param_nat_timeout_secs :: Int
 param_nat_timeout_secs = 30
 
@@ -154,6 +161,12 @@ param_path_sync_secs = 23 -- should be 10
 
 param_path_sync_timeout_secs :: Int
 param_path_sync_timeout_secs = 10
+
+param_reseed_secs :: Integer
+param_reseed_secs = 31
+
+param_chan_timeout_secs :: Int
+param_chan_timeout_secs = 10
 
 {-
 defaults.chan_timeout = 10000; // how long before for ending durable channels w/ no acks
@@ -528,6 +541,8 @@ data TChan = TChan
   , chIn       :: ![RxTelex] -- queue of incoming messages
   , chNotes    :: ![TxTelex]
   , chHandler  :: !(Maybe ChannelHandler) -- auto-fire callback
+  , chTimeout  :: !(Maybe Int)
+  , chRecvAt   :: !(Maybe ClockTime)
   , chArg      :: !CArg
   , chSeq      :: !(Maybe Seq)
   , chMiss     :: !(Maybe Miss)

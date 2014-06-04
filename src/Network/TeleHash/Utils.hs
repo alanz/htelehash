@@ -502,10 +502,17 @@ rmChan uid = do
 
 -- ---------------------------------------------------------------------
 
-rmChanFromHn :: HashName -> ChannelId -> TeleHash ()
-rmChanFromHn hn cid = do
+rmChanFromHn :: HashName -> Uid -> TeleHash ()
+rmChanFromHn hn uid = do
+  c <- getChan uid
+  let cid = chId c
   void $ withHN hn $ \hc ->
-    hc { hChans = Map.delete cid (hChans hc) }
+    let
+      hc1 = hc { hChans = Map.delete cid (hChans hc) }
+      hc2 = if hLinkChan hc == Just uid
+              then hc1 { hLinkChan = Nothing }
+              else hc1
+    in hc2
 
 -- ---------------------------------------------------------------------
 

@@ -21,7 +21,7 @@ ext_peer c = do
 
   let
     respFunc p = do
-      logT $ "ext_link:respFunc:processing " ++ showJson (rtJs p)
+      logT $ "ext_peer:respFunc:processing " ++ showJson (rtJs p)
       -- always respond/ack, except if there is an error or end
       let merr = packet_get_str p "err"
           mend = packet_get_str p "end"

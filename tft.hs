@@ -118,6 +118,7 @@ main = do
   updateGlobalLogger lineLoggerName (setLevel DEBUG)
   updateGlobalLogger rootLoggerName (setLevel ERROR)
 
+  -- sock <- util_server 42425 100
   sock <- util_server 0 100
 
   -- (ch1,ch2,thread) <- startSwitchThread
@@ -134,6 +135,8 @@ app = do
   crypt_init
 
   switch_init testId
+  sw1 <- get
+  logT $ "self:" ++ show (swId sw1,swParts sw1)
 
   seek_auto
   myId <- io myThreadId
