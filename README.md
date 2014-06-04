@@ -18,6 +18,17 @@ Running the tests
 
 ./dist/build/runtests/runtests
 
+
+Running
+--------
+
+Best current example is tft.hs
+
+Running with any argument will turn on verbose logging.
+
+A representation of the messages is always written to file line.log
+
+
 Changes
 -------
 
