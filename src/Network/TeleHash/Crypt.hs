@@ -10,6 +10,7 @@ module Network.TeleHash.Crypt
   , crypt_delineize
   ) where
 
+import Control.Exception
 import Control.Monad
 import Control.Monad.State
 import Data.List
@@ -66,78 +67,16 @@ crypt_t crypt_new(char csid, unsigned char *key, int len);
 crypt_new :: String -> Maybe String -> Maybe BC.ByteString -> TeleHash (Maybe Crypto)
 crypt_new csid mKeyStr mKeyBin = do
   logT $ "crypt_new " ++ show (csid,mKeyStr,mKeyBin)
-{-
-  let c = Crypto
-           { cCsid      = csid
-           , cIsPrivate = False
-           , cLined     = False
-           , cKeyLen    :: !Int
-           , cAtOut     :: !ClockTime
-           , cAtIn      :: !ClockTime
-           , cLineOut   = randomHexVal
-           , cLineIn    :: !String
-           , cKey       :: !String
-           , cCs        :: !String -- TBD, individual crypto structures
--}
-  c <- crypt_new_1a mKeyStr mKeyBin
-  return c
+  sw <- get
+  case Map.lookup csid (swIndexCrypto sw) of
+    Just cr -> do
+      let cn = cs_new (cset (cCs cr))
+      c <- cn mKeyStr mKeyBin
+      return c
+    Nothing -> do
+      logT $ "crypt_new: trying to init unsupported cs:" ++ csid
+      assert False undefined
 
-{-
-crypt_t crypt_new(char csid, unsigned char *key, int len)
-{
-  crypt_t c;
-  int err = 1;
-
-  if(!csid || !key || !len) return NULL;
-  if(!(c = malloc(sizeof (struct crypt_struct)))) return NULL;
-  memset(c, 0, sizeof (struct crypt_struct));
-  c->csid = csid;
-  sprintf(c->csidHex,"%02x",csid);
-  crypt_rand(c->lineOut,16);
-  util_hex(c->lineOut,16,c->lineHex);
-  c->atOut = platform_seconds();
-
-#ifdef CS_1a
-  if(csid == 0x1a) err = crypt_new_1a(c, key, len);
-#endif
-#ifdef CS_2a
-  if(csid == 0x2a) err = crypt_new_2a(c, key, len);
-#endif
-#ifdef CS_3a
-  if(csid == 0x3a) err = crypt_new_3a(c, key, len);
-#endif
-  
-  if(!err) return c;
-
-  crypt_free(c);
-  return NULL;
-}
--}
-
--- ---------------------------------------------------------------------
-
-{-
-
-void crypt_free(crypt_t c);
-
-
-// these exist in the crypt_*_base.c as general crypto routines
-
-// write random bytes, returns s for convenience
-unsigned char *crypt_rand(unsigned char *s, int len);
-
-// sha256's the input, output must be [32] from caller
-unsigned char *crypt_hash(unsigned char *input, unsigned long len, unsigned char *output);
-
-// last known error for debugging
-char *crypt_err();
-
-
-// the rest of these just use the CS chosen for the crypt_t, crypt.c calls out to crypt_*_XX.c
-
-// adds "XX":"pubkey", "XX_":"secretkey" to the packet, !0 if error
-int crypt_keygen(char csid, packet_t p);
--}
 
 -- ---------------------------------------------------------------------
 
@@ -147,92 +86,9 @@ crypt_private c key = do
   if cIsPrivate c
     then return c -- already loaded
     else do
-      crypt_private_1a c key
+      let cp = cs_private $ cset (cCs c)
+      cp c key
 
-{-
-int crypt_private(crypt_t c, unsigned char *key, int len)
-{
-  int ret;
-  if(!c) return 1;
-  if(c->isprivate) return 0; // already loaded
-
-#ifdef CS_1a
-  if(c->csid == 0x1a && (ret = crypt_private_1a(c,key,len))) return ret;
-#endif
-#ifdef CS_2a
-  if(c->csid == 0x2a && (ret = crypt_private_2a(c,key,len))) return ret;
-#endif
-#ifdef CS_3a
-  if(c->csid == 0x3a && (ret = crypt_private_3a(c,key,len))) return ret;
-#endif
-  
-  c->isprivate = 1;
-  return 0;
-}
--}
-
--- ---------------------------------------------------------------------
-
-{-
-// try to create a line packet chained to this one
-packet_t crypt_lineize(crypt_t c, packet_t p);
-
-// decrypts or NULL, frees p
-packet_t crypt_delineize(crypt_t c, packet_t p);
-
-// create a new open packet, NULL if error
-packet_t crypt_openize(crypt_t self, crypt_t c, packet_t inner);
-
-// processes an open packet into a inner packet or NULL
-packet_t crypt_deopenize(crypt_t self, packet_t p);
-
-// tries to create a new line, !0 if error/ignored, always frees inner
-int crypt_line(crypt_t c, packet_t inner);
-
-#ifdef CS_1a
-int crypt_init_1a();
-int crypt_new_1a(crypt_t c, unsigned char *key, int len);
-void crypt_free_1a(crypt_t c);
-int crypt_keygen_1a(packet_t p);
-int crypt_public_1a(crypt_t c, unsigned char *key, int len);
-int crypt_private_1a(crypt_t c, unsigned char *key, int len);
-packet_t crypt_lineize_1a(crypt_t c, packet_t p);
-packet_t crypt_delineize_1a(crypt_t c, packet_t p);
-packet_t crypt_openize_1a(crypt_t self, crypt_t c, packet_t inner);
-packet_t crypt_deopenize_1a(crypt_t self, packet_t p);
-int crypt_line_1a(crypt_t c, packet_t inner);
-#endif
-
-#ifdef CS_2a
-int crypt_init_2a();
-int crypt_new_2a(crypt_t c, unsigned char *key, int len);
-void crypt_free_2a(crypt_t c);
-int crypt_keygen_2a(packet_t p);
-int crypt_public_2a(crypt_t c, unsigned char *key, int len);
-int crypt_private_2a(crypt_t c, unsigned char *key, int len);
-packet_t crypt_lineize_2a(crypt_t c, packet_t p);
-packet_t crypt_delineize_2a(crypt_t c, packet_t p);
-packet_t crypt_openize_2a(crypt_t self, crypt_t c, packet_t inner);
-packet_t crypt_deopenize_2a(crypt_t self, packet_t p);
-int crypt_line_2a(crypt_t c, packet_t inner);
-#endif
-
-#ifdef CS_3a
-int crypt_init_3a();
-int crypt_new_3a(crypt_t c, unsigned char *key, int len);
-void crypt_free_3a(crypt_t c);
-int crypt_keygen_3a(packet_t p);
-int crypt_public_3a(crypt_t c, unsigned char *key, int len);
-int crypt_private_3a(crypt_t c, unsigned char *key, int len);
-packet_t crypt_lineize_3a(crypt_t c, packet_t p);
-packet_t crypt_delineize_3a(crypt_t c, packet_t p);
-packet_t crypt_openize_3a(crypt_t self, crypt_t c, packet_t inner);
-packet_t crypt_deopenize_3a(crypt_t self, packet_t p);
-int crypt_line_3a(crypt_t c, packet_t inner);
-#endif
-
-
--}
 
 -- ---------------------------------------------------------------------
 
@@ -245,27 +101,10 @@ crypt_lineize mc p = do
       if cLined c /= LineNone
         then do
           logP $ "<<<<:" ++ show (tTo p,showPathJson $ tOut p,showPacketShort $ tPacket p)
-          (c2,mlp) <- crypt_lineize_1a c p
+          let cl = cs_lineize (cset (cCs c))
+          (c2,mlp) <- cl c p
           return (Just c2,mlp)
         else return (Just c,Nothing)
-
-{-
-packet_t crypt_lineize(crypt_t c, packet_t p)
-{
-  if(!c || !p || !c->lined) return NULL;
-#ifdef CS_1a
-  if(c->csid == 0x1a) return crypt_lineize_1a(c,p);
-#endif
-#ifdef CS_2a
-  if(c->csid == 0x2a) return crypt_lineize_2a(c,p);
-#endif
-#ifdef CS_3a
-  if(c->csid == 0x3a) return crypt_lineize_3a(c,p);
-#endif
-
-  return NULL;
-}
--}
 
 -- ---------------------------------------------------------------------
 
@@ -276,30 +115,8 @@ crypt_openize self c inner = do
       logT $ "crypt_openize:csid mismatch:" ++ show (cCsid self,cCsid c)
       return Nothing
     else do
-      crypt_openize_1a self c inner
-
-{-
-packet_t crypt_openize(crypt_t self, crypt_t c, packet_t inner)
-{
-  if(!c || !self || self->csid != c->csid) return NULL;
-
-  packet_set_str(inner,"line",(char*)c->lineHex);
-  packet_set_int(inner,"at",(int)c->atOut);
-  packet_body(inner,self->key,self->keylen);
-
-#ifdef CS_1a
-  if(c->csid == 0x1a) return crypt_openize_1a(self,c,inner);
-#endif
-#ifdef CS_2a
-  if(c->csid == 0x2a) return crypt_openize_2a(self,c,inner);
-#endif
-#ifdef CS_3a
-  if(c->csid == 0x3a) return crypt_openize_3a(self,c,inner);
-#endif
-
-  return NULL;
-}
--}
+      let co = cs_openize (cset (cCs self)) -- TODO: check self is correct
+      co self c inner
 
 -- ---------------------------------------------------------------------
 
@@ -308,30 +125,11 @@ crypt_deopenize open = do
   sw <- get
   case Map.lookup "1a" (swIndexCrypto sw) of
     Just self -> do
-      crypt_deopenize_1a self open
+      let cd = cs_deopenize (cset (cCs self))
+      cd self open
     Nothing -> do
       logT $ "crypt_deopenize:mssing crypto for 1a"
       return DeOpenizeVerifyFail
-
-{-
-packet_t crypt_deopenize(crypt_t self, packet_t open)
-{
-  packet_t ret = NULL;
-  if(!open || !self) return NULL;
-
-#ifdef CS_1a
-  if(self->csid == 0x1a && (ret = crypt_deopenize_1a(self,open))) return ret;
-#endif
-#ifdef CS_2a
-  if(self->csid == 0x2a && (ret = crypt_deopenize_2a(self,open))) return ret;
-#endif
-#ifdef CS_3a
-  if(self->csid == 0x3a && (ret = crypt_deopenize_3a(self,open))) return ret;
-#endif
-
-  return NULL;
-}
--}
 
 -- ---------------------------------------------------------------------
 
@@ -349,46 +147,12 @@ crypt_line open c inner = do
       let c2 = c { cLined = lined
                  , cLineIn = lineid
                  }
-      mc3 <- crypt_line_1a open c2
+      let cl = cs_line (cset (cCs c))
+      mc3 <- cl open c2
       case mc3 of
         Nothing -> return Nothing
         Just c3 -> do
           return $ Just $ c3 { cAtIn = Just (oiAt inner) }
-
-{-
-int crypt_line(crypt_t c, packet_t inner)
-{
-  int ret = 1;
-  unsigned long at;
-  char *hline;
-  unsigned char lineid[16];
-
-  if(!inner) return ret;
-  if(!c) return packet_free(inner)||1;
-
-  at = strtol(packet_get_str(inner,"at"), NULL, 10);
-  hline = packet_get_str(inner,"line");
-  if(!hline || at <= 0 || at <= c->atIn || strlen(hline) != 32) return packet_free(inner)||1;
-  util_unhex((unsigned char*)hline,32,lineid);
-  c->lined = (memcmp(lineid,c->lineIn,16) == 0)?2:1; // flag for line reset state
-  memcpy(c->lineIn,lineid,16); // needed for crypt_line_*
-
-#ifdef CS_1a
-  if(c->csid == 0x1a) ret = crypt_line_1a(c,inner);
-#endif
-#ifdef CS_2a
-  if(c->csid == 0x2a) ret = crypt_line_2a(c,inner);
-#endif
-#ifdef CS_3a
-  if(c->csid == 0x3a) ret = crypt_line_3a(c,inner);
-#endif
-  if(ret) return ret;
-
-  c->atIn = at;
-  packet_free(inner);
-  return 0;
-}
--}
 
 -- ---------------------------------------------------------------------
 
@@ -397,22 +161,7 @@ crypt_delineize c p = do
   -- logT $ "crypt_delineize: cLined=" ++ show (cLined c)
   if cLined c == LineNone
     then return (Left "line not open")
-    else crypt_delineize_1a c p
+    else do
+      let cd = cs_delineize (cset (cCs c))
+      cd c p
 
-{-
-packet_t crypt_delineize(crypt_t c, packet_t p)
-{
-  if(!c || !p) return NULL;
-  if(!c->lined) return packet_free(p);
-#ifdef CS_1a
-  if(c->csid == 0x1a) return crypt_delineize_1a(c,p);
-#endif
-#ifdef CS_2a
-  if(c->csid == 0x2a) return crypt_delineize_2a(c,p);
-#endif
-#ifdef CS_3a
-  if(c->csid == 0x3a) return crypt_delineize_3a(c,p);
-#endif
-  return NULL;
-}
--}

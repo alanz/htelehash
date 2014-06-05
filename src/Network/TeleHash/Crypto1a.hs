@@ -5,15 +5,16 @@
 
 module Network.TeleHash.Crypto1a
   (
-    -- cset_1a
-    crypt_init_1a
-  , crypt_new_1a
-  , crypt_private_1a
-  , crypt_lineize_1a
-  , crypt_openize_1a
-  , crypt_deopenize_1a
-  , crypt_line_1a
-  , crypt_delineize_1a
+    cset_1a
+
+  , crypt_init_1a
+  -- , crypt_new_1a
+  -- , crypt_private_1a
+  -- , crypt_lineize_1a
+  -- , crypt_openize_1a
+  -- , crypt_deopenize_1a
+  -- , crypt_line_1a
+  -- , crypt_delineize_1a
   , mkHashFromBS
   , mkHashFromB64
   ) where
@@ -63,6 +64,21 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
+
+-- ---------------------------------------------------------------------
+
+cset_1a = CS
+  { cs_init      = crypt_init_1a
+  , cs_new       = crypt_new_1a
+  , cs_private   = crypt_private_1a
+  , cs_lineize   = crypt_lineize_1a
+  , cs_openize   = crypt_openize_1a
+  , cs_deopenize = crypt_deopenize_1a
+  , cs_line      = crypt_line_1a
+  , cs_delineize = crypt_delineize_1a
+  }
+
+-- ---------------------------------------------------------------------
 
 curve :: ECC.Curve
 curve = ECC.getCurveByName ECC.SEC_p160r1
@@ -153,7 +169,7 @@ crypt_new_1a mPubStr mPubBin = do
                       , cLineHex   = randomHexVal
                       , cLineIn    = ""
                       , cKey       = bs
-                      , cCs        = cs
+                      , cCs        = CS1a cset_1a cs
                       }
 
           -- logT $ "crypt_loadkey_1a:randomHexVal=" ++ show (randomHexVal)
@@ -215,8 +231,9 @@ crypt_private_1a c key = do
             where
               i = os2ip bsp
               privkey = PrivateKey curve i
+    csnew = (cs1a (cCs c)) { cs1aIdPrivate = privatekey }
   return $ c { cIsPrivate = True
-             , cCs = (cCs c) { cs1aIdPrivate = privatekey }
+             , cCs = (cCs c) { cs1a = csnew }
              }
 
 {-
@@ -283,7 +300,7 @@ void fold3(unsigned char in[32], unsigned char out[4])
 crypt_lineize_1a :: Crypto -> TxTelex -> TeleHash (Crypto,Maybe LinePacket)
 crypt_lineize_1a c p = do
   let
-    cs = cCs c
+    cs = cs1a (cCs c)
     (LP body) = toLinePacket (tPacket p)
 
     ivPrefix = lbsTocbs $ BL.pack $ take 12 (repeat (0::Word8))
@@ -299,7 +316,7 @@ crypt_lineize_1a c p = do
 
     final = foldl' BC.append BC.empty [cLineIn c,hmFinal,iv,cbody]
 
-    rc = c { cCs = cs { cs1aSeq = (cs1aSeq cs) + 1 } }
+    rc = c { cCs = (cCs c) { cs1a = cs { cs1aSeq = (cs1aSeq cs) + 1 } }}
     r = (rc,Just $ toLinePacket (Packet HeadEmpty (Body final)))
   -- logT $ "crypt_lineize_1a:(p,body)=" ++ show (p,body)
   return r
@@ -339,8 +356,8 @@ crypt_openize_1a :: Crypto -> Crypto -> OpenizeInner -> TeleHash (Maybe LinePack
 crypt_openize_1a self c inner = do
   -- logT $ "crypt_openize_1a entered"
   -- logT $ "crypt_openize_1a:(self,c,inner)=" ++ show (self,c,inner)
-  let cs  = cCs c -- line crypto
-      scs = cCs self -- self/own crypto
+  let cs  = cs1a (cCs c) -- line crypto
+      scs = cs1a (cCs self) -- self/own crypto
   let -- Public1a (PublicKey _ linePub) = (cs1aIdPublic cs)
       Public1a (PublicKey _ ourPub)  = (cs1aIdPublic scs)
       js = lbsTocbs $ Aeson.encode inner
@@ -410,7 +427,7 @@ packet_t crypt_openize_1a(crypt_t self, crypt_t c, packet_t inner)
 
 crypt_deopenize_1a :: Crypto -> NetworkPacket -> TeleHash DeOpenizeResult
 crypt_deopenize_1a self open = do
-  let cs = cCs self
+  let cs = cs1a (cCs self)
   case open of
     LinePacket _ -> do
       logT $ "crypt_deopenize_1a:trying to deopenize a line packet"
@@ -523,7 +540,7 @@ packet_t crypt_deopenize_1a(crypt_t self, packet_t open)
 crypt_line_1a :: DeOpenizeResult -> Crypto -> TeleHash (Maybe Crypto)
 crypt_line_1a DeOpenizeVerifyFail _ = return Nothing
 crypt_line_1a open c = do
-  let cs = cCs c
+  let cs = cs1a (cCs c)
   seqVal <- randomWord32
 
   -- do the diffie hellman
@@ -543,10 +560,10 @@ crypt_line_1a open c = do
   -- logT $ "crypt_line_1a:(secret,lineIn,lineOut)=" ++ show (B16.encode secret,B16.encode lineIn,B16.encode lineOut)
   -- logT $ "crypt_line_1a:(keyIn,keyOut)=" ++ show (B16.encode keyIn,B16.encode keyOut)
 
-  return $ Just c { cCs = cs { cs1aKeyOut = Just keyOut
-                             , cs1aKeyIn = Just keyIn
-                             , cs1aSeq = seqVal
-                             }}
+  return $ Just c { cCs = (cCs c) { cs1a = cs { cs1aKeyOut = Just keyOut
+                                              , cs1aKeyIn = Just keyIn
+                                              , cs1aSeq = seqVal
+                                              }}}
 
 _tl :: (BC.ByteString, BC.ByteString)
 _tl = (B16.encode keyOut,B16.encode keyIn)
@@ -611,7 +628,7 @@ int crypt_line_1a(crypt_t c, packet_t inner)
 
 crypt_delineize_1a :: Crypto -> NetworkTelex -> TeleHash (Either String RxTelex)
 crypt_delineize_1a c rxTelex = do
-  let cs = cCs c
+  let cs = cs1a (cCs c)
   let (LinePacket pbody) = ntPacket rxTelex
 
   if (BC.length pbody < 16)

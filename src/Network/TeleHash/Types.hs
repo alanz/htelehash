@@ -58,6 +58,9 @@ module Network.TeleHash.Types
   , Seq(..)
   , Miss(..)
   , Crypto(..)
+  , CSet(..)
+  , CryptoSet(..)
+  , Crypt0a(..)
   , Crypt1a(..)
   , PublicKey(..)
   , PrivateKey(..)
@@ -783,24 +786,37 @@ data Crypto = Crypto
   , cLineIn    :: !BC.ByteString
   , cLineHex   :: !String
   , cKey       :: !BC.ByteString
-  , cCs        :: !Crypt1a
+  -- , cCs        :: !Crypt1a
+  , cCs        :: !CryptoSet
   } deriving Show
 
-{-
+-- ---------------------------------------------------------------------
 
-typedef struct crypt_struct
-{
-  char csidHex[3], *part;
-  int isprivate, lined, keylen;
-  unsigned long atOut, atIn;
-  unsigned char lineOut[16], lineIn[16], lineHex[33];
-  unsigned char *key, csid;
-  void *cs; // for CS usage
-} *crypt_t;
-
--}
+data CryptoSet = CS1a { cset :: CSet, cs1a :: Crypt1a }
+               | CS01 { cset :: CSet, cs0a :: Crypt0a }
+               deriving Show
 
 -- ---------------------------------------------------------------------
+
+data CSet = CS
+  { cs_init      :: TeleHash ()
+  , cs_new       :: Maybe String -> Maybe BC.ByteString -> TeleHash (Maybe Crypto)
+  , cs_private   :: Crypto -> String -> TeleHash Crypto
+  , cs_lineize   :: Crypto -> TxTelex -> TeleHash (Crypto,Maybe LinePacket)
+  , cs_openize   :: Crypto -> Crypto -> OpenizeInner -> TeleHash (Maybe LinePacket)
+  , cs_deopenize :: Crypto -> NetworkPacket -> TeleHash DeOpenizeResult
+  , cs_line      :: DeOpenizeResult -> Crypto -> TeleHash (Maybe Crypto)
+  , cs_delineize :: Crypto -> NetworkTelex -> TeleHash (Either String RxTelex)
+  }
+
+instance Show CSet where
+  show _ = "CSet(..)"
+
+-- ---------------------------------------------------------------------
+data Crypt0a = Crypt01
+          {
+          } deriving Show
+
 
 data Crypt1a = Crypt1a
           { cs1aIdPrivate   :: !(Maybe PrivateKey)
@@ -977,17 +993,6 @@ data HashCrypto = HC
 -}
 data PublicKey = Public1a ECDSA.PublicKey deriving Show
 data PrivateKey = Private1a ECDSA.PrivateKey deriving Show
-
--- ---------------------------------------------------------------------
-{-
-data CSet = CS
-  { csLoadkey   :: String -> Maybe String -> TeleHash (Maybe HashCrypto)
-  , csOpenize   :: HashContainer -> OpenizeInner -> TeleHash LinePacket
-  , csDeopenize :: NetworkPacket -> TeleHash DeOpenizeResult
-  , csOpenLine  :: HashContainer ->  DeOpenizeResult -> TeleHash ()
-  , csDelineize :: HashContainer -> NetworkTelex -> TeleHash (Either String RxTelex)
-  }
--}
 
 -- ---------------------------------------------------------------------
 

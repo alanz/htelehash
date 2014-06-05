@@ -31,6 +31,7 @@ import System.Log.Logger
 import System.Time
 
 import Network.TeleHash.Crypt
+import Network.TeleHash.Crypto1a
 import Network.TeleHash.Paths
 import Network.TeleHash.Packet
 import Network.TeleHash.Types
@@ -579,16 +580,16 @@ switch_t switch_new(uint32_t prime)
 switch_init :: Id -> TeleHash ()
 switch_init anId = do
   logT $ "loading pk " ++ id1a anId ++ " sk " ++ id1a_secret anId
-  mc <- crypt_new "1a" (Just (id1a anId)) Nothing
+  mc <- (cs_new cset_1a) (Just (id1a anId)) Nothing
   c <- crypt_private (gfromJust "switch_init" mc) (id1a_secret anId)
   logT $ "loaded " ++ show anId
 
   sw <- get
   let parts = [((cCsid c),(unHash $ cPart c))]
   let sw2 = sw { swIndexCrypto = Map.insert "1a" c (swIndexCrypto sw)
-           , swParts = parts
-           , swId = parts2hn [("1a",unHash $ cPart c)]
-           }
+               , swParts = parts
+               , swId = parts2hn [("1a",unHash $ cPart c)]
+               }
   put sw2
 
   -- Make sure our own id is a known hashname
