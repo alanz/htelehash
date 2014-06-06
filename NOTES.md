@@ -428,3 +428,19 @@ Chat
 ```
 
 
+---------------------------------------------------------
+
+LINKTRY:HN "ce9d2cfccf34345b1c1a1c5b6c72cb0cf625ec88cdc64b54921303b26a655949"
+16:40:11:<<<<:(HN "ce9d2cfccf34345b1c1a1c5b6c72cb0cf625ec88cdc64b54921303b26a655949","PNone","Packet HeadJson {\"seed\":true,\"c\":102} 0 bytes")
+16:40:11:<<<<: { type: 'ipv4', ip: '208.68.164.253', port: 42424},len 49
+16:40:11:<<<<: { type: 'ipv4', ip: '10.0.0.30', port: 42424},len 301
+16:40:11:<<<<: { type: 'ipv4', ip: '172.17.42.1', port: 42424},len 301
+16:40:11:<<<<: { type: 'ipv4', ip: '208.68.164.253', port: 42424},len 49
+16:40:13:<<<<:(HN "ce9d2cfccf34345b1c1a1c5b6c72cb0cf625ec88cdc64b54921303b26a655949","PNone","Packet HeadJson {\"c\":360,\"paths\":[{\"ip\":\"105.237.110.153\",\"port\":54232,\"type\":\"ipv4\"}],\"type\":\"path\"} 0 bytes")
+16:40:13:<<<<: { type: 'ipv4', ip: '208.68.164.253', port: 42424},len 113
+16:40:13:<<<<: { type: 'ipv4', ip: '10.0.0.30', port: 42424},len 301
+16:40:13:<<<<: { type: 'ipv4', ip: '172.17.42.1', port: 42424},len 301
+16:40:13:>>>>:(Just "(chan:(284,CID 360,0,ChanStarting,\"path\"))","{ type: 'ipv4', ip: '208.68.164.253', port: 42424}","Packet HeadJson {\"path\":{\"type\":\"ipv4\",\"ip\":\"105.237.110.153\",\"port\":54232},\"c\":360} 0 bytes")
+path_handler:got our remote ip:105.237.110.153
+16:40:15:>>>>:(Just "(chan:(287,CID 365,0,ChanStarting,\"connect\"))","{ type: 'ipv4', ip: '208.68.164.253', port: 42424}","Packet HeadJson {\"from\":{\"1a\":\"453f34b17f16d9928a74e2aaca588e9e76e3a9e206b6d28378bb8cdf8bb93b65\"},\"paths\":[{\"type\":\"webrtc\"}],\"type\":\"connect\",\"c\":365} 40 bytes")
+*** Exception: Data.Binary.Get.runGet at position 401: demandInput: not enough bytes

@@ -76,8 +76,10 @@ module Network.TeleHash.Utils
   , logT
   , logP
   , logR
+  , logH
   , mainLoggerName
   , lineLoggerName
+  , lineHexLoggerName
   , io
 
   , ghead
@@ -812,9 +814,19 @@ logP str = do
   let timeStr = formatCalendarTime defaultTimeLocale "%H:%M:%S" (toUTCTime now)
   io (noticeM lineLoggerName (timeStr ++ ":" ++ str))
 
--- formatCalendarTime :: TimeLocale -> String -> CalendarTime -> String
+--------
 
--- strftime
+lineHexLoggerName :: String
+lineHexLoggerName = "Network.TeleHash.HexLine"
+
+-- |line traffic
+logH :: String -> BC.ByteString -> TeleHash ()
+logH str bs = do
+  now <- io $ getClockTime
+  let timeStr = formatCalendarTime defaultTimeLocale "%H:%M:%S" (toUTCTime now)
+  io (noticeM lineHexLoggerName (timeStr ++ ":" ++ str
+         ++ " (" ++ show (BC.length bs) ++ ") " ++ (BC.unpack $ B16.encode bs)))
+
 
 -- ---------------------------------------------------------------------
 -- Convenience.

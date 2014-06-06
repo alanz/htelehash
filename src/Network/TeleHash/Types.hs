@@ -786,7 +786,6 @@ data Crypto = Crypto
   , cLineIn    :: !BC.ByteString
   , cLineHex   :: !String
   , cKey       :: !BC.ByteString
-  -- , cCs        :: !Crypt1a
   , cCs        :: !CryptoSet
   } deriving Show
 

@@ -459,6 +459,8 @@ crypt_deopenize_1a self open = do
           let body = decryptCTR (initAES hash) iv cbody
               Just inner = fromLinePacket (LP body)
 
+          logH (">>>>:crypt_deopenize_1a:inner " ++ cLineHex self) body
+
           -- logT $ "crypt_deopenize_1a:inner=" ++ show inner
           let HeadJson js = paHead inner
           -- logT $ "crypt_deopenize_1a:inner json=" ++ show (js)
@@ -490,49 +492,6 @@ crypt_deopenize_1a self open = do
                        , doCsid = "1a"
                        }
                   return ret
-
-{-
-packet_t crypt_deopenize_1a(crypt_t self, packet_t open)
-{
-  unsigned char secret[uECC_BYTES], iv[16], b64[uECC_BYTES*2*2], hash[32];
-  packet_t inner, tmp;
-  crypt_1a_t cs = (crypt_1a_t)self->cs;
-
-  if(open->body_len <= (4+40)) return NULL;
-  inner = packet_new();
-  if(!packet_body(inner,NULL,open->body_len-(4+40))) return packet_free(inner);
-
-  // get the shared secret to create the iv+key for the open aes
-  if(!uECC_shared_secret(open->body+4, cs->id_private, secret)) return packet_free(inner);
-  crypt_hash(secret,uECC_BYTES,hash);
-  fold1(hash,hash);
-  memset(iv,0,16);
-  iv[15] = 1;
-
-  // decrypt the inner
-  aes_128_ctr(hash,inner->body_len,iv,open->body+4+40,inner->body);
-
-  // load inner packet
-  if((tmp = packet_parse(inner->body,inner->body_len)) == NULL) return packet_free(inner);
-  packet_free(inner);
-  inner = tmp;
-
-  // generate secret for hmac
-  if(inner->body_len != uECC_BYTES*2) return packet_free(inner);
-  if(!uECC_shared_secret(inner->body, cs->id_private, secret)) return packet_free(inner);
-
-  // verify
-  hmac_256(secret,uECC_BYTES,open->body+4,open->body_len-4,hash);
-  fold3(hash,hash);
-  if(memcmp(hash,open->body,4) != 0) return packet_free(inner);
-
-  // stash the hex line key w/ the inner
-  util_hex(open->body+4,40,b64);
-  packet_set_str(inner,"ecc",(char*)b64);
-
-  return inner;
-}
--}
 
 -- ---------------------------------------------------------------------
 
@@ -579,50 +538,17 @@ _tl = (B16.encode keyOut,B16.encode keyIn)
     keyIn = fold1 (SHA256.finalize keyInCtx)
 
 {-
-AZ openline(ecdhe,lineInB,lineOutB) 
-f3112580f84c04c74631d9a31fc010ad3424eb64 
-d5f1f542b98912d47187d38e1a847f04 
+AZ openline(ecdhe,lineInB,lineOutB)
+f3112580f84c04c74631d9a31fc010ad3424eb64
+d5f1f542b98912d47187d38e1a847f04
 0369025b3e753eb180eb8c92de94c29f
 
 
-AZ openline(encKey,decKey) 
-0a2db12a9507815d1c420e23c9458f20 
+AZ openline(encKey,decKey)
+0a2db12a9507815d1c420e23c9458f20
 9a611d7a9287f2ea71d8320ccf8a97c1
 -}
 
-
-{-
-// makes sure all the crypto line state is set up, and creates line keys if exist
-int crypt_line_1a(crypt_t c, packet_t inner)
-{
-  unsigned char line_public[uECC_BYTES*2], secret[uECC_BYTES], input[uECC_BYTES+16+16], hash[32];
-  char *hecc;
-  crypt_1a_t cs;
-  
-  cs = (crypt_1a_t)c->cs;
-  hecc = packet_get_str(inner,"ecc"); // it's where we stashed it
-  if(!hecc || strlen(hecc) != uECC_BYTES*4) return 1;
-  crypt_rand((unsigned char*)&(cs->seq),4); // init seq to random start
-
-  // do the diffie hellman
-  util_unhex((unsigned char*)hecc,uECC_BYTES*4,line_public);
-  if(!uECC_shared_secret(line_public, cs->line_private, secret)) return 1;
-
-  // make line keys!
-  memcpy(input,secret,uECC_BYTES);
-  memcpy(input+uECC_BYTES,c->lineOut,16);
-  memcpy(input+uECC_BYTES+16,c->lineIn,16);
-  crypt_hash(input,uECC_BYTES+16+16,hash);
-  fold1(hash,cs->keyOut);
-
-  memcpy(input+uECC_BYTES,c->lineIn,16);
-  memcpy(input+uECC_BYTES+16,c->lineOut,16);
-  crypt_hash(input,uECC_BYTES+16+16,hash);
-  fold1(hash,cs->keyIn);
-
-  return 0;
-}
--}
 
 -- ---------------------------------------------------------------------
 
@@ -655,6 +581,9 @@ crypt_delineize_1a c rxTelex = do
         else do
           let deciphered = decryptCTR (initAES keyIn) (BC.append ivz iv) body2
               mret = fromLinePacket (LP deciphered)
+
+          logH (">>>>:crypt_delineize_1a:inner " ++ cLineHex c) deciphered
+
           -- logT $ "crypt_delineize_1a:mret=" ++ show mret
           case mret of
             Nothing -> return (Left "invalid decrypted packet")
@@ -676,27 +605,6 @@ crypt_delineize_1a c rxTelex = do
                                               })
                     Just _ -> return (Left $ "unexpected js type:" ++ show js)
 
-{-
-packet_t crypt_delineize_1a(crypt_t c, packet_t p)
-{
-  packet_t line;
-  unsigned char iv[16], hmac[32];
-  crypt_1a_t cs = (crypt_1a_t)c->cs;
-
-  memset(iv,0,16);
-  memcpy(iv+12,p->body+16+4,4);
-
-  hmac_256(cs->keyIn,16,p->body+16+4,p->body_len-(16+4),hmac);
-  fold3(hmac,hmac);
-  if(memcmp(hmac,p->body+16,4) != 0) return packet_free(p);
-
-  aes_128_ctr(cs->keyIn,p->body_len-(16+4+4),iv,p->body+16+4+4,p->body+16+4+4);
-
-  line = packet_parse(p->body+16+4+4, p->body_len-(16+4+4));
-  packet_free(p);
-  return line;
-}
--}
 
 -- ---------------------------------------------------------------------
 
@@ -734,26 +642,5 @@ uECC_shared_secret publicKey privateKey = do
       (Just longkey) = i2ospOf 20 sharedX
   return longkey
   -- assert False undefined
-{-
-int uECC_shared_secret(const uint8_t p_publicKey[uECC_BYTES*2], const uint8_t p_privateKey[uECC_BYTES], uint8_t p_secret[uECC_BYTES])
-{
-    EccPoint l_public;
-    uECC_word_t l_private[uECC_WORDS];
-    uECC_word_t l_random[uECC_WORDS];
-
-    g_rng((uint8_t *)l_random, sizeof(l_random));
-
-    vli_bytesToNative(l_private, p_privateKey);
-    vli_bytesToNative(l_public.x, p_publicKey);
-    vli_bytesToNative(l_public.y, p_publicKey + uECC_BYTES);
-
-    EccPoint l_product;
-    EccPoint_mult(&l_product, &l_public, l_private, (vli_isZero(l_random) ? 0: l_random), vli_numBits(l_private, uECC_WORDS));
-
-    vli_nativeToBytes(p_secret, l_product.x);
-
-    return !EccPoint_isZero(&l_product);
-}
--}
 
 -- ---------------------------------------------------------------------

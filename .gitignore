@@ -36,3 +36,4 @@
 /src/line.log
 /.cabal-sandbox/
 /cabal.sandbox.config
+/line-hex.log

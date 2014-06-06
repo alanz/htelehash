@@ -273,6 +273,7 @@ recvTelex :: BC.ByteString -> NS.SockAddr -> TeleHash ()
 recvTelex msg rinfo = do
     -- logT ( ("recvTelex:" ++  (show (msg))))
     logT $ "recvTelex:rinfo=" ++  show rinfo
+    logH (">>>>:recvTelex:" ++ show rinfo) msg
 
     (Just hostIP,Just port) <- io (NS.getNameInfo [NS.NI_NUMERICHOST] True True rinfo)
     let

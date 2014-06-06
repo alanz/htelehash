@@ -91,8 +91,11 @@ main = do
   s <- streamHandler stdout DEBUG
   updateGlobalLogger rootLoggerName (setHandlers [s])
 
-  h <- fileHandler "line.log" DEBUG
-  updateGlobalLogger "Network.TeleHash.Line" (addHandler h)
+  h1 <- fileHandler "line.log" DEBUG
+  updateGlobalLogger lineLoggerName (addHandler h1)
+
+  h2 <- fileHandler "line-hex.log" DEBUG
+  updateGlobalLogger lineHexLoggerName (addHandler h2)
 
 
 {-
@@ -115,8 +118,9 @@ main = do
     else do
       updateGlobalLogger mainLoggerName (setLevel DEBUG)
 
-  updateGlobalLogger lineLoggerName (setLevel DEBUG)
-  updateGlobalLogger rootLoggerName (setLevel ERROR)
+  updateGlobalLogger lineLoggerName    (setLevel DEBUG)
+  updateGlobalLogger lineHexLoggerName (setLevel DEBUG)
+  updateGlobalLogger rootLoggerName    (setLevel ERROR)
 
   -- sock <- util_server 42425 100
   sock <- util_server 0 100
@@ -131,6 +135,7 @@ app :: TeleHash ()
 app = do
   timeNow <- io $ getClockTime
   logP $ "-------------------------------starting new run "++ show timeNow ++ "---------------------------"
+  logH ("-------------------------------starting new run "++ show timeNow ++ "---------------------------") BC.empty
 
   crypt_init
 
