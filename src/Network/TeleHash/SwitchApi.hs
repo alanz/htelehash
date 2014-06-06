@@ -377,6 +377,8 @@ void switch_receive(switch_t s, packet_t p, path_t in)
 
 -- ---------------------------------------------------------------------
 
+-- |Main entry point to send a message. Will initiate seek/open
+-- process if the destination is unknown
 switch_send :: TxTelex -> TeleHash ()
 switch_send p = do
   sw <- get
@@ -394,16 +396,14 @@ switch_send p = do
       logT $ "switch_send:p2=" ++ show p2
       (mcrypto1,mlined) <- crypt_lineize (hCrypto hc) p2
       -- putHN $ hc { hCrypto = mcrypto1 }
-      withHN (tTo p) $ \hc -> hc { hCrypto = mcrypto1 }
+      void $ withHN (tTo p) $ \hc1 -> hc1 { hCrypto = mcrypto1 }
       case mlined of
         Just lined -> do
           switch_sendingQ $ p2 { tLp = Just lined}
         Nothing -> do
           -- queue most recent packet to be sent after opened
           logT $ "switch_send:queueing packet until line:" ++ show (tTo p2) ++ "," ++ showJson (tJs p2)
-          hc2 <- getHN (tTo p2)
-          -- putHN $ hc2 { hOnopen = Just p2 }
-          withHN (tTo p2) $ \hc -> hc { hOnopen = Just p2 }
+          void $ withHN (tTo p2) $ \hc2 -> hc2 { hOnopen = Just p2 }
 
           -- no line, so generate open instead
           switch_open (tTo p2) Nothing
@@ -415,7 +415,7 @@ switch_send p = do
             else do
               let vias = Map.toList (hVias hc)
               -- putHN $ hc { hVias = Map.empty }
-              withHN (hHashName hc) $ \hc -> hc { hVias = Map.empty }
+              void $ withHN (hHashName hc) $ \hc3 -> hc3 { hVias = Map.empty }
               forM_ vias $ \(hn,see) -> do
                 peer_send hn see
                 return ()
@@ -2092,13 +2092,13 @@ hn_fromaddress address hnPeer = do
     Just (hnStr,csid,mipp) -> do
       let hn = HN hnStr
 
-      hc <- hn_get hn
-      -- putHN $ hc { hVias = Map.insert hnPeer address (hVias hc) }
-      hc2 <- withHN hn $ \hc -> hc { hVias = Map.insert hnPeer address (hVias hc) }
-      -- hc2 <- getHN hn
-      case hCrypto hc2 of
+      _hc <- hn_get hn -- insert into DHT if not present
+
+      hc1 <- withHN hn $ \hc -> hc { hVias = Map.insert hnPeer address (hVias hc) }
+      -- logT $ "hn_fromaddress:hVias=" ++ show (hc1)
+      logT $ "hn_fromaddress:hVias=" ++ show (hHashName hc1,hVias hc1)
+      case hCrypto hc1 of
         Nothing -> do
-          -- putHN $ hc2 {hCsid = csid}
           void $ withHN hn $ \hc2 -> hc2 {hCsid = csid}
         Just _ -> return ()
 

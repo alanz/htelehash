@@ -43,7 +43,6 @@ ext_link c = do
           logR $ "ext_link:unexpected packet:" ++ show p
           return ()
         Just (LinkReplyErr _err) -> do
-
           logR $ "ext_link:got err:" ++ show p
           deleteFromDht (chTo c)
           chan_fail (chUid c) Nothing
@@ -58,19 +57,15 @@ ext_link c = do
           -- add in this link
           hc <- getHN (chTo c)
           now <- io $ getClockTime
-          -- putHN $ hc { hLinkAge = Just now
-          --            , hLinkChan = Just (chUid c)
-          --            }
-          withHN (chTo c) $ \hc ->
-            hc { hLinkAge = Just now
-               , hLinkChan = Just (chUid c)
-               }
+          void $ withHN (chTo c) $ \hc1 ->
+            hc1 { hLinkAge = Just now
+                , hLinkChan = Just (chUid c)
+                }
           putChanInHnIfNeeded (chTo c) (chUid c)
 
           logT $ "ext_link:inserting into dht:" ++ show (chTo c)
           -- Check if we have the current hn in our dht
           insertIntoDht (chTo c)
-
 
           -- send a response if this is a new incoming
           -- if(!chan.sentAt) packet.from.link();
@@ -85,8 +80,7 @@ ext_link c = do
               void $ link_hn (hHashName hc) (Just $ chUid c2)
               -- send_keepalive (chUid c2)
 
-
-          process_link_seed (chUid c2) p lrp
+          process_link_sees (chUid c2) p lrp
 
           -- this is a new link, request a path
           -- logT $ "ext_link:request a path: " ++ show (chTo c2)
@@ -102,8 +96,8 @@ ext_link c = do
 
 -- |Process an incoming link ack, flagged as a seed, containing
 -- possible "see" values
-process_link_seed :: Uid -> RxTelex -> LinkReply -> TeleHash ()
-process_link_seed cid p lrp = do
+process_link_sees :: Uid -> RxTelex -> LinkReply -> TeleHash ()
+process_link_sees cid p lrp = do
   let (isSeed,sees) = case lrp of
         LinkReplyKeepAlive is -> (is,[])
         LinkReplyNormal is sv -> (is,sv)
@@ -123,9 +117,9 @@ process_link_seed cid p lrp = do
 -}
 
   -- let sees1 = []
-  logT $ "process_link_seed:PROCESSING SEES:" ++ show sees
+  logT $ "process_link_sees:PROCESSING SEES:" ++ show sees
   forM_ sees $ \see -> do
-    logT $ "process_link_seed:see=" ++ show see
+    logT $ "process_link_sees:see=" ++ show see
     sw <- get
     let fields = Text.splitOn "," (Text.pack see)
     mhn <- hn_fromaddress (map Text.unpack fields) (chTo c)
@@ -134,7 +128,7 @@ process_link_seed cid p lrp = do
         hc <- hn_get hn
         if isJust (hLinkAge hc)
           then do
-            logT $ "process_link_seed:isJust hLinkAge for" ++ show (hHashName hc)
+            logT $ "process_link_sees:isJust hLinkAge for" ++ show (hHashName hc)
             return () -- nothing to do
           else do
             -- create a link to the new bucket
@@ -142,13 +136,13 @@ process_link_seed cid p lrp = do
             if not (Set.member (hHashName hc) bucket) &&
                Set.size bucket <= (swDhtK sw)
               then do
-                logT $ "process_link_seed:creating new link to:" ++ show (hHashName hc)
+                logT $ "process_link_sees:creating new link to:" ++ show (hHashName hc)
                 void $ link_hn (hHashName hc) Nothing
               else do
-                logT $ "process_link_seed:NOT creating new link to:" ++ show (hHashName hc,_distance,bucket,swDhtK sw)
+                logT $ "process_link_sees:NOT creating new link to:" ++ show (hHashName hc,_distance,bucket,swDhtK sw)
                 return ()
       Nothing -> do
-        logT $ "process_link_seed:got junk see:" ++ show see
+        logT $ "process_link_sees:got junk see:" ++ show see
 
 
   -- TODO: check for and process bridges

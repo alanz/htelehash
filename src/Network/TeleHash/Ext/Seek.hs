@@ -332,10 +332,12 @@ _seek_auto hn = do
   logT $ "_seek_auto entered for " ++ show hn
 
   hc <- getHN hn
-  case Map.lookup hn (hVias hc) of
-    Just see -> do
-     logT $ "_seek_auto:already have a see:" ++ show see
-    Nothing -> do
+  logT $ "_seek_auto:hVias=" ++ show (hHashName hc,hVias hc)
+
+  if Map.size (hVias hc) /= 0
+    then do
+     logT $ "_seek_auto:already have a see:" ++ show (hVias hc)
+    else do
       sk <- seek_get hn
       logT $ "_seek_auto:seek connecting " ++ show sk
 
