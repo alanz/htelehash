@@ -24,6 +24,7 @@ import Network.TeleHash.Utils
 
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.Map as Map
+import qualified Data.Binary as B
 
 
 -- ---------------------------------------------------------------------
@@ -121,15 +122,26 @@ crypt_openize self c inner = do
 -- ---------------------------------------------------------------------
 
 crypt_deopenize :: NetworkPacket -> TeleHash DeOpenizeResult
-crypt_deopenize open = do
+crypt_deopenize open@(OpenPacket csHex _) = do
   sw <- get
-  case Map.lookup "1a" (swIndexCrypto sw) of
+  case Map.lookup (hexCsToStrCs csHex) (swIndexCrypto sw) of
     Just self -> do
       let cd = cs_deopenize (cset (cCs self))
       cd self open
     Nothing -> do
-      logT $ "crypt_deopenize:mssing crypto for 1a"
+      logT $ "crypt_deopenize:mssing crypto for " ++ show csHex
       return DeOpenizeVerifyFail
+crypt_deopenize pkt = do
+  logT $ "crypt_deopenize:not an open packet:" ++ show pkt
+  return DeOpenizeVerifyFail
+
+hexCsToStrCs :: B.Word8 -> String
+hexCsToStrCs 0x0a = "0a"
+hexCsToStrCs 0x1a = "1a"
+hexCsToStrCs 0x2a = "2a"
+hexCsToStrCs 0x3a = "3a"
+hexCsToStrCs 0x4a = "4a"
+hexCsToStrCs xx = error $ "hexCsToStrCs:unknown csid:" ++ show xx
 
 -- ---------------------------------------------------------------------
 
