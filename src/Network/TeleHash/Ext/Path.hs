@@ -91,8 +91,7 @@ path_send to = do
                  else p
       logT $ "path_send:sending: " ++ show (to,showJson (tJs p2))
       -- sw <- get
-      if False
-      -- if tOut p2 == PNone && isNothing (swExternalIPP sw)
+      if False -- TODO:why False?
         then do
           -- if no default route, and our external IP is not known
           -- yet, send to all known external ones
@@ -133,8 +132,7 @@ path_handler cid = do
       if any isJust [merr,mend]
         then do
           logT $ "path_handler:err or end in path packet:" ++ showJson (rtJs p)
-          -- putHN $ hc { hPathSync = ps { psSyncing = False }}
-          withHN (chTo c) $ \hc -> hc { hPathSync = ps { psSyncing = False }}
+          void $ withHN (chTo c) $ \hc1 -> hc1 { hPathSync = ps { psSyncing = False }}
           return ()
         else do
           let mv = packet_get p "path"
@@ -216,7 +214,7 @@ path_sync hn = do
           if isTimeOut now (psLastAt ps) param_path_sync_timeout_secs
             then do
               -- putHN $ hc { hPathSync = ps { psSyncing = False }}
-              void $ withHN hn $ \hc -> hc { hPathSync = ps { psSyncing = False }}
+              void $ withHN hn $ \hc1 -> hc1 { hPathSync = ps { psSyncing = False }}
             else return ()
         else do
           logT $ "path_sync:starting new sync"
@@ -226,10 +224,10 @@ path_sync hn = do
           --                                           , psLastAt = Just now
           --                                           }
           --            }
-          void $ withHN hn $ \hc ->
-              hc { hPathSync = (newPathSync hn) { psSyncing = True
-                                                , psLastAt = Just now
-                                                }
+          void $ withHN hn $ \hc2 ->
+              hc2 { hPathSync = (newPathSync hn) { psSyncing = True
+                                                 , psLastAt = Just now
+                                                 }
                  }
 
 

@@ -5,6 +5,7 @@ module Network.TeleHash.Hn
   , hn_getparts
   , hn_path
   , hn_get
+  , hn_address
   ) where
 
 import Control.Exception
@@ -24,6 +25,7 @@ import Network.TeleHash.Utils
 
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 -- ---------------------------------------------------------------------
 
@@ -154,32 +156,9 @@ hn_frompacket inner deopen = do
       hc2 <- if isNothing (hCrypto hc)
               then do
                 mcrypt <- crypt_new (doCsid deopen) Nothing (Just $ doKey deopen)
-                -- let hc1 = hc { hCrypto = mcrypt }
-                -- putHN hc1
-                hc1 <- withHN hn $ \hc -> hc { hCrypto = mcrypt }
-                return hc1
+                withHN hn $ \hc3 -> hc3 { hCrypto = mcrypt }
               else return hc
       return (Just hc2)
-
-{-
-hn_t hn_frompacket(xht_t index, packet_t p)
-{
-  hn_t hn = NULL;
-  if(!p) return NULL;
-  
-  // get/gen the hashname
-  hn = hn_getparts(index, packet_get_packet(p, "from"));
-  if(!hn) return NULL;
-
-  // load key from packet body
-  if(!hn->c && p->body)
-  {
-    hn->c = crypt_new(hn->csid, p->body, p->body_len);
-    if(!hn->c) return NULL;
-  }
-  return hn;
-}
--}
 
 -- ---------------------------------------------------------------------
 
@@ -270,10 +249,8 @@ hn_t hn_getparts(xht_t index, packet_t p)
 
 hn_path :: HashName -> PathJson -> TeleHash (Maybe Path)
 hn_path hn p = do
-  hc <- getHN hn
   -- logT $ "hn_path:" ++ show (hn,p,hPaths hc)
   logT $ "hn_path:" ++ show hn ++ "," ++ showPathJson p
-  timeNow <- io getClockTime
 
   path <- path_get hn p
 
@@ -297,6 +274,9 @@ hn_path hn p = do
                   hnSelf <- getOwnHN
                   putPath hnSelf (pathFromPathJson lp)
                 else return ()
+              -- update public ipv4 info
+              void $ withHN hn $ \hc1 -> hc1 { hExternalIPP = Just pipv4 }
+
     _ -> return ()
 
   logT $ "TODO:hn_path:lots more stuff"
@@ -313,7 +293,7 @@ This is called on a successful open received, and on every line packet received
     if(!path) return false;
 
     // first time we've seen em
-    if(!path.lastIn && !path.lastOut)
+    if(!path.recvAt && !path.sentAt)
     {
       debug("PATH INNEW",isLocalPath(path)?"local":"public",JSON.stringify(path.json),hn.paths.map(function(p){return JSON.stringify(p.json)}));
 
@@ -339,56 +319,24 @@ This is called on a successful open received, and on every line packet received
       if(pathShareOrder.indexOf(path.type) == -1) hn.bridging = true;
 
       // track overall if we trust them as local
-      if(isLocalPath(path)) hn.isLocal = true;
+      if(isLocalPath(path) && !hn.isLocal)
+      {
+        hn.isLocal = true;
+        hn.pathSync();
+      }
     }
 
-    path.lastIn = Date.now();
-    self.recvAt = Date.now();
-
     // always update default to newest
+    path.recvAt = Date.now();
     hn.to = path;
-    hn.alive = pathValid(hn.to);
-
-    // always remove any relay once there's a path
-    hn.relayChan = false;
 
     return path;
   }
 
--}
 
-{-
-path_t hn_path(hn_t hn, path_t p)
-{
-  path_t ret = NULL;
-  int i;
-
-  if(!p) return NULL;
-
-  // find existing matching path
-  for(i=0;hn->paths[i];i++)
-  {
-    if(path_match(hn->paths[i], p)) ret = hn->paths[i];
-  }
-  if(!ret && (ret = path_copy(p)))
-  {
-    // add new path, i is the end of the list from above
-    if(!(hn->paths = util_reallocf(hn->paths, (i+2) * (sizeof (path_t))))) return NULL;
-    hn->paths[i] = ret;
-    hn->paths[i+1] = 0; // null term
-  }
-
-  // update state tracking
-  if(ret)
-  {
-    hn->last = ret;
-    ret->atIn = platform_seconds();
-  }
-
-  return ret;
-}
 
 -}
+
 
 -- ---------------------------------------------------------------------
 
@@ -404,5 +352,56 @@ hn_get hn = do
       hc <- newHN hn
       return hc
 
+-- ---------------------------------------------------------------------
+
+hn_address :: HashName -> HashName -> TeleHash [String]
+hn_address fromHN toHN = do
+  hc <- getHN fromHN
+  to <- getHN toHN
+  if not (isJust (hParts hc) && isJust (hParts to))
+    then return []
+    else do
+      case partsMatch (fromJust $ hParts hc) (fromJust $ hParts to) of
+        Nothing -> return []
+        Just csid -> do
+          case hExternalIPP hc of
+            Nothing -> return [unHN fromHN,csid]
+            Just ipp -> return [unHN fromHN,csid,show (v4Ip ipp),show (v4Port ipp)]
+
+{-
+
+  // return our address to them
+  hn.address = function(to)
+  {
+    if(!to) return "";
+    var csid = partsMatch(hn.parts,to.parts);
+    if(!csid) return "";
+    if(!hn.ip) return [hn.hashname,csid].join(",");
+    return [hn.hashname,csid,hn.ip,hn.port].join(",");
+  }
+-}
 
 -- ---------------------------------------------------------------------
+
+partsMatch :: Parts -> Parts -> Maybe String
+partsMatch parts1 parts2 = r
+  where
+    ids = sort $ map fst parts1
+    p2 = Set.fromList $ map fst parts2
+    common = filter (\k -> Set.member k p2) ids
+    r = if common == [] then Nothing
+                        else Just $ head common
+
+{-
+function partsMatch(parts1, parts2)
+{
+  if(typeof parts1 != "object" || typeof parts2 != "object") return false;
+  var ids = Object.keys(parts1).sort();
+  var csid;
+  while(csid = ids.pop()) if(parts2[csid]) return csid;
+  return false;
+}
+
+-}
+-- ---------------------------------------------------------------------
+

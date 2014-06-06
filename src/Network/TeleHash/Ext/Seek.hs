@@ -46,22 +46,37 @@ ext_seek c = do
           logT $ "ext_seek:err: " ++ showJson (rtJs p)
           return ()
         else do
-          let seeVal = packet_get_str_always p "see"
-          if length seeVal == 0 || not (all isHexDigit seeVal)
+          let seekVal = packet_get_str_always p "seek"
+          if length seekVal == 0 || not (all isHexDigit seekVal)
             then do
-              logT $ "ext_seek:invalid seek of :" ++ seeVal
+              logT $ "ext_seek:invalid seek of :" ++ seekVal
             else do
-              distance <- dhtBucket (HN seeVal)
+              distance <- dhtBucket (HN seekVal)
               bucket <- getBucketContents distance
               let sorted = sortBucketByAge bucket
-              logT $ "ext_seek:sorted=" ++ show (map hHashName sorted)
-              assert False undefined
-              return ()
+              logT $ "ext_seek:(seekVal,distance,sorted)=" ++ show (seekVal,distance,map hHashName sorted)
+
+              -- sort by distance for more
+              -- TODO: add the rest of the bucket if needed.
+
+              mp1 <- chan_packet (chUid c) True
+              case mp1 of
+                Nothing -> do
+                  logT $ "ext_seek:cannot create channel packet on " ++ showChan c2
+                Just p1 -> do
+                  seeVal <- mapM (\hc -> hn_address (chTo c) (hHashName hc)) sorted
+                  let p2 = packet_set p1 "end" True
+                      p3 = packet_set p2 "see" seeVal
+                  logT $ "ext_seek:reply=" ++ showJson (tJs p3)
+                  chan_send (chUid c) p3
+                  return ()
+
 
   util_chan_popall c (Just respFunc)
 
 -- Seek for node 7766e761afb226d7b398379ea1bf12c53dc02580c683b173568b0c6cc3a09c00
 -- >>>>:(Just "(chan:(31,CID 168,0,ChanStarting,\"seek\"))","{ type: 'ipv4', ip: '71.171.17.108', port: 50461}","Packet HeadJson {\"seek\":\"776\",\"type\":\"seek\",\"c\":168} 0 bytes")
+-- Note: 7766e761afb226d7b398379ea1bf12c53dc02580c683b173568b0c6cc3a09c00 is in bucket 254 for us
 
 {-
 -- javascript version

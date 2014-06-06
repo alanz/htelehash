@@ -151,13 +151,10 @@ switch_receive rxPacket path timeNow = do
                       logR $ "line in " ++ show (cLined lineCrypto,(hHashName from),cLineHex lineCrypto)
                       -- DEBUG_PRINTF("line in %d %s %d %s",from->c->lined,from->hexname,from,from->c->lineHex);
                       logP $ ">>>>:LINE IN " ++ show (cLined lineCrypto,(hHashName from),cLineHex lineCrypto)
-                      -- let from2 = from { hCrypto = Just lineCrypto }
-                      -- putHN from2
-                      from2 <- withHN (hHashName from) $ \from -> from { hCrypto = Just lineCrypto }
+                      from2 <- withHN (hHashName from) $ \from1 -> from1 { hCrypto = Just lineCrypto }
                       if cLined lineCrypto == LineReset
                         then chan_reset (hHashName from2)
                         else return ()
-                      -- xht_set(s->index, (const char*)from->c->lineHex, (void*)from);
                       putHexLine (cLineHex lineCrypto) (hHashName from)
                       logT $ "switch_receive:openize:path=" ++ show (path)
                       if isJust (pBridgeChan path)
@@ -175,8 +172,7 @@ switch_receive rxPacket path timeNow = do
                           return ()
                         Just onopen -> do
                           logT $ "switch_receive:openize:processing onopen:" ++ show onopen
-                          -- putHN $ from3 { hOnopen = Nothing }
-                          withHN (hHashName from) $ \from -> from { hOnopen = Nothing }
+                          void $ withHN (hHashName from) $ \from4 -> from4 { hOnopen = Nothing }
                           switch_send (onopen { tOut = pJson (gfromJust "onopen" inVal) })
                           return ()
 

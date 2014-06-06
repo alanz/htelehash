@@ -352,21 +352,22 @@ nullHandler _ = return ()
 -- ---------------------------------------------------------------------
 
 data HashContainer = H
-  { hHashName :: !HashName
-  , hCsid     :: !String
-  , hChanOut  :: !ChannelId -- used to allocated next channel id
-  , hCrypto   :: !(Maybe Crypto)
-  , hPaths    :: !(Map.Map PathJson Path)
-  , hLast     :: !(Maybe PathJson)
-  , hChans    :: !(Map.Map ChannelId Uid)
-  , hVias     :: !(Map.Map HashName [String]) -- hn's that returned a see for
+  { hHashName    :: !HashName
+  , hCsid        :: !String
+  , hChanOut     :: !ChannelId -- used to allocated next channel id
+  , hCrypto      :: !(Maybe Crypto)
+  , hPaths       :: !(Map.Map PathJson Path)
+  , hLast        :: !(Maybe PathJson)
+  , hExternalIPP :: !(Maybe PathIPv4)
+  , hChans       :: !(Map.Map ChannelId Uid)
+  , hVias        :: !(Map.Map HashName [String]) -- hn's that returned a see for
                                      -- this hn
-  , hOnopen   :: !(Maybe TxTelex)
-  , hParts    :: !(Maybe Parts)
-  , hIsSeed   :: !Bool
-  , hLinkAge  :: !(Maybe ClockTime)
-  , hLinkChan :: !(Maybe Uid)
-  , hPathSync :: !PathSync
+  , hOnopen      :: !(Maybe TxTelex)
+  , hParts       :: !(Maybe Parts)
+  , hIsSeed      :: !Bool
+  , hLinkAge     :: !(Maybe ClockTime)
+  , hLinkChan    :: !(Maybe Uid)
+  , hPathSync    :: !PathSync
   } deriving (Show)
 
 {-
@@ -388,6 +389,7 @@ newHashContainer hn = H { hHashName = hn
                         , hCrypto = Nothing
                         , hPaths = Map.empty
                         , hLast = Nothing
+                        , hExternalIPP = Nothing
                         , hChans = Map.empty
                         , hVias = Map.empty
                         , hOnopen = Nothing
