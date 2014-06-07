@@ -457,41 +457,45 @@ crypt_deopenize_1a self open = do
 
           -- decrypt the inner
           let body = decryptCTR (initAES hash) iv cbody
-              Just inner = fromLinePacket (LP body)
-
           logH (">>>>:crypt_deopenize_1a:inner " ++ cLineHex self) body
 
-          -- logT $ "crypt_deopenize_1a:inner=" ++ show inner
-          let HeadJson js = paHead inner
-          -- logT $ "crypt_deopenize_1a:inner json=" ++ show (js)
-
-          -- generate secret for hmac
-          let Body ekey = paBody inner
-          if BC.length ekey /= 40
-            then do
-              logT $ "crypt_deopenize_1a:got invalid public key size:" ++ show (BC.length ekey)
+          minner <- io $ fromLinePacket (LP body)
+          case minner of
+            Nothing -> do
+              logT $ "crypt_deopenize_1a: bad line packet received:" ++ show body
               return DeOpenizeVerifyFail
-            else do
-              let epub = Public1a $ PublicKey curve (bsToPoint $ ekey)
-              secret2 <- uECC_shared_secret epub pk
+            Just inner -> do
+              -- logT $ "crypt_deopenize_1a:inner=" ++ show inner
+              let HeadJson js = paHead inner
+              -- logT $ "crypt_deopenize_1a:inner json=" ++ show (js)
 
-              -- verify
-              let hmacVal = B16.encode $ fold3 $ hmac SHA256.hash 64 secret2 (BC.drop 4 pbody)
-              if hmacVal /= mac1
+              -- generate secret for hmac
+              let Body ekey = paBody inner
+              if BC.length ekey /= 40
                 then do
-                  logT $ "crypt_deopenize_1a:invalid hmac:" ++ show (hmacVal,mac1)
+                  logT $ "crypt_deopenize_1a:got invalid public key size:" ++ show (BC.length ekey)
                   return DeOpenizeVerifyFail
                 else do
-                  -- stash the hex line key w/ the inner
-                  let Just json = Aeson.decode (cbsTolbs js) :: Maybe Aeson.Value
+                  let epub = Public1a $ PublicKey curve (bsToPoint $ ekey)
+                  secret2 <- uECC_shared_secret epub pk
 
-                  let ret = DeOpenize
-                       { doLinePub = linePub -- ecc value
-                       , doKey = unBody $ paBody inner
-                       , doJs = json
-                       , doCsid = "1a"
-                       }
-                  return ret
+                  -- verify
+                  let hmacVal = B16.encode $ fold3 $ hmac SHA256.hash 64 secret2 (BC.drop 4 pbody)
+                  if hmacVal /= mac1
+                    then do
+                      logT $ "crypt_deopenize_1a:invalid hmac:" ++ show (hmacVal,mac1)
+                      return DeOpenizeVerifyFail
+                    else do
+                      -- stash the hex line key w/ the inner
+                      let Just json = Aeson.decode (cbsTolbs js) :: Maybe Aeson.Value
+
+                      let ret = DeOpenize
+                           { doLinePub = linePub -- ecc value
+                           , doKey = unBody $ paBody inner
+                           , doJs = json
+                           , doCsid = "1a"
+                           }
+                      return ret
 
 -- ---------------------------------------------------------------------
 
@@ -580,7 +584,7 @@ crypt_delineize_1a c rxTelex = do
           return $ Left $ "hmac mismatch:" ++ show (B16.encode hm,B16.encode mac1)
         else do
           let deciphered = decryptCTR (initAES keyIn) (BC.append ivz iv) body2
-              mret = fromLinePacket (LP deciphered)
+          mret <- io $ fromLinePacket (LP deciphered)
 
           logH (">>>>:crypt_delineize_1a:inner " ++ cLineHex c) deciphered
 

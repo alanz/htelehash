@@ -27,7 +27,7 @@ module Network.TeleHash.Packet
 
 -- import Control.Applicative
 -- import Control.Concurrent
--- import Control.Exception
+import Control.Exception
 -- import Control.Monad
 -- import Control.Monad.Error
 
@@ -237,8 +237,12 @@ myencode (HeadJson x) = BC.append (bb) x
 -- ---------------------------------------------------------------------
 
 -- |Note: this will throw an exception is the decode fails
-fromLinePacket :: LinePacket -> Maybe Packet
-fromLinePacket (LP bs) = Just $ decode (cbsTolbs bs)
+fromLinePacket :: LinePacket -> IO (Maybe Packet)
+fromLinePacket (LP bs) = handle handler fn
+  where
+    fn = return  (Just $ decode (cbsTolbs bs))
+    handler :: SomeException -> IO (Maybe Packet)
+    handler _ = return Nothing
 
 -- ---------------------------------------------------------------------
 
@@ -346,12 +350,16 @@ _headok = decode $ b16ToLbs "00011a"
 _bodyok :: Body
 _bodyok = decode $ b16ToLbs "dee339dc7ca4227333401b8d2dc460dfa78317b6c5dea168b4679c59fbc93a2267e1c2b7cf4bfe832f0fb07221f8654a758d6a63200979f9367e046379aa1f4d27f74be6ae9367f4ff655820f2e0dedea70c6a8e32084180a464993e625803fa9774ac99a50c2e63fa637a07a2ae52860a1961f630c51d4f6779c7409c80497f52c91c69ed812261f2dcb5c1675b24d978a94fb55d9d55ecb772b542aa21c32d9dc704374dcbf53b32579e68cc3a01da6f9fd44ee1a1753919c50a09790c168d2a22069e0bd1f7e7db5410ec540c90f893956ddbdf01fc9ae5a7c82fc832ae72f846a2b1dc3a911dc13aa641fcf83f68ed1d3e6f445f5b82814649b9a127c7ad6fd2e3a8d5b986852c8bca221931e7a09ea1a2e7aff7ea090fdc8eebdd8664bb926909c396c3f7dd01ac38819a6cf7b947a855f8bdc87593e20bda115913056d6935b188308fad9a7873fb95395216d487cb5173a20296b86103715005e1ccbe3bcaae8ee64e4806928dd654a08ed8a7818d4eff2052aaa62c300c7661e678febaf34378a32028e0a3eea83cc87bc9c18742d4daafa3029df15030d7fc2cf916eab082e2424e4f912cadd319aaa39d6a8dc32c4282"
 
-_decodeok :: Maybe Packet
+-- _decodeok :: Maybe Packet
 _decodeok = fromLinePacket _lp_rx_open
 
-_decodefail :: Maybe Packet
+-- _decodefail :: Maybe Packet
 _decodefail = fromLinePacket (LP (lbsTocbs $ b16ToLbs "08011adee339dc7ca422"))
 
 _buggy_line_packet :: String
 _buggy_line_packet = BC.unpack $ lbsTocbs $ b16ToLbs "6c3258f8cc77b7f6e7eaf963b02b2121fb9a7eec724160b3a20450c90b4bd195742bc892b6793876583b0ee51a254f7955eebd14180f44290700ae5cdec67626931c8c947d252e627ce84a130adf753cabcb33f05a72e43b26930a960a47fcc9adea862a5af26bd2f15c81e4a3c33b910dd15b2435d6c14bfdfe42c72e93078b78a2386cd61414744a8a3264b4aacea222af54d698b5e5f7e74c2c0476882f30173103fcbd2817467ddbdc7f20ae1f40b91c949a19f036d6135f4f1b4ccaf73c54de5c329510df2034a1a8b02b904f0ba8672fd8ef2024b2e6083e37821075d16371fe02622405e382352e9167c81ffcbaba2586b83006dba9a8f8aec8c660ca194c1976613c6565248bac3b3c41df2e3ed2e2715faa4f901514bf92bf2d314bedd1abfb41ed46b5f4891dd0a7ee22892b55337ac6d5d6eee4883a4cbb258924399683cbb0e7e6a7bdf18bd70f50748994b6db0f52ba1b25328e2faa5c7db7c080124dd9dc4e0831c6574ede3bc9971557ff0b4bc1daa421b7d5d0c64579e2951c541934363c60e32ab0462e30de4d396ea6f01a62686e1c5307e7feb2"
+
+
+_buggy_line_packet2 :: String
+_buggy_line_packet2 = BC.unpack $ lbsTocbs $ b16ToLbs "0208b6d2ea2e7f81ddcbd196decd080f0903b727aec7edc7073e5c70b559fabf48fa2edec45f9c783276f4c80510de181748487fde0d8e4c23145147a9425d721b8d9522dfd71d1f33d9d558de8c72566b557b0e7869dcf36a7125260175dc5c9f7d48a17292630fe02843b460e2dbf42723eaa50dbbce03afcbf67f19f4e7af0e692778199d744eed7bf4b94220100374fb0ed270e450ac9815ed2b9ca160bb184d6914c28b0f5b3675482f27c13dea1591d0f8ba623264acad6dbda5207274da181be104182fa0cfd49525373bab4e57d7fc10dfa518a18d3ef7b2f308715107f5c78365a8103b7b45bc586eab67a4c14ef9ed1a4890f068a64f88b6081a6a77b1bd3a7f74c31c618273afaed958ffbe8c8f7ba309af245fc63ebd4260ae96730affcdc2184aaa26af63c391065c0249c51fd6e2a6b877008e8532d4fe7beff135619559ef2936213541f545ead91dbd822845904521c5f27892d785ef1444a60099d1743451ef3d277676a9a1c41173e2122c959a591e43f32c46abcb1167c8cb76f47803d62ce344d2d05151215024"
 

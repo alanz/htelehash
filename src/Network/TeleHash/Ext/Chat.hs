@@ -1432,7 +1432,7 @@ ext_chat cid = do
             logT $ "ext_chat:mr3=Nothing"
             return ()
           Just r -> do
-            let pp = fromLinePacket (LP $ unBody $ paBody $ rtPacket $ ecrIn r)
+            pp <- io $ fromLinePacket (LP $ unBody $ paBody $ rtPacket $ ecrIn r)
             logT $ "ext_chat:pp=" ++ show pp
             case pp of
               Just p2@(Packet (HeadJson js) _body) -> do
