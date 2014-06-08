@@ -63,9 +63,11 @@ ext_path cin = do
                   forM_ ps1 $ \ path -> do
                     mp1 <- chan_packet (chUid c) True
                     let p3 = packet_set (gfromJust "ext_path" mp1) "path" path
-                    path_get (chTo c) path
-                    logT $ "ext_path:p3=" ++ showJson (tJs p3)
-                    chan_send (chUid c) p3
+                        p4 = p3 { tOut = path }
+                    void $ path_get (chTo c) path
+                    logT $ "ext_path:p4=" ++ showJson (tJs p4)
+                    logT $ "ext_path:tOut p4=" ++ show (tOut p4)
+                    chan_send (chUid c) p4
 
   util_chan_popall c (Just respFunc)
 

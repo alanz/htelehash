@@ -217,7 +217,7 @@ switch_receive rxPacket path timeNow = do
               return ()
             Right rx -> do
               mchan <- chan_in (hHashName from) rx
-              logP $ ">>>>:" ++ show (fmap showChanShort mchan,showPathJson $ rtSender rx,showPacketShort $ rtPacket rx)
+              logP $ ">>>>:" ++ show (fmap showChan mchan,showPathJson $ rtSender rx,showPacketShort $ rtPacket rx)
               case mchan of
                 Just chan -> do
                   sw <- get
