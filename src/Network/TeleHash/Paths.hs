@@ -125,6 +125,14 @@ instance ToJSON PathJson where
        = Object $ HM.fromList [("type",String "ipv6")
                               ,("ip",String $ T.pack $ show ip)
                               ,("port",Number $ fromIntegral port)]
+  toJSON (PHttp (PathHttp url))
+       = Object $ HM.fromList [("type",String "http")
+                              ,("url",String $ T.pack url)]
+  toJSON (PWebRtc (PathWebRtc webrtcId))
+       = Object $ HM.fromList [("type",String "webrtc")
+                              ,("id",String $ T.pack webrtcId)]
+  toJSON (PNone)
+       = Object $ HM.fromList []
 
 -- ---------------------------------------------------------------------
 

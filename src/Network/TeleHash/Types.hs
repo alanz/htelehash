@@ -102,6 +102,7 @@ module Network.TeleHash.Types
 
 import Control.Applicative
 import Control.Concurrent
+import Control.Exception
 import Control.Monad
 import Control.Monad.State
 import Crypto.Random
@@ -1006,21 +1007,15 @@ data SeedInfo = SI
   , sIsBridge :: !Bool
   } deriving Show
 
--- emptySeed = SI "" "" [] [] [] False
-
 instance Aeson.FromJSON SeedInfo where
   parseJSON (Aeson.Object v) = do
      admin <- v .: "admin"
-     -- let admin = "blah"
 
      paths <- v .: "paths"
-     -- let paths = []
 
      parts <- v .: "parts"
-     -- let parts = []
 
      keys  <- v .: "keys"
-     -- let keys = []
 
      return SI { sId = "foo"
                , sAdmin = admin
@@ -1031,20 +1026,40 @@ instance Aeson.FromJSON SeedInfo where
                }
   parseJSON x = error $ "parseJSON (SeedInfo instance) unexpected Aeson value:" ++ show x
 
+instance Aeson.ToJSON SeedInfo where
+  toJSON (SI sid sadmin spaths sparts skeys sisbridge)
+    = object ["id"     .= sid
+             , "admin" .= sadmin
+             , "paths" .= spaths
+             , "parts" .= sparts
+             , "keys"  .= skeys
+             , "bridge" .= sisbridge
+             ]
+
+-- | Test toJSON SeedInfo
+-- >>> let s = SI "idval" "adminval" [PIPv4 (PathIPv4 (read "127.0.0.1") 2)] [("1a","1ap")] [("1a","1ak")] False
+-- >>> Aeson.encode s
+-- "{\"id\":\"idval\",\"bridge\":false,\"admin\":\"adminval\",\"keys\":{\"1a\":\"1ak\"},\"parts\":{\"1a\":\"1ap\"},\"paths\":[{\"ip\":\"127.0.0.1\",\"port\":2,\"type\":\"ipv4\"}]}"
+--
+
+-- ---------------------------------------------------------------------
+
 instance Aeson.FromJSON [SeedInfo] where
   parseJSON (Aeson.Object v) = do
      let (idval,_vv) = head $ HM.toList v
      seed <- v .: idval
      return [seed]
-{-
-    if HM.size v > 0
-      then do
-        let (idval,vv) = head $ HM.toList v
-        -- parseJSON vv
-        fail $ "AZ got :" ++ show vv
-      else mzero
--}
+
   parseJSON _ = mzero
+
+-- | Test toJSON [SeedInfo]
+-- >>> let s = SI "idval" "adminval" [PIPv4 (PathIPv4 (read "127.0.0.1") 2)] [("1a","1ap")] [("1a","1ak")] False
+-- >>> Aeson.encode [s]
+-- "{\"idval\":{\"id\":\"idval\",\"bridge\":false,\"admin\":\"adminval\",\"keys\":{\"1a\":\"1ak\"},\"parts\":{\"1a\":\"1ap\"},\"paths\":[{\"ip\":\"127.0.0.1\",\"port\":2,\"type\":\"ipv4\"}]}}"
+--
+
+instance Aeson.ToJSON [SeedInfo] where
+  toJSON seeds = Aeson.Object $ HM.fromList $ map (\s -> (Text.pack (sId s),Aeson.toJSON s)) seeds
 
 -- ---------------------------------------------------------------------
 

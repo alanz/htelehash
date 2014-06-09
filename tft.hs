@@ -352,6 +352,12 @@ app = do
               logR $ "Seeking all seeds"
               manual_seek
 
+           | isPrefixOf "/dump" l -> do
+              logR $ "Dumping all seeds"
+              now <- io getClockTime
+              let fn = "./seeds.json." ++ show now
+              dump_seeds fn
+
            | otherwise -> do
               -- default send as message
               cid <- getChatCurrent

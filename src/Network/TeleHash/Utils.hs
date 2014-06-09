@@ -107,6 +107,7 @@ module Network.TeleHash.Utils
   , isLocalIP
   , isLocalPath
   , isTimeOut
+  , dump_seeds
   ) where
 
 import Control.Exception
@@ -134,13 +135,13 @@ import Network.TeleHash.Packet
 import qualified Crypto.Hash.SHA256 as SHA256
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BC
--- import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
-
 
 -- ---------------------------------------------------------------------
 -- telehash-c api
@@ -1087,3 +1088,32 @@ isTimeOut (TOD secs _picos) mt secsVal
 
 -- ---------------------------------------------------------------------
 
+dump_seeds :: FilePath -> TeleHash ()
+dump_seeds fp = do
+  logT $ "dumping seeds to file " ++ fp
+  sw <- get
+  let seeds = catMaybes $ map hcToSeedInfo (Map.elems (swIndex sw))
+      seedsStr = Aeson.encode seeds
+  logT $ "dump_seeds:seedsStr=" ++ (BC.unpack $ lbsTocbs seedsStr)
+  io $ BL.writeFile fp seedsStr
+  return ()
+
+-- ---------------------------------------------------------------------
+
+hcToSeedInfo :: HashContainer -> Maybe SeedInfo
+hcToSeedInfo hc =
+  case hCrypto hc of
+    Nothing -> Nothing
+    Just _ -> Just $ SI { sId = unHN $ hHashName hc
+                        , sAdmin = show (hLinkAge hc)
+                        , sPaths = Map.keys (hPaths hc)
+                        , sParts = gfromJust "hcToSeedInfo" (hParts hc)
+                        , sKeys  = keys
+                        , sIsBridge = False
+                        }
+      where
+        c = gfromJust "hcToSeedInfo.2" (hCrypto hc)
+        keyval = BC.unpack $ B64.encode (cKey c)
+        keys = [(cCsid c,keyval)]
+
+-- ---------------------------------------------------------------------
