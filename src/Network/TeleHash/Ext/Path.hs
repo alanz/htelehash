@@ -97,7 +97,6 @@ path_send to = do
         then do
           -- if no default route, and our external IP is not known
           -- yet, send to all known external ones
-          -- TODO: should not just copy the packet?
           hc <- getHN to
           forM_ (Map.keys (hPaths hc)) $ \path -> do
             cp <- chan_new to "path" Nothing
@@ -147,10 +146,13 @@ path_handler cid = do
               case pjsonIp lp of
                 Nothing -> return ()
                 Just ip -> do
+                  self <- getOwnHC
                   logT $ "path_handler:checking ip:" ++ show ip
+                  -- logT $ "path_handler:current known own ips" ++ show (Map.keys (hPaths self))
                   if isLocalIP ip || not (hIsSeed hc)
+                                  || not (Map.member lp (hPaths self))
                     then do
-                      logT $ "path_handler:(isLocalIP ip,not (hIsSeed hc))=" ++ show (isLocalIP ip,not (hIsSeed hc))
+                      logT $ "path_handler:(isLocalIP ip,not (hIsSeed hc),known paths)=" ++ show (isLocalIP ip,not (hIsSeed hc),Map.keys (hPaths self))
                       return ()
                     else do
                       logR $ "path_handler:got our remote ip:" ++ show ip

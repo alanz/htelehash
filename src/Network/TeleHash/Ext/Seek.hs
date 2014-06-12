@@ -358,9 +358,9 @@ _seek_auto hn = do
 
       -- TODO get near from somewhere
       sw <- get
-      let seed = ghead "seek_auto" $ Set.toList (swSeeds sw)
-
-      seek_send sk seed
+      forM_ (take 3 $ Set.toList (swSeeds sw)) $ \seed -> do
+      -- let seed = ghead "seek_auto" $ Set.toList (swSeeds sw)
+        seek_send sk seed
 
 
 {-
