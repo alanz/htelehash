@@ -1161,27 +1161,11 @@ chan_end chanId p = do
     pret = case p of
              Nothing -> Nothing
              Just pkt -> Just (packet_set pkt "end" True)
-{-
-    c2 = chan {chState = ChanEnded }
-  putChan c2
-  chan_queue c2
--}
   chan_dequeue chanId
   rmChanFromHn (chTo chan) (chUid chan)
   rmChan chanId
   return pret
 
-{-
-chan_t chan_end(chan_t c, packet_t p)
-{
-  DEBUG_PRINTF("channel end %d",c->id);
-  if(p) packet_set(p,"end","true",4);
-  // if(c->reliable) TODO set to ENDING, add timer for cleanup and then queue for free
-  c->state = CHAN_ENDED;
-  chan_queue(c);
-  return c;
-}
--}
 
 -- ---------------------------------------------------------------------
 

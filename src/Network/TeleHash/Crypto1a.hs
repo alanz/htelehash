@@ -326,30 +326,6 @@ crypt_lineize_1a c p = do
   --  4 bytes of seq
   -- nn bytes of aes encrypted body
 
-{-
-packet_t crypt_lineize_1a(crypt_t c, packet_t p)
-{
-  packet_t line;
-  unsigned char iv[16], hmac[32];
-  crypt_1a_t cs = (crypt_1a_t)c->cs;
-
-  line = packet_chain(p);
-  packet_body(line,NULL,16+4+4+packet_len(p));
-  memcpy(line->body,c->lineIn,16);
-  memcpy(line->body+16+4,&(cs->seq),4);
-  memset(iv,0,16);
-  memcpy(iv+12,&(cs->seq),4);
-  cs->seq++;
-
-  aes_128_ctr(cs->keyOut,packet_len(p),iv,packet_raw(p),line->body+16+4+4);
-
-  hmac_256(cs->keyOut,16,line->body+16+4,4+packet_len(p),hmac);
-  fold3(hmac,line->body+16);
-
-  return line;
-}
--}
-
 -- ---------------------------------------------------------------------
 
 crypt_openize_1a :: Crypto -> Crypto -> OpenizeInner -> TeleHash (Maybe LinePacket)
