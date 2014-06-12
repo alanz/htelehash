@@ -45,6 +45,7 @@ module Network.TeleHash.Utils
 
   -- * Hashcontainers
   , getOwnHN
+  , getOwnHC
   , getHN
   , getHNMaybe
   -- , putHN
@@ -515,7 +516,10 @@ rmChanFromHn hn uid = do
       hc2 = if hLinkChan hc == Just uid
               then hc1 { hLinkChan = Nothing }
               else hc1
-    in hc2
+      hc3 = if Map.size (hChans hc2) == 0
+              then hc2 { hCrypto = Nothing }
+              else hc2
+    in hc3
 
 -- ---------------------------------------------------------------------
 
@@ -620,6 +624,13 @@ getOwnHN :: TeleHash HashName
 getOwnHN = do
   sw <- get
   return $ swId sw
+
+-- |Return our own hashcontainer
+getOwnHC :: TeleHash HashContainer
+getOwnHC = do
+  sw <- get
+  hc <- getHN (swId sw)
+  return hc
 
 -- ---------------------------------------------------------------------
 
