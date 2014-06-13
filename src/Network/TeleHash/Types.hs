@@ -801,7 +801,9 @@ data CryptoSet = CS1a { cset :: CSet, cs1a :: Crypt1a }
 -- ---------------------------------------------------------------------
 
 data CSet = CS
-  { cs_init      :: TeleHash ()
+  { cs_id        :: !String
+  , cs_init      :: TeleHash ()
+  , cs_keygen    :: TeleHash (String,String)
   , cs_new       :: Maybe String -> Maybe BC.ByteString -> TeleHash (Maybe Crypto)
   , cs_private   :: Crypto -> String -> TeleHash Crypto
   , cs_lineize   :: Crypto -> TxTelex -> TeleHash (Crypto,Maybe LinePacket)

@@ -37,7 +37,7 @@ was
 -}
 
 
--- import Control.Exception
+import Control.Exception
 import Control.Monad.State
 import Crypto.Cipher.AES
 import Crypto.MAC.HMAC
@@ -62,13 +62,17 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Binary as Binary
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Base16 as B16
+import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BC
 import qualified Data.ByteString.Lazy as BL
 
 -- ---------------------------------------------------------------------
 
+cset_1a :: CSet
 cset_1a = CS
-  { cs_init      = crypt_init_1a
+  { cs_id        = "1a"
+  , cs_init      = crypt_init_1a
+  , cs_keygen    = crypt_keygen_1a
   , cs_new       = crypt_new_1a
   , cs_private   = crypt_private_1a
   , cs_lineize   = crypt_lineize_1a
@@ -89,17 +93,41 @@ crypt_init_1a :: TeleHash ()
 crypt_init_1a = do
   return ()
 
+
+-- ---------------------------------------------------------------------
+
+crypt_keygen_1a :: TeleHash (String,String)
+crypt_keygen_1a = do
+  -- create line ephemeral key
+  sw <- get
+  let ((pubk,privk) ,g') = generate (swRNG sw) curve
+  put $ sw { swRNG = g' } -- must come before next line, else update
+                          -- lost
+
+  let (PrivateKey _ priv) = privk
+      (PublicKey _ pub) = pubk
+      pubStr  = BC.unpack $ B64.encode $ pointTow8s pub
+      privStr = BC.unpack $B64.encode $ privToBs priv
+  return (pubStr,privStr)
+
 {-
-int crypt_init_1a()
+int crypt_keygen_1a(packet_t p)
 {
-  struct timeval tv;
-  unsigned int seed;
-  gettimeofday(&tv, NULL);
-  seed = (getpid() << 16) ^ tv.tv_sec ^ tv.tv_usec;
-  srandom(seed); // srandomdev() is not universal
-  uECC_set_rng(&RNG);
+  char b64[uECC_BYTES*4];
+  uint8_t id_private[uECC_BYTES], id_public[uECC_BYTES*2];
+
+  // create line ephemeral key
+  uECC_make_key(id_public, id_private);
+
+  base64enc(b64,id_public,uECC_BYTES*2);
+  packet_set_str(p,"1a",b64);
+
+  base64enc(b64,id_private,uECC_BYTES);
+  packet_set_str(p,"1a_secret",b64);
+
   return 0;
 }
+
 -}
 
 -- ---------------------------------------------------------------------

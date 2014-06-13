@@ -1,6 +1,7 @@
 module Network.TeleHash.Crypt
   (
     crypt_init
+  , crypt_keygen
   , crypt_new
   , crypt_private
   , crypt_lineize
@@ -59,6 +60,37 @@ int crypt_init()
   return ret;
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+crypt_keygen :: [CSet] -> TeleHash [(String,(String,String))]
+crypt_keygen csets = do
+  r <- forM csets $ \cs -> do
+    (pub,priv) <- cs_keygen cs
+    return (cs_id cs,(pub,priv))
+  return r
+
+{-
+
+int crypt_keygen(char csid, packet_t p)
+{
+  if(!p) return 1;
+
+#ifdef CS_1a
+  if(csid == 0x1a) return crypt_keygen_1a(p);
+#endif
+#ifdef CS_2a
+  if(csid == 0x2a) return crypt_keygen_2a(p);
+#endif
+#ifdef CS_3a
+  if(csid == 0x3a) return crypt_keygen_3a(p);
+#endif
+
+  return 1;
+}
+
+-}
+
 -- ---------------------------------------------------------------------
 
 {-
