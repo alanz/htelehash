@@ -70,9 +70,9 @@ app = do
             c <- getChan cid
             logT $ "channel active " ++ show (chState c,chUid c,chTo c)
             case chType c of
-              "link" -> ext_link c
-              "path" -> ext_path c
-              "connect" -> ext_connect c
+              "link" -> ext_link cid
+              "path" -> ext_path cid
+              "connect" -> ext_connect cid
               typ -> do
                 logT $ "not processing channel type:" ++ typ
                 util_chan_popall c Nothing

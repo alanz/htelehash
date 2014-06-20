@@ -10,7 +10,7 @@ import System.Environment
 import System.IO
 import System.Log.Handler.Simple
 import System.Log.Logger
--- import System.Remote.Monitoring
+import System.Remote.Monitoring
 import System.Time
 
 import Network.TeleHash.Ext.Chat
@@ -199,74 +199,6 @@ app = do
   admin <- chan_new (swId sw2) ".admin" Nothing
   logT $ "admin channel:" ++ showChan admin
 
-{-
-  let rx_loop = do
-        -- logT $ "rx_loop entered"
-        mc <- switch_pop
-        -- logT $ "rx_loop entered:mc=" ++ show mc
-        case mc of
-          Nothing -> return ()
-          Just cid -> do
-            c <- getChan cid
-
-            -- our internal testing stuff
-            if cid == chUid admin
-              then do
-                notes <- chan_notes_all c
-                forM_ notes $ \note1 -> do
-                  logT $ "admin note " ++ showJson (tJs note1)
-              else return ()
-
-            logT $ "channel active " ++ show (chState c,chUid c,chTo c)
-            case chHandler c of
-              Just h -> do
-                logT $ "rx_loop:calling handler"
-                h (chUid c)
-                return ()
-              Nothing -> do
-                logT $ "rx_loop:chType=" ++ (chType c)
-                case chType c of
-                  "connect" -> ext_connect c
-                  "thtp"    -> ext_thtp (chUid c)
-                  "link"    -> ext_link c
-                  "seek"    -> ext_seek c
-                  "path"    -> ext_path c
-                  "peer"    -> ext_peer c
-                  "chat"    -> do
-                    mchat2 <- ext_chat (chUid c)
-                    case mchat2 of
-                      Nothing -> return ()
-                      Just ch -> do
-                        msgs <-chat_pop_all (ecId ch)
-                        forM_ msgs $ \p -> do
-                          logT $ "processing chat msg:" ++ show p
-
-                          if (packet_get_str_always p "type") == "state"
-                            then io $ logg nick (packet_get_str_always p "text" ++ " joined")
-                            else return ()
-
-                          if (packet_get_str_always p "type") == "chat"
-                            then do
-                              mparticipant <- chat_participant (ecId ch) (packet_get_str_always p "from")
-                              logT $ "rx_loop:(mparticipant,from)=" ++ show (mparticipant,packet_get_str_always p "from")
-                              let participant = case mparticipant of
-                                                  Nothing -> "*UNK*"
-                                                  Just pa  -> packet_get_str_always pa "text"
-                              io $ logg nick $ participant ++ "> " ++ (packet_get_str_always p "text")
-                            else return ()
-
-                  typ -> do
-                    logT $ "not processing channel type:" ++ typ
-                    util_chan_popall c Nothing
-                if chState c == ChanEnded
-                  then do
-                    chan_free c
-                    return ()
-                  else return ()
-
-            rx_loop
--}
-
   let
     adminHandler :: Uid -> TeleHash ()
     adminHandler cid = do
@@ -415,9 +347,7 @@ app = do
                   chat_send cid p2e
                   io $ logg nick ""
 
-    -- rx_loop
     util_mainloop chanHandlers typeHandlers
-
     util_sendall sock
 
 
