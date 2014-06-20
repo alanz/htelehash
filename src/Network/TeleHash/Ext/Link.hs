@@ -29,8 +29,9 @@ import qualified Data.Text as Text
 -- |Accept a DHT link
 -- This should only be called for the first packet received on a given
 -- link channel.
-ext_link :: TChan -> TeleHash ()
-ext_link c = do
+ext_link :: Uid -> TeleHash ()
+ext_link cid = do
+  c <- getChan cid
   logR $ "ext_link entered for:" ++ showChan c
   let
     respFunc p = do

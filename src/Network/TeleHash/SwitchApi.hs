@@ -816,7 +816,7 @@ chan_new toHn typ mcid = do
               , chSeq      = Nothing
               , chMiss     = Nothing
               }
-  withHN toHn (\hc -> hc { hChans = Map.insert cid (chUid chan) (hChans hc) })
+  void $ withHN toHn (\hc -> hc { hChans = Map.insert cid (chUid chan) (hChans hc) })
   putChan chan
 
   logT $ "chan_new:created " ++ showChan chan
@@ -966,10 +966,11 @@ chan_reset toHn = do
 
   let base = if (swId sw) > (hHashName to1)
                then 1 else 2
-  withHN toHn $ \hc -> if (hChanOut hc == nullChannelId
-                           || channelSlot (hChanOut hc) /= channelSlot (CID base))
-                        then hc {hChanOut = CID base}
-                        else hc
+  void $ withHN toHn $ \hc ->
+    if (hChanOut hc == nullChannelId
+      || channelSlot (hChanOut hc) /= channelSlot (CID base))
+     then hc {hChanOut = CID base}
+     else hc
   -- fail any existing chans from them
   void $ withHNM toHn $ \hc -> do
     forM_ (Map.elems $ hChans hc) $ \cid -> do
@@ -1189,9 +1190,9 @@ chan_fail cid merr = do
   -- no grace period for reliable
   let c2 = c { chState = ChanEnded }
   putChan c2
-  to <- getHN $ chTo c2
+  -- to <- getHN $ chTo c2
   -- putHN $ to { hChans = Map.delete (chId c2) (hChans to) }
-  withHN (chTo c2) $ \to -> to { hChans = Map.delete (chId c2) (hChans to) }
+  void $ withHN (chTo c2) $ \to -> to { hChans = Map.delete (chId c2) (hChans to) }
   chan_queue c2
   return ()
 

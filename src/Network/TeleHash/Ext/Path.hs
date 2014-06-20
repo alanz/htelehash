@@ -40,9 +40,9 @@ Where we have initiated it the message is processed via `path_handler`.
 -- ---------------------------------------------------------------------
 
 -- |Process incoming requests from other nodes to validate their paths.
-ext_path :: TChan -> TeleHash ()
-ext_path cin = do
-  c <- getChan (chUid cin)
+ext_path :: Uid -> TeleHash ()
+ext_path cid = do
+  c <- getChan cid
   logT $ "ext_path entered for:" ++ showChan c
   let
     respFunc p = do

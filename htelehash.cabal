@@ -131,6 +131,36 @@ executable             tft
                   -- , ekg
 
 
+executable             web
+  hs-source-dirs:    . src
+  main-is:           web.hs
+  default-language: Haskell2010
+  ghc-options:  -Wall
+  build-depends:    base
+                  , aeson
+                  , base16-bytestring
+                  , base64-bytestring
+                  , binary
+                  , bytestring
+                  , cipher-aes
+                  , containers
+                  , crypto-numbers
+                  , crypto-pubkey
+                  , crypto-pubkey-types
+                  , crypto-random
+                  , cryptohash
+                  , hslogger
+                  , iproute
+                  , mtl
+                  , network
+                  , old-time
+                  , old-locale
+                  , split
+                  , text
+                  , unordered-containers
+                  , ekg
+
+
 executable             ping
   hs-source-dirs:    . src
   main-is:           ping.hs

@@ -33,8 +33,9 @@ import qualified Data.Text as Text
 
 -- ---------------------------------------------------------------------
 
-ext_seek :: TChan -> TeleHash ()
-ext_seek c = do
+ext_seek :: Uid -> TeleHash ()
+ext_seek cid = do
+  c <- getChan cid
   logT $ "ext_seek entered with for " ++ showChan c
 
   let

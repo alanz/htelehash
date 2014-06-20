@@ -6,6 +6,8 @@ module Network.TeleHash.SwitchUtils
   , util_server
   , util_readone
 
+  , util_mainloop
+
   , util_chan_popall
 
   , util_chunk_out
@@ -26,6 +28,7 @@ import Network.TeleHash.SwitchApi
 import Network.TeleHash.Utils
 
 import qualified Data.ByteString.Char8 as BC
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.Socket as NS
 import qualified Network.Socket.ByteString as SB
@@ -155,6 +158,44 @@ int util_readone(switch_t s, int sock, path_t in)
   return 0;
 }
 -}
+
+-- ---------------------------------------------------------------------
+
+-- |Process all pending messages into the switch, using the supplied
+--  channel-specific and channel type handlers
+util_mainloop
+   :: Map.Map Uid    (Uid -> TeleHash ()) -- specific channel handlers
+   -> Map.Map String (Uid -> TeleHash ()) -- channel type handlers
+   -> TeleHash ()
+util_mainloop chanHandlers typeHandlers = do
+  mc <- switch_pop
+  case mc of
+    Nothing -> return ()
+    Just cid -> do
+      c <- getChan cid
+      case Map.lookup cid chanHandlers of
+        Just chanFunc -> do
+          chanFunc cid
+        Nothing -> do
+          case chHandler c of
+            Just h -> do
+              logT $ "util_mainloop:calling handler"
+              h (chUid c)
+              return ()
+            Nothing -> do
+              case Map.lookup (chType c) typeHandlers of
+                Just h -> do
+                  h cid
+                Nothing -> do
+                  logT $ "util_mainloop:not processing channel type:" ++ chType c
+                  util_chan_popall c Nothing
+      if chState c == ChanEnded
+        then do
+          chan_free c
+          return ()
+        else return ()
+      util_mainloop chanHandlers typeHandlers
+
 
 -- ---------------------------------------------------------------------
 

@@ -18,8 +18,9 @@ import Network.TeleHash.SwitchUtils
 
 -- ---------------------------------------------------------------------
 
-ext_connect :: TChan -> TeleHash ()
-ext_connect c = do
+ext_connect :: Uid -> TeleHash ()
+ext_connect cid = do
+  c <- getChan cid
   logT $ "ext_connect entered for:" ++ show (chId c, chUid c)
   util_chan_popall c (Just (\p -> do
     logT $ "ext_connect paths:" ++ showJson (packet_get p "paths")

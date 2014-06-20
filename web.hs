@@ -1,6 +1,5 @@
 {-# LANGUAGE MultiWayIf #-}
 
--- based on tft.c in telehash-c
 
 import Control.Concurrent
 import Control.Exception
@@ -31,6 +30,7 @@ import Network.TeleHash.SwitchUtils
 
 import qualified Data.ByteString.Char8 as BC
 -- import qualified Data.ByteString.Lazy as BL
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Network.Socket.ByteString as SB
 
@@ -199,6 +199,7 @@ app = do
   admin <- chan_new (swId sw2) ".admin" Nothing
   logT $ "admin channel:" ++ showChan admin
 
+{-
   let rx_loop = do
         -- logT $ "rx_loop entered"
         mc <- switch_pop
@@ -225,14 +226,14 @@ app = do
               Nothing -> do
                 logT $ "rx_loop:chType=" ++ (chType c)
                 case chType c of
-                  "connect" -> ext_connect cid
-                  "thtp"    -> ext_thtp cid
-                  "link"    -> ext_link cid
-                  "seek"    -> ext_seek cid
-                  "path"    -> ext_path cid
-                  "peer"    -> ext_peer cid
+                  "connect" -> ext_connect c
+                  "thtp"    -> ext_thtp (chUid c)
+                  "link"    -> ext_link c
+                  "seek"    -> ext_seek c
+                  "path"    -> ext_path c
+                  "peer"    -> ext_peer c
                   "chat"    -> do
-                    mchat2 <- ext_chat cid
+                    mchat2 <- ext_chat (chUid c)
                     case mchat2 of
                       Nothing -> return ()
                       Just ch -> do
@@ -264,6 +265,50 @@ app = do
                   else return ()
 
             rx_loop
+-}
+
+  let
+    adminHandler :: Uid -> TeleHash ()
+    adminHandler cid = do
+      c <- getChan cid
+      notes <- chan_notes_all c
+      forM_ notes $ \note1 -> do
+        logT $ "admin note " ++ showJson (tJs note1)
+
+    chat_handler :: Uid -> TeleHash ()
+    chat_handler cid = do
+      mchat2 <- ext_chat cid
+      case mchat2 of
+        Nothing -> return ()
+        Just ch -> do
+          msgs <-chat_pop_all (ecId ch)
+          forM_ msgs $ \p -> do
+            logT $ "processing chat msg:" ++ show p
+
+            if (packet_get_str_always p "type") == "state"
+              then io $ logg nick (packet_get_str_always p "text" ++ " joined")
+              else return ()
+
+            if (packet_get_str_always p "type") == "chat"
+              then do
+                mparticipant <- chat_participant (ecId ch) (packet_get_str_always p "from")
+                logT $ "rx_loop:(mparticipant,from)=" ++ show (mparticipant,packet_get_str_always p "from")
+                let participant = case mparticipant of
+                                    Nothing -> "*UNK*"
+                                    Just pa  -> packet_get_str_always pa "text"
+                io $ logg nick $ participant ++ "> " ++ (packet_get_str_always p "text")
+              else return ()
+
+    chanHandlers = Map.fromList [(chUid admin,adminHandler)]
+    typeHandlers = Map.fromList
+                  [("connect" , ext_connect)
+                  ,("thtp"    , ext_thtp)
+                  ,("link"    , ext_link)
+                  ,("seek"    , ext_seek)
+                  ,("path"    , ext_path)
+                  ,("peer"    , ext_peer)
+                  ,("chat"    , chat_handler)
+                  ]
 
   logT $ "about to enter forever loop"
   void $ forever $ do
@@ -277,7 +322,8 @@ app = do
       IUdp msg rinfo -> do
         recvTelex msg rinfo
         switch_loop
-        rx_loop
+        -- rx_loop
+        util_mainloop chanHandlers typeHandlers
 
       IConsole l -> do
         logT $ "console gave:" ++ l
@@ -369,7 +415,9 @@ app = do
                   chat_send cid p2e
                   io $ logg nick ""
 
-    rx_loop
+    -- rx_loop
+    util_mainloop chanHandlers typeHandlers
+
     util_sendall sock
 
 

@@ -15,8 +15,9 @@ import Network.TeleHash.SwitchUtils
 
 -- ---------------------------------------------------------------------
 
-ext_peer :: TChan -> TeleHash ()
-ext_peer c = do
+ext_peer :: Uid -> TeleHash ()
+ext_peer cid = do
+  c <- getChan cid
   logT $ "ext_peer entered for:" ++ show (chId c, chUid c)
 
   let
