@@ -133,7 +133,7 @@ path_handler cid = do
       if any isJust [merr,mend]
         then do
           logT $ "path_handler:err or end in path packet:" ++ showJson (rtJs p)
-          void $ withHN (chTo c) $ \hc1 -> hc1 { hPathSync = ps { psSyncing = False }}
+          void $ withHN (chTo c) $ \hc1 -> hc1 { hPathSync = ps { psSyncing = PathSyncDone }}
           return ()
         else do
           let mv = packet_get p "path"
@@ -201,6 +201,7 @@ pathShareOrder = Map.fromList [(PtBlueTooth,1),(PtWebRtc,2),(PtIPv6,3),(PtIPv4,4
 
 -- ---------------------------------------------------------------------
 
+
 path_sync :: HashName -> TeleHash ()
 path_sync hn = do
   logT $ "path_sync:" ++ show hn
@@ -210,26 +211,24 @@ path_sync hn = do
       logT $ "path_sync:cannot sync to ourselves"
       return ()
     else do
+      -- TODO: only sync if currently online
       hc <- getHN hn
       let ps = hPathSync hc
-      if psSyncing ps
-        then do
+      case psSyncing ps of
+        PathSyncDone -> do
+          return ()
+        PathSyncBusy -> do
           now <- io $ getClockTime
           if isTimeOut now (psLastAt ps) param_path_sync_timeout_secs
             then do
-              -- putHN $ hc { hPathSync = ps { psSyncing = False }}
-              void $ withHN hn $ \hc1 -> hc1 { hPathSync = ps { psSyncing = False }}
+              void $ withHN hn $ \hc1 -> hc1 { hPathSync = ps { psSyncing = PathSyncDone }}
             else return ()
-        else do
+        PathSyncOff -> do
           logT $ "path_sync:starting new sync"
           path_send hn
           now <- io $ getClockTime
-          -- putHN $ hc { hPathSync = (newPathSync hn) { psSyncing = True
-          --                                           , psLastAt = Just now
-          --                                           }
-          --            }
           void $ withHN hn $ \hc2 ->
-              hc2 { hPathSync = (newPathSync hn) { psSyncing = True
+              hc2 { hPathSync = (newPathSync hn) { psSyncing = PathSyncBusy
                                                  , psLastAt = Just now
                                                  }
                  }

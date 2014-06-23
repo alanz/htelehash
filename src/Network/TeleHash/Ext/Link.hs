@@ -196,7 +196,6 @@ link_handler cid = do
             -- if this HN was ever active, try to re-start it on a new
             -- channel
             hc <- getHN (chTo c)
-            -- putHN $ hc { hLinkChan = Nothing }
             withHN (chTo c) $ \hc -> hc { hLinkChan = Nothing }
             void $ link_hn (chTo c) Nothing
           else do

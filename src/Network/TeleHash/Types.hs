@@ -81,6 +81,7 @@ module Network.TeleHash.Types
   , pathHttp
   , showPath
   , PathSync(..)
+  , PathSyncState(..)
   , newPathSync
 
   -- * Extensions types
@@ -482,10 +483,13 @@ nullPathJson = PNone
 
 -- ---------------------------------------------------------------------
 
+data PathSyncState = PathSyncOff | PathSyncBusy | PathSyncDone
+     deriving (Eq,Show)
+
 -- |Keep track of the path synchronisation process for a HashContainer
 data PathSync = PathSync
   { psHashName :: !HashName
-  , psSyncing  :: !Bool
+  , psSyncing  :: !PathSyncState
   , psLastAt   :: !(Maybe ClockTime)
   , psAlive    :: ![PathJson]
   } deriving (Show)
@@ -494,33 +498,13 @@ data PathSync = PathSync
 newPathSync :: HashName -> PathSync
 newPathSync hn = PathSync
   { psHashName = hn
-  , psSyncing = False
+  , psSyncing = PathSyncOff
   , psLastAt = Nothing
   , psAlive = []
   }
 
 -- ---------------------------------------------------------------------
 -- Channel related types
-
-{-
-
-typedef struct chan_struct
-{
-  uint32_t id;
-  unsigned char hexid[9], uid[9];
-  struct switch_struct *s;
-  struct hn_struct *to;
-  char *type;
-  int reliable;
-  enum {STARTING, OPEN, ENDING, ENDED} state;
-  struct path_struct *last;
-  struct chan_struct *next;
-  packet_t in, inend, notes;
-  void *arg; // used by app
-  void *seq, *miss; // used by chan_seq/chan_miss
-  void (*handler)(struct chan_struct*); // auto-fire callback
-} *chan_t;
--}
 
 data ChannelState = ChanStarting | ChanOpen | ChanEnding | ChanEnded
          deriving (Eq,Show)
@@ -554,25 +538,6 @@ data TChan = TChan
   , chMiss     :: !(Maybe Miss)
   } deriving (Show)
 
-{-
-typedef struct chan_struct
-{
-  uint32_t id;
-  unsigned char hexid[9], uid[9];
-  struct switch_struct *s;
-  struct hn_struct *to;
-  char *type;
-  int reliable;
-  enum {STARTING, OPEN, ENDING, ENDED} state;
-  struct path_struct *last;
-  struct chan_struct *next;
-  packet_t in, inend, notes;
-  void *arg; // used by app
-  void *seq, *miss; // used by chan_seq/chan_miss
-  void (*handler)(struct chan_struct*); // auto-fire callback
-} *chan_t;
-
--}
 
 data Seq = Seq
   { seId     :: !Int
@@ -582,26 +547,11 @@ data Seq = Seq
   , seIn     :: !(Map.Map Int RxTelex) -- indexed by seq
   } deriving Show
 
-{-
-typedef struct seq_struct
-{
-  uint32_t id, nextin, seen, acked;
-  packet_t *in;
-} *seq_t;
--}
-
 data Miss = Miss
   { mNextAck :: !Int
   , mOut     :: !(Map.Map Int TxId)
   , mPackets :: !(Map.Map TxId TxTelex)
   } deriving Show
-{-
-typedef struct miss_struct
-{
-  uint32_t nextack;
-  packet_t *out;
-} *miss_t;
--}
 
 -- |channel id is a positive number from 1 to 4,294,967,295 (UINT32)
 data ChannelId = CID Int deriving (Eq,Show,Ord)

@@ -86,7 +86,7 @@ recvUdpMsg ch sock = forever $ do
 
 main :: IO ()
 main = do
-  -- forkServer (BC.pack "localhost") 8000
+  forkServer (BC.pack "localhost") 8000
 
   s <- streamHandler stdout DEBUG
   updateGlobalLogger rootLoggerName (setHandlers [s])
@@ -94,7 +94,8 @@ main = do
   h1 <- fileHandler "line.log" DEBUG
   updateGlobalLogger lineLoggerName (addHandler h1)
 
-  h2 <- fileHandler "line-hex.log" DEBUG
+  -- h2 <- fileHandler "line-hex.log" DEBUG
+  h2 <- fileHandler "line-hex.log" ERROR
   updateGlobalLogger lineHexLoggerName (addHandler h2)
 
 
@@ -119,7 +120,8 @@ main = do
       updateGlobalLogger mainLoggerName (setLevel DEBUG)
 
   updateGlobalLogger lineLoggerName    (setLevel DEBUG)
-  updateGlobalLogger lineHexLoggerName (setLevel DEBUG)
+  -- updateGlobalLogger lineHexLoggerName (setLevel DEBUG)
+  updateGlobalLogger lineHexLoggerName (setLevel ERROR)
   updateGlobalLogger rootLoggerName    (setLevel ERROR)
 
   -- sock <- util_server 42425 100

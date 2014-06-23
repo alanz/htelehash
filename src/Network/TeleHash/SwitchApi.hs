@@ -399,6 +399,7 @@ switch_send p = do
         Nothing -> do
           -- queue most recent packet to be sent after opened
           logT $ "switch_send:queueing packet until line:" ++ show (tTo p2) ++ "," ++ showJson (tJs p2)
+          logR $ "switch_send:queueing packet until line:" ++ show (tTo p2) ++ "," ++ showJson (tJs p2)
           void $ withHN (tTo p2) $ \hc2 -> hc2 { hOnopen = Just p2 }
 
           -- no line, so generate open instead
@@ -823,104 +824,6 @@ chan_new toHn typ mcid = do
   return chan
 
 
-{-
-chan_t chan_new(switch_t s, hn_t to, char *type, uint32_t id)
-{
-  chan_t c;
-  if(!s || !to || !type) return NULL;
-
-  // use new id if none given
-  if(!to->chanOut) chan_reset(s, to);
-  if(!id)
-  {
-    id = to->chanOut;
-    to->chanOut += 2;
-  }
-
-  DEBUG_PRINTF("channel new %d %s",id,type);
-  c = malloc(sizeof (struct chan_struct));
-  memset(c,0,sizeof (struct chan_struct));
-  c->type = malloc(strlen(type)+1);
-  memcpy(c->type,type,strlen(type)+1);
-  c->s = s;
-  c->to = to;
-  c->state = STARTING;
-  c->id = id;
-  util_hex((unsigned char*)&(s->uid),4,(unsigned char*)c->uid); // switch-wide unique id
-  s->uid++;
-  util_hex((unsigned char*)&(c->id),4,(unsigned char*)c->hexid);
-  if(!to->chans) to->chans = xht_new(17);
-  xht_set(to->chans,(char*)c->hexid,c);
-  xht_set(s->index,(char*)c->uid,c);
-  return c;
-}
-
-
--}
--- ---------------------------------------------------------------------
-
-chan_free :: TChan -> TeleHash ()
-chan_free chan = do
-  logT $ "chan_free " ++ show (chId chan,chUid chan)
-  -- remove references
-  chan_dequeue (chUid chan)
-
-  rmChanFromHn (chTo chan) (chUid chan)
-
-  if (chReliable chan /= 0)
-    then do
-      chan_seq_free chan
-      chan_miss_free (chUid chan)
-    else return ()
-
-  if null (chIn chan)
-    then return ()
-    else do
-      logT $ "unused packets on channel " ++ show (chId chan)
-
-  if null (chNotes chan)
-    then return ()
-    else do
-      logT $ "unused notes on channel " ++ show (chId chan)
-
-  -- must be last, remove from the index
-  rmChan (chUid chan)
-
-
-{-
-void chan_free(chan_t c)
-{
-  packet_t p;
-  // remove references
-  DEBUG_PRINTF("channel free %d",c->id);
-  chan_dequeue(c);
-  if(xht_get(c->to->chans,(char*)c->hexid) == c) xht_set(c->to->chans,(char*)c->hexid,NULL);
-  xht_set(c->s->index,(char*)c->uid,NULL);
-  if(c->reliable)
-  {
-    chan_seq_free(c);
-    chan_miss_free(c);
-  }
-  while(c->in)
-  {
-    DEBUG_PRINTF("unused packets on channel %d",c->id);
-    p = c->in;
-    c->in = p->next;
-    packet_free(p);
-  }
-  while(c->notes)
-  {
-    DEBUG_PRINTF("unused notes on channel %d",c->id);
-    p = c->notes;
-    c->notes = p->next;
-    packet_free(p);
-  }
-  free(c->type);
-  free(c);
-}
--}
-
-
 -- ---------------------------------------------------------------------
 {-
 // configures channel as a reliable one, must be in STARTING state, is max # of packets to buffer before backpressure
@@ -1084,25 +987,6 @@ chan_packet cid incSeq = do
           -- logT $ "chan_packet:chSeq 3=" ++ show (chSeq chan3)
           return (Just p4)
 
-{-
-// create a packet ready to be sent for this channel
-packet_t chan_packet(chan_t c)
-{
-  packet_t p;
-  if(!c || c->state == ENDED) return NULL;
-  p = c->reliable?chan_seq_packet(c):packet_new();
-  if(!p) return NULL;
-  p->to = c->to;
-  if(path_alive(c->last)) p->out = c->last;
-  if(c->state == STARTING)
-  {
-    packet_set_str(p,"type",c->type);
-  }
-  packet_set_int(p,"c",c->id);
-  return p;
-}
-
--}
 -- ---------------------------------------------------------------------
 
 -- |pop a packet from this channel to be processed, caller must free
@@ -1190,31 +1074,41 @@ chan_fail cid merr = do
   -- no grace period for reliable
   let c2 = c { chState = ChanEnded }
   putChan c2
-  -- to <- getHN $ chTo c2
-  -- putHN $ to { hChans = Map.delete (chId c2) (hChans to) }
-  void $ withHN (chTo c2) $ \to -> to { hChans = Map.delete (chId c2) (hChans to) }
-  chan_queue c2
+  chan_dequeue cid
+  rmChanFromHn (chTo c) (chUid c)
+  rmChan cid
   return ()
 
-{-
-// immediately fails/removes channel, if err tries to send message
-chan_t chan_fail(chan_t c, char *err)
-{
-  packet_t e;
-  DEBUG_PRINTF("channel fail %d %s",c->id,err);
-  if(err && c->state != CHAN_ENDED && (e = chan_packet(c)))
-  {
-    packet_set_str(e,"err",err);
-    chan_send(c,e);
-  }
-  // no grace period for reliable
-  c->state = CHAN_ENDED;
-  xht_set(c->to->chans,(char*)c->hexid,NULL);
-  chan_queue(c);
-  return c;
-}
 
--}
+-- ---------------------------------------------------------------------
+
+chan_free :: TChan -> TeleHash ()
+chan_free chan = do
+  logT $ "chan_free " ++ show (chId chan,chUid chan)
+  -- remove references
+  chan_dequeue (chUid chan)
+
+  rmChanFromHn (chTo chan) (chUid chan)
+
+  if (chReliable chan /= 0)
+    then do
+      chan_seq_free chan
+      chan_miss_free (chUid chan)
+    else return ()
+
+  if null (chIn chan)
+    then return ()
+    else do
+      logT $ "unused packets on channel " ++ show (chId chan)
+
+  if null (chNotes chan)
+    then return ()
+    else do
+      logT $ "unused notes on channel " ++ show (chId chan)
+
+  -- must be last, remove from the index
+  rmChan (chUid chan)
+
 
 -- ---------------------------------------------------------------------
 
@@ -1229,19 +1123,6 @@ chan_notes cIn = do
           c2 = c {chNotes = tail (chNotes c)}
       putChan c2
       return (Just r)
-
-{-
-// get the next incoming note waiting to be handled
-packet_t chan_notes(chan_t c)
-{
-  packet_t note;
-  if(!c) return NULL;
-  note = c->notes;
-  if(note) c->notes = note->next;
-  return note;
-}
-
--}
 
 -- ---------------------------------------------------------------------
 
@@ -1264,15 +1145,6 @@ chan_note c mnote = do
   let r2 = packet_set_int r ".from" (chUid c)
   return r2
 
-{-
-// create a new note tied to this channel
-packet_t chan_note(chan_t c, packet_t note)
-{
-  if(!note) note = packet_new();
-  packet_set_str(note,".from",(char*)c->uid);
-  return note;
-}
--}
 -- ---------------------------------------------------------------------
 
 -- |send the note back to the creating channel, frees note
@@ -1288,18 +1160,6 @@ chan_reply cid note = do
       let note2 = packet_set_int note  ".to"   from
           note3 = packet_set_int note2 ".from" (chUid c)
       switch_note note3
-
-{-
-// send this note back to the sender
-int chan_reply(chan_t c, packet_t note)
-{
-  char *from;
-  if(!c || !(from = packet_get_str(note,".from"))) return -1;
-  packet_set_str(note,".to",from);
-  packet_set_str(note,".from",(char*)c->uid);
-  return switch_note(c->s,note);
-}
--}
 
 -- ---------------------------------------------------------------------
 
@@ -1339,37 +1199,6 @@ chan_receive cid p = do
           putChan c6
           -- queue for processing
           chan_queue c6
-{-
-// internal, receives/processes incoming packet
-void chan_receive(chan_t c, packet_t p)
-{
-  if(!c || !p) return;
-  DEBUG_PRINTF("channel in %d %.*s",c->id,p->json_len,p->json);
-  if(c->state == CHAN_ENDED) return (void)packet_free(p);
-  if(c->state == CHAN_STARTING) c->state = CHAN_OPEN;
-  if(util_cmp(packet_get_str(p,"end"),"true") == 0) c->state = CHAN_ENDING;
-  if(packet_get_str(p,"err")) c->state = CHAN_ENDED;
-
-  if(c->reliable)
-  {
-    chan_miss_check(c,p);
-    if(!chan_seq_receive(c,p)) return; // queued, nothing to do
-  }else{
-    // add to the end of the raw packet queue
-    if(c->inend)
-    {
-      c->inend->next = p;
-      c->inend = p;
-      return;
-    }
-    c->inend = c->in = p;
-  }
-
-  // queue for processing
-  chan_queue(c);
-}
--}
-
 -- ---------------------------------------------------------------------
 
 -- |According to the spec an ack-only packet should have only `ack`
@@ -1434,19 +1263,6 @@ chan_ack cid = do
             Just p -> do
               switch_send p
 
-{-
-// optionally sends reliable channel ack-only if needed
-void chan_ack(chan_t c)
-{
-  packet_t p;
-  if(!c || !c->reliable) return;
-  p = chan_seq_ack(c,NULL);
-  if(!p) return;
-  DEBUG_PRINTF("channel ack %d %.*s",c->id,p->json_len,p->json);
-  switch_send(c->s,p);
-}
--}
-
 -- ---------------------------------------------------------------------
 
 -- |add to switch processing queue
@@ -1455,47 +1271,14 @@ chan_queue c = do
   -- add to switch queue
   queueChan c
 
-{-
-// add to processing queue
-void chan_queue(chan_t c)
-{
-  chan_t step;
-  // add to switch queue
-  step = c->s->chans;
-  if(c->next || step == c) return;
-  while(step && (step = step->next)) if(step == c) return;
-  c->next = c->s->chans;
-  c->s->chans = c;
-}
--}
 
 -- ---------------------------------------------------------------------
-{-
-// remove from switch processing queue
-void chan_dequeue(chan_t c);
--}
 
 -- |remove channel id from switch processing queue
 chan_dequeue :: Uid -> TeleHash ()
 chan_dequeue c = do
   dequeueChan c
 
-{-
-// remove from processing queue
-void chan_dequeue(chan_t c)
-{
-  chan_t step = c->s->chans;
-  if(step == c)
-  {
-    c->s->chans = c->next;
-    c->next = NULL;
-    return;
-  }
-  step = c->s->chans;
-  while(step) step = (step->next == c) ? c->next : step->next;
-  c->next = NULL;
-}
--}
 -- ---------------------------------------------------------------------
 
 -- |add ack, miss to any packet
@@ -1546,42 +1329,8 @@ chan_seq_ack cid mp = do
                       logT $ "chan_seq_ack:missVal=" ++ missVal
                       return $ Just (packet_set_str p2 "miss" missVal)
 
-{-
-// add ack, miss to any packet
-packet_t chan_seq_ack(chan_t c, packet_t p)
-{
-  char *miss;
-  int i,max;
-  seq_t s = (seq_t)c->seq;
-
-  // determine if we need to ack
-  if(!s->nextin) return p;
-  if(!p && s->acked && s->acked == s->nextin-1) return NULL;
-
-  if(!p) p = chan_packet(c); // ack-only packet
-  s->acked = s->nextin-1;
-  packet_set_int(p,"ack",(int)s->acked);
-
-  // check if miss is not needed
-  if(s->seen < s->nextin || s->in[0]) return p;
-
-  // create miss array, c sux
-  max = (c->reliable < 10) ? c->reliable : 10;
-  miss = malloc(3+(max*11)); // up to X uint32,'s
-  memcpy(miss,"[\0",2);
-  for(i=0;i<max;i++) if(!s->in[i]) sprintf(miss+strlen(miss),"%d,",(int)s->nextin+i);
-  if(miss[strlen(miss)-1] == ',') miss[strlen(miss)-1] = 0;
-  memcpy(miss+strlen(miss),"]\0",2);
-  packet_set(p,"miss",miss,strlen(miss));
-  free(miss);
-  return p;
-}
--}
 -- ---------------------------------------------------------------------
-{-
-// new sequenced packet, NULL for backpressure
-packet_t chan_seq_packet(chan_t c);
--}
+
 -- |new sequenced packet, NULL for backpressure
 chan_seq_packet :: Uid -> TeleHash (Maybe TxTelex)
 chan_seq_packet cid = do
@@ -1612,21 +1361,6 @@ chan_seq_packet cid = do
           logT $ "chan_seq_packet about to call chan_seq_ack done " ++ show (chSeq ccc)
           return r
 
-{-
-// new channel sequenced packet
-packet_t chan_seq_packet(chan_t c)
-{
-  packet_t p = packet_new();
-  seq_t s = (seq_t)c->seq;
-
-  // make sure there's tracking space
-  if(chan_miss_track(c,s->id,p)) return NULL;
-
-  // set seq and add any acks
-  packet_set_int(p,"seq",(int)s->id++);
-  return chan_seq_ack(c, p);
-}
--}
 -- ---------------------------------------------------------------------
 
 -- |buffers packets until they're in order, returns True if some are ready to pop
@@ -1660,33 +1394,6 @@ chan_seq_receive cid p = do
           putChan c2
           return $ Map.member 0 (seIn s2)
 
-{-
-// buffers packets until they're in order
-int chan_seq_receive(chan_t c, packet_t p)
-{
-  int offset;
-  uint32_t id;
-  char *seq;
-  seq_t s = (seq_t)c->seq;
-
-  // drop or cache incoming packet
-  seq = packet_get_str(p,"seq");
-  id = seq?(uint32_t)strtol(seq,NULL,10):0;
-  offset = id - s->nextin;
-  if(!seq || offset < 0 || offset >= c->reliable || s->in[offset])
-  {
-    packet_free(p);
-  }else{
-    s->in[offset] = p;
-  }
-
-  // track highest seen
-  if(id > s->seen) s->seen = id;
-
-  return s->in[0] ? 1 : 0;
-}
--}
-
 -- ---------------------------------------------------------------------
 
 -- |returns ordered packets for this channel, updates ack
@@ -1716,22 +1423,6 @@ chan_seq_pop cid = do
               chan_seq_pop cid
             else return (Just p)
 
-{-
-// returns ordered packets for this channel, updates ack
-packet_t chan_seq_pop(chan_t c)
-{
-  packet_t p;
-  seq_t s = (seq_t)c->seq;
-  if(!s->in[0]) return NULL;
-  // pop off the first, slide any others back, and return
-  p = s->in[0];
-  memmove(s->in, s->in+1, (sizeof (packet_t)) * (c->reliable - 1));
-  s->in[c->reliable-1] = 0;
-  s->nextin++;
-  return p;
-}
-
--}
 -- ---------------------------------------------------------------------
 
 chan_seq_init :: TChan -> TeleHash ()
@@ -1747,36 +1438,12 @@ chan_seq_init cIn = do
       c2 = c { chSeq = Just seqVal, chTimeout = Nothing }
   putChan c2
 
-{-
-void chan_seq_init(chan_t c)
-{
-  seq_t s = malloc(sizeof (struct seq_struct));
-  memset(s,0,sizeof (struct seq_struct));
-  s->in = malloc(sizeof (packet_t) * c->reliable);
-  memset(s->in,0,sizeof (packet_t) * c->reliable);
-  c->seq = (void*)s;
-}
-
-
--}
-
 -- ---------------------------------------------------------------------
 
 chan_seq_free :: TChan -> TeleHash ()
 chan_seq_free cIn = do
   c <- getChan (chUid cIn)
   putChan $ c { chSeq = Nothing }
-
-{-
-void chan_seq_free(chan_t c)
-{
-  int i;
-  seq_t s = (seq_t)c->seq;
-  for(i=0;i<c->reliable;i++) packet_free(s->in[i]);
-  free(s->in);
-  free(s);
-}
--}
 
 -- ---------------------------------------------------------------------
 
@@ -1797,21 +1464,6 @@ chan_miss_track cid seqVal p = do
           putChan $ c { chMiss = Just m2 }
           -- logT $ "chan_miss_track:mOut= " ++ show (mOut m2)
           return 0
-
-{-
-// 1 when full, backpressure
-int chan_miss_track(chan_t c, uint32_t seq, packet_t p)
-{
-  miss_t m = (miss_t)c->miss;
-  if(seq - m->nextack > (uint32_t)(c->reliable - 1))
-  {
-    packet_free(p);
-    return 1;
-  }
-  m->out[seq - m->nextack] = p;
-  return 0;
-}
--}
 
 -- ---------------------------------------------------------------------
 {-
@@ -1918,18 +1570,6 @@ chan_miss_init cid = do
       c2 = c {chMiss = Just miss }
   putChan c2
 
-{-
-void chan_miss_init(chan_t c);
-void chan_miss_init(chan_t c)
-{
-  miss_t m = (miss_t)malloc(sizeof (struct miss_struct));
-  memset(m,0,sizeof (struct miss_struct));
-  m->out = (packet_t*)malloc(sizeof (packet_t) * c->reliable);
-  memset(m->out,0,sizeof (packet_t) * c->reliable);
-  c->miss = (void*)m;
-}
--}
-
 
 -- ---------------------------------------------------------------------
 
@@ -1939,16 +1579,6 @@ chan_miss_free cid = do
   c <- getChan cid
   putChan $ c { chMiss = Nothing }
 
-{-
-void chan_miss_free(chan_t c)
-{
-  int i;
-  miss_t m = (miss_t)c->miss;
-  for(i=0;i<c->reliable;i++) packet_free(m->out[i]);
-  free(m->out);
-  free(m);
-}
--}
 -- ---------------------------------------------------------------------
 
 -- =====================================================================
