@@ -1,7 +1,12 @@
 language: haskell
 
-env:
- - GHCVER=7.4.2
- - GHCVER=7.6.3
- - GHCVER=7.8.2
+# env:
+#  - GHCVER=7.4.2
+#  - GHCVER=7.6.3
+#  - GHCVER=7.8.2
+
+ghc:
+  - 7.4
+  - 7.6
+  - 7.8
 

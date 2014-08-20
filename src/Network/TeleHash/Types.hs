@@ -39,6 +39,7 @@ module Network.TeleHash.Types
   , nullHandler
 
   , HashContainer(..)
+  , LinkState(..)
   , newHashContainer
   , HashDistance
 
@@ -353,8 +354,20 @@ nullHandler _ = return ()
 
 -- ---------------------------------------------------------------------
 
+data LinkState
+   = LsIdle    -- not connected
+   | LsRxWait  -- theirs up, waiting for ours
+   | LsTxWait  -- link request sent
+   | LsTxWait2 -- our link established, waiting for theirs
+   | LsLinked  -- linked, send mutual keepalives
+   | LsFail1   -- ping missed, re-open original
+   | LsFail2   -- ping missed, re-open new
+   deriving (Show,Eq)
+
+
 data HashContainer = H
   { hHashName    :: !HashName
+  , hState       :: !LinkState
   , hCsid        :: !String
   , hChanOut     :: !ChannelId -- used to allocated next channel id
   , hCrypto      :: !(Maybe Crypto)
@@ -363,7 +376,7 @@ data HashContainer = H
   , hExternalIPP :: !(Maybe PathIPv4)
   , hChans       :: !(Map.Map ChannelId Uid)
   , hVias        :: !(Map.Map HashName [String]) -- hn's that returned a see for
-                                     -- this hn
+                                                 -- this hn
   , hOnopen      :: !(Maybe TxTelex)
   , hParts       :: !(Maybe Parts)
   , hIsSeed      :: !Bool
@@ -386,6 +399,7 @@ typedef struct hn_struct
 -}
 newHashContainer :: HashName -> HashContainer
 newHashContainer hn = H { hHashName = hn
+                        , hState = LsIdle
                         , hCsid = ""
                         , hChanOut = nullChannelId
                         , hCrypto = Nothing

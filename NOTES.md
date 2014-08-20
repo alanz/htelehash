@@ -40,9 +40,94 @@ When there is no crypto, and `seek_auto` has been set up, the
 This creates a new empty `Seek` structure and calls `seek_send` with
 it.
 
+Hashname State
+--------------
+
+0 known only - i.e. from a `see`
+   completely inactive
+   no line
+   maybe ip:port
+   no parts
+   no crypto
+
+n-1 near peer
+  completely inactive (perhaps loaded from history)
+  no ip:port
+  have parts
+  have crypto (for matching CS at least)
+
+n full peer
+  completely inactive (perhaps loaded from history)
+  have ip:port (s) (may be stale from prior session)
+  have parts
+  have crypto (for matching CS at least)
+
+1 open received - line established
+  minimal active
+  have line
+  have ip:port (of via)
+  have parts (once validated)
+  have crypto (for matching CS at least)
+
+n+1 active peer (via)
+  have line
+  have ip:port of via
+  have parts
+  have crypto (for matching CS at least)
+
+n+2 full active peer
+  have line
+  have ip:port direct
+  have parts
+  have crypto (for matching CS at least)
+
+Connection process
+------------------
+
+full peer (or seed)
+  Need ip:port,parts,crypto for shared CS
+  Send open, using agreed shared crypto, creating line
+  create and use channels on the line
+
+other any
+  missing ip:port
+  Perform `seek` process, yielding seed as `via`
+  Send `peer` request via seed, with external path if known
+  seed send `connect` on our behalf, resulting in `open` from peer
+  Line established, use it
+  [Note, possibly using seed as a via, initiate path discovery]
+
+Link life cycle
+---------------
 
 
+First establish line A<->B as above
 
+* link `A->B` to establish unidirectional link
+* possible path optimization process (async)
+* send keepalive every `link-ping` seconds (30 atm)
+* If no rx within `link-timeout` seconds (60 atm) go into first fail
+  mode
+* resend original open (with original timestamp) on all known paths
+  (and as a peer message to the original seed if it is still alive)
+* if line not reestablished within `link-timeout` secs go into second
+  fail mode
+* send new on all known paths (and as a peer message to the original
+  seed if it is still alive)
+* if line not reestablished within `link-timeout` secs go into fully
+  failed mode
+* If connection still desired, restart seek process
+
+## Hence, states
+
+### Idle
+
+Perform process to connect to the HN.
+
+### Open - send link message
+* Linked - send keepalive
+* LinkLate - 
+* Failed
 
 
 crypto stuff - id hash
